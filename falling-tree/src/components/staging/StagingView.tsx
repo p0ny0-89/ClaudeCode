@@ -1,17 +1,19 @@
 import { useState } from 'react'
 import { useProject } from '../../context/ProjectContext'
 import { MockGenerationService } from '../../services/MockGenerationService'
-import { Cue, CueState } from '../../types'
+import { MockCueAutoGenerateService } from '../../services/MockCueAutoGenerateService'
+import { AutoGenerateConfig, Cue, CueState } from '../../types'
 import VideoPlayer from '../shared/VideoPlayer'
 import StagingTimeline from './StagingTimeline'
 import GenerateButton from './GenerateButton'
+import AutoGenerateModal from './AutoGenerateModal'
 
 export default function StagingView() {
   const { state, dispatch } = useProject()
   const project = state.project!
 
-  // Explicit seek requests — NOT fed back from currentTime to avoid seek loop.
-  const [seekTo, setSeekTo] = useState<number | undefined>(undefined)
+  const [seekTo,         setSeekTo]         = useState<number | undefined>(undefined)
+  const [showAutoModal,  setShowAutoModal]   = useState(false)
 
   function handleTimeUpdate(time: number) {
     dispatch({ type: 'SET_CURRENT_TIME', time })
@@ -34,14 +36,14 @@ export default function StagingView() {
     dispatch({ type: 'DELETE_CUE', cueId })
   }
 
+  // ── Audio generation ────────────────────────────────────────────────────────
+
   async function handleGenerate() {
     const pendingCues = project.cues.filter(c => c.state === CueState.Pending)
     if (pendingCues.length === 0) return
 
-    // Transition to editor immediately so the user can watch clips appear.
     dispatch({ type: 'SET_MODE', mode: 'editor' })
 
-    // Kick off all pending cues in parallel.
     await Promise.all(
       pendingCues.map(async cue => {
         const clipId = crypto.randomUUID()
@@ -52,7 +54,30 @@ export default function StagingView() {
     )
   }
 
-  const isGenerating = project.cues.some(c => c.state === CueState.Generating)
+  // ── Auto-generate cues ──────────────────────────────────────────────────────
+
+  async function handleAutoGenerate(
+    configFields: Omit<AutoGenerateConfig, 'id' | 'createdAt'>
+  ) {
+    const config: AutoGenerateConfig = {
+      ...configFields,
+      id:        crypto.randomUUID(),
+      createdAt: Date.now(),
+    }
+
+    dispatch({ type: 'START_AUTO_GENERATE' })
+    try {
+      const suggestions = await MockCueAutoGenerateService.generate(config, project.videoDuration)
+      dispatch({ type: 'COMPLETE_AUTO_GENERATE', config, suggestions })
+    } catch {
+      dispatch({ type: 'CANCEL_AUTO_GENERATE' })
+    } finally {
+      setShowAutoModal(false)
+    }
+  }
+
+  const isGenerating    = project.cues.some(c => c.state === CueState.Generating)
+  const isAutoGenerating = state.autoGenerating
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -61,6 +86,7 @@ export default function StagingView() {
         onTimeUpdate={handleTimeUpdate}
         seekTo={seekTo}
       />
+
       <StagingTimeline
         duration={project.videoDuration}
         currentTime={state.currentTime}
@@ -70,11 +96,48 @@ export default function StagingView() {
         onCueDelete={handleCueDelete}
         onSeek={handleSeek}
       />
-      <GenerateButton
-        cues={project.cues}
-        onGenerate={handleGenerate}
-        isLoading={isGenerating}
-      />
+
+      {/* Toolbar row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', borderTop: '1px solid #333' }}>
+        <button
+          onClick={() => setShowAutoModal(true)}
+          disabled={isAutoGenerating}
+          style={{
+            padding:      '10px 20px',
+            fontSize:     14,
+            fontWeight:   600,
+            background:   isAutoGenerating ? '#333' : '#2a2a2a',
+            color:        isAutoGenerating ? '#666' : '#9b59b6',
+            border:       '1px solid ' + (isAutoGenerating ? '#444' : '#9b59b6'),
+            borderRadius: 6,
+            cursor:       isAutoGenerating ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {isAutoGenerating ? '✦ Generating Cues…' : '✦ Auto-Generate Cues'}
+        </button>
+
+        <span style={{ fontSize: 12, color: '#555' }}>
+          {project.cues.length > 0
+            ? `${project.cues.length} cue${project.cues.length !== 1 ? 's' : ''} on timeline`
+            : 'Click the timeline to add cues, or use Auto-Generate'}
+        </span>
+
+        <div style={{ marginLeft: 'auto' }}>
+          <GenerateButton
+            cues={project.cues}
+            onGenerate={handleGenerate}
+            isLoading={isGenerating}
+          />
+        </div>
+      </div>
+
+      {showAutoModal && (
+        <AutoGenerateModal
+          onGenerate={handleAutoGenerate}
+          onCancel={() => setShowAutoModal(false)}
+          isLoading={isAutoGenerating}
+        />
+      )}
     </div>
   )
 }

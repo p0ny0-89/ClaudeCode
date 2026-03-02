@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { Cue, CueType } from '../../types'
+import { Cue, CueSource, CueType } from '../../types'
 
 const CUE_COLORS: Record<CueType, string> = {
   [CueType.SFX]:      '#4a9eff',
@@ -133,7 +133,12 @@ export default function CueMarker({ cue, pixelsPerSecond, onUpdate, onClick }: P
       />
 
       {/* Label */}
-      <span style={{ flex: 1, fontSize: 11, color: '#fff', padding: '0 4px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+      <span style={{ flex: 1, fontSize: 11, color: '#fff', padding: '0 4px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 4 }}>
+        {cue.source === CueSource.Auto && (
+          <span style={{ fontSize: 9, fontWeight: 700, background: 'rgba(255,255,255,0.25)', borderRadius: 3, padding: '1px 4px', flexShrink: 0 }}>
+            AI
+          </span>
+        )}
         {cue.type}{cue.prompt ? ` — ${cue.prompt}` : ''}
       </span>
 
