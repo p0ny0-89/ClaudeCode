@@ -6,19 +6,24 @@ import {
   AudioVersion,
   Layer,
   CueType,
+  CueSource,
   CueState,
   ClipState,
   LayerType,
+  AutoGenerateConfig,
+  SuggestedCue,
 } from '../types'
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
 export interface AppState {
-  project:       Project | null
-  mode:          'staging' | 'editor'
+  project:        Project | null
+  mode:           'staging' | 'editor'
   selectedClipId: string | null
-  currentTime:   number
-  isPlaying:     boolean
+  currentTime:    number
+  isPlaying:      boolean
+  /** True while the Auto-Generate Cues AI service call is in-flight. */
+  autoGenerating: boolean
 }
 
 const initialState: AppState = {
@@ -27,6 +32,7 @@ const initialState: AppState = {
   selectedClipId: null,
   currentTime:    0,
   isPlaying:      false,
+  autoGenerating: false,
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -49,6 +55,12 @@ export type Action =
   | { type: 'SELECT_CLIP';             clipId: string | null }
   | { type: 'SET_CURRENT_TIME';        time: number }
   | { type: 'SET_PLAYING';             isPlaying: boolean }
+  // Auto-generate cues: sets autoGenerating flag while the service is in-flight
+  | { type: 'START_AUTO_GENERATE' }
+  // Stores the config, promotes SuggestedCue[] into Cue entities, clears flag
+  | { type: 'COMPLETE_AUTO_GENERATE'; config: AutoGenerateConfig; suggestions: SuggestedCue[] }
+  // Clears the flag on error or user cancel — no cues are added
+  | { type: 'CANCEL_AUTO_GENERATE' }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -107,16 +119,17 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'INIT_PROJECT': {
       const project: Project = {
-        id:            uuid(),
-        name:          action.name,
-        videoUrl:      action.videoUrl,
-        videoDuration: action.videoDuration,
-        cues:          [],
-        tracks:        emptyTracks(),
-        createdAt:     now(),
-        updatedAt:     now(),
+        id:                  uuid(),
+        name:                action.name,
+        videoUrl:            action.videoUrl,
+        videoDuration:       action.videoDuration,
+        cues:                [],
+        tracks:              emptyTracks(),
+        autoGenerateConfigs: [],
+        createdAt:           now(),
+        updatedAt:           now(),
       }
-      return { ...state, project, mode: 'staging', currentTime: 0 }
+      return { ...state, project, mode: 'staging', currentTime: 0, autoGenerating: false }
     }
 
     case 'ADD_CUE': {
@@ -129,6 +142,7 @@ function reducer(state: AppState, action: Action): AppState {
         duration:  3,
         state:     CueState.Pending,
         clipId:    null,
+        source:    CueSource.Manual,
       }
       return {
         ...state,
@@ -304,6 +318,42 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'SET_PLAYING':
       return { ...state, isPlaying: action.isPlaying }
+
+    case 'START_AUTO_GENERATE':
+      return { ...state, autoGenerating: true }
+
+    case 'COMPLETE_AUTO_GENERATE': {
+      if (!state.project) return state
+      const { config, suggestions } = action
+
+      // Promote each SuggestedCue into a full Cue entity.
+      // The reducer owns the domain fields (id, state, clipId, source).
+      const newCues: Cue[] = suggestions.map(s => ({
+        id:                  uuid(),
+        type:                s.type,
+        prompt:              s.prompt,
+        startTime:           s.startTime,
+        duration:            s.duration,
+        state:               CueState.Pending,
+        clipId:              null,
+        source:              CueSource.Auto,
+        autoGenerateConfigId: config.id,
+      }))
+
+      return {
+        ...state,
+        autoGenerating: false,
+        project: {
+          ...state.project,
+          cues:                sortedByStartTime([...state.project.cues, ...newCues]),
+          autoGenerateConfigs: [...state.project.autoGenerateConfigs, config],
+          updatedAt:           now(),
+        },
+      }
+    }
+
+    case 'CANCEL_AUTO_GENERATE':
+      return { ...state, autoGenerating: false }
 
     default:
       return state
