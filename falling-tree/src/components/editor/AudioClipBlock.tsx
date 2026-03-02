@@ -1,7 +1,14 @@
 import { useRef, useEffect } from 'react'
-import { AudioClip, ClipState } from '../../types'
+import { AudioClip, ClipState, LayerType } from '../../types'
 import { useProject } from '../../context/ProjectContext'
 import { MockGenerationService } from '../../services/MockGenerationService'
+
+const LAYER_COLORS: Record<LayerType, string> = {
+  [LayerType.SFX]:      '#4a9eff',
+  [LayerType.Music]:    '#9b59b6',
+  [LayerType.Voice]:    '#2ecc71',
+  [LayerType.Ambience]: '#e67e22',
+}
 
 interface Props {
   clip:            AudioClip
@@ -149,7 +156,7 @@ export default function AudioClipBlock({
         width,
         top:          6,
         height:       44,
-        background:   isGenerating ? '#555' : '#4a9eff',
+        background:   LAYER_COLORS[clip.layerType],
         opacity:      isMuted ? 0.35 : 1,
         borderRadius: 4,
         cursor:       'grab',
@@ -158,9 +165,9 @@ export default function AudioClipBlock({
         alignItems:   'center',
         overflow:     'hidden',
         outline:      isSelected ? '2px solid #fff' : 'none',
-        // Striped pattern for generating state
+        // Diagonal stripes overlaid on the layer colour while generating
         backgroundImage: isGenerating
-          ? 'repeating-linear-gradient(45deg, #555 0, #555 6px, #444 6px, #444 12px)'
+          ? `repeating-linear-gradient(45deg, rgba(0,0,0,0.25) 0, rgba(0,0,0,0.25) 6px, transparent 6px, transparent 12px)`
           : undefined,
       }}
     >

@@ -1,21 +1,40 @@
+import { useState, useEffect } from 'react'
 import { AudioClip } from '../../types'
 
 interface Props {
-  clip:     AudioClip | null
-  onUpdate: (clip: AudioClip) => void
+  clip:          AudioClip | null
+  onUpdate:      (clip: AudioClip) => void
+  sourcePrompt:  string
+  onRegenerate:  (newPrompt: string) => void
+  isRegenerating: boolean
 }
 
-export default function ClipPropertiesPanel({ clip, onUpdate }: Props) {
+export default function ClipPropertiesPanel({
+  clip,
+  onUpdate,
+  sourcePrompt,
+  onRegenerate,
+  isRegenerating,
+}: Props) {
+  // Local prompt state — reset whenever the selected clip changes (via key in parent)
+  const [prompt, setPrompt] = useState(sourcePrompt)
+
+  // Keep in sync if the parent's sourcePrompt changes while the same clip is selected
+  // (e.g. cue was edited in staging mode)
+  useEffect(() => {
+    setPrompt(sourcePrompt)
+  }, [sourcePrompt])
+
   if (!clip) {
     return (
-      <div style={{ width: 220, padding: 16, color: '#666', fontSize: 13 }}>
+      <div style={{ width: 240, padding: 16, color: '#666', fontSize: 13 }}>
         Select a clip to edit its properties.
       </div>
     )
   }
 
-  const activeIndex   = clip.versions.findIndex(v => v.id === clip.activeVersionId)
-  const versionCount  = clip.versions.length
+  const activeIndex    = clip.versions.findIndex(v => v.id === clip.activeVersionId)
+  const versionCount   = clip.versions.length
   const versionDisplay = versionCount > 0
     ? `Version ${activeIndex + 1} of ${versionCount}`
     : 'No versions'
@@ -39,8 +58,55 @@ export default function ClipPropertiesPanel({ clip, onUpdate }: Props) {
   }
 
   return (
-    <div style={{ width: 220, padding: 16, display: 'flex', flexDirection: 'column', gap: 14, color: '#eee', fontSize: 13, borderRight: '1px solid #333' }}>
+    <div style={{
+      width:         240,
+      padding:       16,
+      display:       'flex',
+      flexDirection: 'column',
+      gap:           14,
+      color:         '#eee',
+      fontSize:      13,
+      borderRight:   '1px solid #333',
+      overflowY:     'auto',
+    }}>
       <strong>Clip Properties</strong>
+
+      {/* Prompt + Regenerate */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>Prompt</span>
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          rows={4}
+          style={{
+            background:   '#1a1a1a',
+            color:        '#eee',
+            border:       '1px solid #444',
+            borderRadius: 4,
+            padding:      '7px 8px',
+            fontSize:     12,
+            resize:       'vertical',
+            boxSizing:    'border-box',
+            width:        '100%',
+          }}
+        />
+        <button
+          onClick={() => onRegenerate(prompt)}
+          disabled={isRegenerating || prompt.trim() === ''}
+          style={{
+            padding:      '7px 0',
+            background:   isRegenerating || prompt.trim() === '' ? '#333' : '#9b59b6',
+            color:        isRegenerating || prompt.trim() === '' ? '#666' : '#fff',
+            border:       'none',
+            borderRadius: 4,
+            cursor:       isRegenerating || prompt.trim() === '' ? 'not-allowed' : 'pointer',
+            fontSize:     13,
+            fontWeight:   700,
+          }}
+        >
+          {isRegenerating ? '⏳ Regenerating…' : '↺ Regenerate'}
+        </button>
+      </div>
 
       {/* Volume */}
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
