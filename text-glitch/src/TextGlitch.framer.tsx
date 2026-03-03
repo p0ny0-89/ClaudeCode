@@ -54,20 +54,11 @@ interface TrailPoint {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-interface FontConfig {
-  fontFamily?: string
-  fontWeight?: number
-  textTransform?: CSSProperties["textTransform"]
-  letterSpacing?: number
-  lineHeight?: number
-}
-
 interface Props {
   text?: string
-  fontSize?: number
-  font?: FontConfig
+  font?: Record<string, any>
+  textTransform?: CSSProperties["textTransform"]
   color?: string
-  textAlign?: "left" | "center" | "right" | "justify"
   blockSize?: number
   scope?: "line" | "word" | "character"
   effect?: "random" | "directional"
@@ -83,10 +74,9 @@ interface Props {
 
 function TextGlitch({
   text = "SLOWLY\nMALFUNCTIONING",
-  fontSize = 120,
   font,
+  textTransform = "uppercase",
   color = "#FFFFFF",
-  textAlign = "center",
   blockSize = 8,
   scope = "line",
   effect = "random",
@@ -99,14 +89,14 @@ function TextGlitch({
   height,
   style,
 }: Props) {
-  // Destructure font config with defaults
-  const {
-    fontFamily = "Inter, system-ui, -apple-system, sans-serif",
-    fontWeight = 900,
-    textTransform = "uppercase" as CSSProperties["textTransform"],
-    letterSpacing = -0.02,
-    lineHeight = 0.95,
-  } = font ?? {}
+  // Extract fontSize as a number for column-width calculations
+  const rawFontSize = font?.fontSize
+  const fontSize: number =
+    typeof rawFontSize === "number"
+      ? rawFontSize
+      : typeof rawFontSize === "string"
+        ? parseFloat(rawFontSize) || 120
+        : 120
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
@@ -319,15 +309,11 @@ function TextGlitch({
     smoothing,
   ])
 
+  // Spread the native font props, then layer on our overrides
   const textStyle: CSSProperties = {
-    fontSize,
-    fontFamily,
-    fontWeight,
+    ...(font as CSSProperties),
     textTransform,
-    letterSpacing: `${letterSpacing}em`,
-    lineHeight,
     color,
-    textAlign,
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     margin: 0,
@@ -407,78 +393,32 @@ addPropertyControls(TextGlitch, {
     defaultValue: "SLOWLY\nMALFUNCTIONING",
     displayTextArea: true,
   },
-  fontSize: {
-    type: ControlType.Number,
-    title: "Font Size",
-    defaultValue: 120,
-    min: 12,
-    max: 500,
-    step: 1,
-    unit: "px",
-  },
   font: {
-    type: ControlType.Object,
-    title: "Font",
-    controls: {
-      fontFamily: {
-        type: ControlType.String,
-        title: "Family",
-        defaultValue: "Inter, system-ui, -apple-system, sans-serif",
-      },
-      fontWeight: {
-        type: ControlType.Enum,
-        title: "Weight",
-        defaultValue: 900,
-        options: [100, 200, 300, 400, 500, 600, 700, 800, 900],
-        optionTitles: [
-          "Thin",
-          "Extra Light",
-          "Light",
-          "Regular",
-          "Medium",
-          "Semi Bold",
-          "Bold",
-          "Extra Bold",
-          "Black",
-        ],
-      },
-      textTransform: {
-        type: ControlType.Enum,
-        title: "Transform",
-        defaultValue: "uppercase",
-        options: ["none", "uppercase", "lowercase", "capitalize"],
-        optionTitles: ["None", "Uppercase", "Lowercase", "Capitalize"],
-      },
-      letterSpacing: {
-        type: ControlType.Number,
-        title: "Letter Spacing",
-        defaultValue: -0.02,
-        min: -0.2,
-        max: 0.5,
-        step: 0.005,
-        unit: "em",
-      },
-      lineHeight: {
-        type: ControlType.Number,
-        title: "Line Height",
-        defaultValue: 0.95,
-        min: 0.5,
-        max: 3,
-        step: 0.05,
-      },
+    // @ts-ignore — undocumented Framer native font picker
+    type: ControlType.Font,
+    controls: "extended",
+    displayFontSize: true,
+    displayTextAlignment: true,
+    defaultValue: {
+      fontFamily: "Inter",
+      fontWeight: 900,
+      fontSize: 120,
+      lineHeight: "0.95em",
+      letterSpacing: "-0.02em",
+      textAlign: "center",
     },
+  },
+  textTransform: {
+    type: ControlType.Enum,
+    title: "Transform",
+    defaultValue: "uppercase",
+    options: ["none", "uppercase", "lowercase", "capitalize"],
+    optionTitles: ["None", "Uppercase", "Lowercase", "Capitalize"],
   },
   color: {
     type: ControlType.Color,
     title: "Color",
     defaultValue: "#FFFFFF",
-  },
-  textAlign: {
-    type: ControlType.Enum,
-    title: "Alignment",
-    defaultValue: "center",
-    options: ["left", "center", "right", "justify"],
-    optionTitles: ["Left", "Center", "Right", "Justify"],
   },
   effect: {
     type: ControlType.Enum,
