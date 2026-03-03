@@ -9,6 +9,7 @@ import {
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type GlitchScope = "line" | "word" | "character"
+export type GlitchEffect = "random" | "directional"
 
 export interface TextGlitchProps {
   /** The text to display. Use \n for line breaks. */
@@ -33,6 +34,8 @@ export interface TextGlitchProps {
   blockSize?: number
   /** How the glitch effect is scoped: full line, word region, or character region */
   scope?: GlitchScope
+  /** Effect style: "random" = chaotic per-slice hash, "directional" = push/pull following cursor velocity */
+  effect?: GlitchEffect
   /** Radius (px) of the cursor's influence zone */
   influenceRadius?: number
   /** Maximum horizontal displacement in px */
@@ -92,6 +95,8 @@ interface TrailPoint {
   x: number
   y: number
   time: number
+  /** Horizontal velocity at this point (px/ms). Used by directional mode. */
+  vx: number
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -108,6 +113,7 @@ export default function TextGlitch({
   textAlign = "center",
   blockSize = 8,
   scope = "line",
+  effect = "random",
   influenceRadius = 140,
   intensity = 60,
   trailDuration = 300,
@@ -142,7 +148,7 @@ export default function TextGlitch({
     const targetColW =
       scope === "word"
         ? Math.max(clampedBlockSize * 4, fontSize * 2.5)
-        : Math.max(clampedBlockSize * 2, fontSize * 0.6)
+        : Math.max(clampedBlockSize * 2, fontSize * 0.3)
     colCount = Math.max(1, Math.ceil(containerWidth / targetColW))
     colWidth = containerWidth / colCount
   }
@@ -171,6 +177,9 @@ export default function TextGlitch({
     }
   }, [cellCount])
 
+  // Smoothed velocity for directional mode
+  const smoothVx = useRef(0)
+
   // ── Mouse handlers ─────────────────────────────────────────────────────
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
@@ -178,17 +187,27 @@ export default function TextGlitch({
       if (!rect) return
       mouseActive.current = true
       const now = performance.now()
-      mouseTrail.current.push({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-        time: now,
-      })
+      const localX = e.clientX - rect.left
+      const localY = e.clientY - rect.top
+
+      // Compute instantaneous velocity from previous trail point
+      const trail = mouseTrail.current
+      let vx = 0
+      if (trail.length > 0) {
+        const prev = trail[trail.length - 1]
+        const dt = now - prev.time
+        if (dt > 0 && dt < 100) {
+          vx = (localX - prev.x) / dt // px/ms
+        }
+      }
+      // Smooth the velocity
+      smoothVx.current += (vx - smoothVx.current) * 0.4
+
+      trail.push({ x: localX, y: localY, time: now, vx: smoothVx.current })
+
       const cutoff = now - trailDuration
-      while (
-        mouseTrail.current.length > 0 &&
-        mouseTrail.current[0].time < cutoff
-      ) {
-        mouseTrail.current.shift()
+      while (trail.length > 0 && trail[0].time < cutoff) {
+        trail.shift()
       }
     },
     [trailDuration]
@@ -203,6 +222,9 @@ export default function TextGlitch({
     if (cellCount === 0) return
 
     const isLine = scope === "line"
+    const isDirectional = effect === "directional"
+    // Sensitivity scaling: convert px/ms velocity into usable displacement
+    const velocitySensitivity = 12
 
     const animate = () => {
       const disps = cellDisplacements.current
@@ -228,31 +250,63 @@ export default function TextGlitch({
           const cellCenterX = c * colWidth + colWidth / 2
 
           if (active && trail.length > 0) {
-            let peakInfluence = 0
-            for (let p = 0; p < trail.length; p++) {
-              const pt = trail[p]
-              const age = (now - pt.time) / trailDuration
-              const timeFade = Math.max(0, 1 - age)
+            if (isDirectional) {
+              // ── Directional mode ──────────────────────────────────
+              // Find the trail point with the strongest influence,
+              // then use its velocity to determine displacement direction.
+              let peakInfluence = 0
+              let peakVx = 0
+              for (let p = 0; p < trail.length; p++) {
+                const pt = trail[p]
+                const age = (now - pt.time) / trailDuration
+                const timeFade = Math.max(0, 1 - age)
 
-              let dist: number
-              if (isLine) {
-                // Line mode: Y distance only (full-width rows)
-                dist = Math.abs(pt.y - cellCenterY)
-              } else {
-                // Word/Character: 2D distance
-                const dx = pt.x - cellCenterX
-                const dy = pt.y - cellCenterY
-                dist = Math.sqrt(dx * dx + dy * dy)
+                let dist: number
+                if (isLine) {
+                  dist = Math.abs(pt.y - cellCenterY)
+                } else {
+                  const dx = pt.x - cellCenterX
+                  const dy = pt.y - cellCenterY
+                  dist = Math.sqrt(dx * dx + dy * dy)
+                }
+
+                const spatial = falloff(dist, influenceRadius)
+                const combined = spatial * timeFade
+                if (combined > peakInfluence) {
+                  peakInfluence = combined
+                  peakVx = pt.vx
+                }
               }
 
-              const spatial = falloff(dist, influenceRadius)
-              const combined = spatial * timeFade
-              if (combined > peakInfluence) peakInfluence = combined
-            }
+              // Displacement follows cursor velocity, scaled by influence
+              targets[idx] =
+                peakVx * velocitySensitivity * intensity * peakInfluence
+            } else {
+              // ── Random mode (original) ────────────────────────────
+              let peakInfluence = 0
+              for (let p = 0; p < trail.length; p++) {
+                const pt = trail[p]
+                const age = (now - pt.time) / trailDuration
+                const timeFade = Math.max(0, 1 - age)
 
-            const dir = cellDirection(idx)
-            const mag = cellMagnitude(idx)
-            targets[idx] = dir * mag * intensity * peakInfluence
+                let dist: number
+                if (isLine) {
+                  dist = Math.abs(pt.y - cellCenterY)
+                } else {
+                  const dx = pt.x - cellCenterX
+                  const dy = pt.y - cellCenterY
+                  dist = Math.sqrt(dx * dx + dy * dy)
+                }
+
+                const spatial = falloff(dist, influenceRadius)
+                const combined = spatial * timeFade
+                if (combined > peakInfluence) peakInfluence = combined
+              }
+
+              const dir = cellDirection(idx)
+              const mag = cellMagnitude(idx)
+              targets[idx] = dir * mag * intensity * peakInfluence
+            }
           } else {
             targets[idx] = 0
           }
@@ -282,7 +336,7 @@ export default function TextGlitch({
 
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
-  }, [cellCount, rowCount, colCount, colWidth, clampedBlockSize, scope, influenceRadius, intensity, trailDuration, smoothing])
+  }, [cellCount, rowCount, colCount, colWidth, clampedBlockSize, scope, effect, influenceRadius, intensity, trailDuration, smoothing])
 
   // ── Shared text styles ─────────────────────────────────────────────────
   const textStyle: CSSProperties = {
@@ -343,7 +397,7 @@ export default function TextGlitch({
       onPointerLeave={handlePointerLeave}
       style={{
         position: "relative",
-        overflow: "visible",
+        overflow: "hidden",
         cursor: "default",
         width: width ?? "100%",
         height: height ?? "auto",

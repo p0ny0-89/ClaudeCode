@@ -23,7 +23,7 @@ function hash01(i: number, seed: number): number {
   return x - Math.floor(x)
 }
 
-function sliceDirection(i: number): number {
+function cellDirection(i: number): number {
   const groupSize = 2 + Math.floor(hash01(Math.floor(i / 3), 77.7) * 3)
   const groupId = Math.floor(i / groupSize)
   const base = hash01(groupId, 311.7) * 2 - 1
@@ -32,7 +32,7 @@ function sliceDirection(i: number): number {
   return Math.sign(v) * Math.pow(Math.min(1, Math.abs(v)), 0.6)
 }
 
-function sliceMagnitude(i: number): number {
+function cellMagnitude(i: number): number {
   const v = hash01(i, 183.3)
   if (v < 0.25) return v * 0.15
   if (v > 0.85) return 1.2 + (v - 0.85) * 4
@@ -49,6 +49,7 @@ interface TrailPoint {
   x: number
   y: number
   time: number
+  vx: number
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -62,8 +63,10 @@ interface Props {
   letterSpacing?: number
   lineHeight?: number
   color?: string
-  textAlign?: "left" | "center" | "right"
+  textAlign?: "left" | "center" | "right" | "justify"
   blockSize?: number
+  scope?: "line" | "word" | "character"
+  effect?: "random" | "directional"
   influenceRadius?: number
   intensity?: number
   trailDuration?: number
@@ -84,6 +87,8 @@ function TextGlitch({
   color = "#FF0000",
   textAlign = "center",
   blockSize = 8,
+  scope = "line",
+  effect = "random",
   influenceRadius = 140,
   intensity = 60,
   trailDuration = 300,
@@ -93,36 +98,58 @@ function TextGlitch({
   style,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [containerHeight, setContainerHeight] = useState(0)
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
 
   const mouseTrail = useRef<TrailPoint[]>([])
   const mouseActive = useRef(false)
-  const sliceDisplacements = useRef<Float64Array>(new Float64Array(0))
-  const sliceTargets = useRef<Float64Array>(new Float64Array(0))
-  const sliceEls = useRef<HTMLDivElement[]>([])
+  const cellDisplacements = useRef<Float64Array>(new Float64Array(0))
+  const cellTargets = useRef<Float64Array>(new Float64Array(0))
+  const cellEls = useRef<HTMLDivElement[]>([])
   const rafId = useRef(0)
 
   const clampedBlockSize = Math.max(2, blockSize)
-  const sliceCount =
+  const { w: containerWidth, h: containerHeight } = containerSize
+
+  const rowCount =
     containerHeight > 0 ? Math.ceil(containerHeight / clampedBlockSize) : 0
+
+  let colCount: number
+  let colWidth: number
+  if (scope === "line" || containerWidth <= 0) {
+    colCount = 1
+    colWidth = containerWidth
+  } else {
+    const targetColW =
+      scope === "word"
+        ? Math.max(clampedBlockSize * 4, fontSize * 2.5)
+        : Math.max(clampedBlockSize * 2, fontSize * 0.3)
+    colCount = Math.max(1, Math.ceil(containerWidth / targetColW))
+    colWidth = containerWidth / colCount
+  }
+
+  const cellCount = rowCount * colCount
 
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver((entries) => {
-      const h = entries[0].contentRect.height
-      if (h !== containerHeight) setContainerHeight(h)
+      const { width: w, height: h } = entries[0].contentRect
+      setContainerSize((prev) =>
+        prev.w !== w || prev.h !== h ? { w, h } : prev
+      )
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [containerHeight])
+  }, [])
 
   useEffect(() => {
-    if (sliceCount > 0) {
-      sliceDisplacements.current = new Float64Array(sliceCount)
-      sliceTargets.current = new Float64Array(sliceCount)
+    if (cellCount > 0) {
+      cellDisplacements.current = new Float64Array(cellCount)
+      cellTargets.current = new Float64Array(cellCount)
     }
-  }, [sliceCount])
+  }, [cellCount])
+
+  const smoothVx = useRef(0)
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
@@ -130,17 +157,25 @@ function TextGlitch({
       if (!rect) return
       mouseActive.current = true
       const now = performance.now()
-      mouseTrail.current.push({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-        time: now,
-      })
+      const localX = e.clientX - rect.left
+      const localY = e.clientY - rect.top
+
+      const trail = mouseTrail.current
+      let vx = 0
+      if (trail.length > 0) {
+        const prev = trail[trail.length - 1]
+        const dt = now - prev.time
+        if (dt > 0 && dt < 100) {
+          vx = (localX - prev.x) / dt
+        }
+      }
+      smoothVx.current += (vx - smoothVx.current) * 0.4
+
+      trail.push({ x: localX, y: localY, time: now, vx: smoothVx.current })
+
       const cutoff = now - trailDuration
-      while (
-        mouseTrail.current.length > 0 &&
-        mouseTrail.current[0].time < cutoff
-      ) {
-        mouseTrail.current.shift()
+      while (trail.length > 0 && trail[0].time < cutoff) {
+        trail.shift()
       }
     },
     [trailDuration]
@@ -151,12 +186,16 @@ function TextGlitch({
   }, [])
 
   useEffect(() => {
-    if (sliceCount === 0) return
+    if (cellCount === 0) return
+
+    const isLine = scope === "line"
+    const isDirectional = effect === "directional"
+    const velocitySensitivity = 12
 
     const animate = () => {
-      const disps = sliceDisplacements.current
-      const targets = sliceTargets.current
-      const els = sliceEls.current
+      const disps = cellDisplacements.current
+      const targets = cellTargets.current
+      const els = cellEls.current
       const trail = mouseTrail.current
       const now = performance.now()
       const active = mouseActive.current
@@ -168,42 +207,84 @@ function TextGlitch({
         }
       }
 
-      for (let i = 0; i < sliceCount; i++) {
-        const sliceCenterY = i * clampedBlockSize + clampedBlockSize / 2
+      for (let r = 0; r < rowCount; r++) {
+        const cellCenterY = r * clampedBlockSize + clampedBlockSize / 2
 
-        if (active && trail.length > 0) {
-          let peakInfluence = 0
-          for (let p = 0; p < trail.length; p++) {
-            const pt = trail[p]
-            const age = (now - pt.time) / trailDuration
-            const timeFade = Math.max(0, 1 - age)
-            const dy = pt.y - sliceCenterY
-            const dist = Math.abs(dy)
-            const spatial = falloff(dist, influenceRadius)
-            const combined = spatial * timeFade
-            if (combined > peakInfluence) peakInfluence = combined
+        for (let c = 0; c < colCount; c++) {
+          const idx = r * colCount + c
+          const cellCenterX = c * colWidth + colWidth / 2
+
+          if (active && trail.length > 0) {
+            if (isDirectional) {
+              let peakInfluence = 0
+              let peakVx = 0
+              for (let p = 0; p < trail.length; p++) {
+                const pt = trail[p]
+                const age = (now - pt.time) / trailDuration
+                const timeFade = Math.max(0, 1 - age)
+
+                let dist: number
+                if (isLine) {
+                  dist = Math.abs(pt.y - cellCenterY)
+                } else {
+                  const dx = pt.x - cellCenterX
+                  const dy = pt.y - cellCenterY
+                  dist = Math.sqrt(dx * dx + dy * dy)
+                }
+
+                const spatial = falloff(dist, influenceRadius)
+                const combined = spatial * timeFade
+                if (combined > peakInfluence) {
+                  peakInfluence = combined
+                  peakVx = pt.vx
+                }
+              }
+
+              targets[idx] =
+                peakVx * velocitySensitivity * intensity * peakInfluence
+            } else {
+              let peakInfluence = 0
+              for (let p = 0; p < trail.length; p++) {
+                const pt = trail[p]
+                const age = (now - pt.time) / trailDuration
+                const timeFade = Math.max(0, 1 - age)
+
+                let dist: number
+                if (isLine) {
+                  dist = Math.abs(pt.y - cellCenterY)
+                } else {
+                  const dx = pt.x - cellCenterX
+                  const dy = pt.y - cellCenterY
+                  dist = Math.sqrt(dx * dx + dy * dy)
+                }
+
+                const spatial = falloff(dist, influenceRadius)
+                const combined = spatial * timeFade
+                if (combined > peakInfluence) peakInfluence = combined
+              }
+
+              const dir = cellDirection(idx)
+              const mag = cellMagnitude(idx)
+              targets[idx] = dir * mag * intensity * peakInfluence
+            }
+          } else {
+            targets[idx] = 0
           }
 
-          const dir = sliceDirection(i)
-          const mag = sliceMagnitude(i)
-          targets[i] = dir * mag * intensity * peakInfluence
-        } else {
-          targets[i] = 0
-        }
-
-        const diff = targets[i] - disps[i]
-        if (Math.abs(diff) > 0.05) {
-          disps[i] += diff * smoothing
-        } else {
-          disps[i] = targets[i]
-        }
-
-        const el = els[i]
-        if (el) {
-          if (Math.abs(disps[i]) < 0.05) {
-            el.style.transform = "translateX(0)"
+          const diff = targets[idx] - disps[idx]
+          if (Math.abs(diff) > 0.05) {
+            disps[idx] += diff * smoothing
           } else {
-            el.style.transform = `translateX(${disps[i]}px)`
+            disps[idx] = targets[idx]
+          }
+
+          const el = els[idx]
+          if (el) {
+            if (Math.abs(disps[idx]) < 0.05) {
+              el.style.transform = "translateX(0)"
+            } else {
+              el.style.transform = `translateX(${disps[idx]}px)`
+            }
           }
         }
       }
@@ -214,8 +295,13 @@ function TextGlitch({
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
   }, [
-    sliceCount,
+    cellCount,
+    rowCount,
+    colCount,
+    colWidth,
     clampedBlockSize,
+    scope,
+    effect,
     influenceRadius,
     intensity,
     trailDuration,
@@ -239,29 +325,36 @@ function TextGlitch({
     WebkitUserSelect: "none",
   }
 
-  const slices: React.ReactNode[] = []
-  sliceEls.current = []
+  const cells: React.ReactNode[] = []
+  cellEls.current = []
 
-  for (let i = 0; i < sliceCount; i++) {
-    const top = i * clampedBlockSize
+  for (let r = 0; r < rowCount; r++) {
+    const top = r * clampedBlockSize
     const bottom = Math.max(0, containerHeight - top - clampedBlockSize)
-    slices.push(
-      <div
-        key={i}
-        ref={(el) => {
-          if (el) sliceEls.current[i] = el
-        }}
-        style={{
-          position: "absolute",
-          inset: 0,
-          clipPath: `inset(${top}px 0px ${bottom}px 0px)`,
-          willChange: "transform",
-          backfaceVisibility: "hidden",
-        }}
-      >
-        <div style={textStyle}>{text}</div>
-      </div>
-    )
+
+    for (let c = 0; c < colCount; c++) {
+      const idx = r * colCount + c
+      const left = c * colWidth
+      const right = Math.max(0, containerWidth - left - colWidth)
+
+      cells.push(
+        <div
+          key={idx}
+          ref={(el) => {
+            if (el) cellEls.current[idx] = el
+          }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            clipPath: `inset(${top}px ${right}px ${bottom}px ${left}px)`,
+            willChange: "transform",
+            backfaceVisibility: "hidden",
+          }}
+        >
+          <div style={textStyle}>{text}</div>
+        </div>
+      )
+    }
   }
 
   return (
@@ -271,7 +364,7 @@ function TextGlitch({
       onPointerLeave={handlePointerLeave}
       style={{
         position: "relative",
-        overflow: "visible",
+        overflow: "hidden",
         cursor: "default",
         width: width ?? "100%",
         height: height ?? "auto",
@@ -287,7 +380,7 @@ function TextGlitch({
 
       {containerHeight > 0 && (
         <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-          {slices}
+          {cells}
         </div>
       )}
     </div>
@@ -367,8 +460,25 @@ addPropertyControls(TextGlitch, {
     type: ControlType.Enum,
     title: "Alignment",
     defaultValue: "center",
-    options: ["left", "center", "right"],
-    optionTitles: ["Left", "Center", "Right"],
+    options: ["left", "center", "right", "justify"],
+    optionTitles: ["Left", "Center", "Right", "Justify"],
+  },
+  effect: {
+    type: ControlType.Enum,
+    title: "Effect",
+    defaultValue: "random",
+    options: ["random", "directional"],
+    optionTitles: ["Random", "Directional"],
+    description:
+      "Random: chaotic per-slice displacement. Directional: push/pull following cursor velocity.",
+  },
+  scope: {
+    type: ControlType.Enum,
+    title: "Scope",
+    defaultValue: "line",
+    options: ["line", "word", "character"],
+    optionTitles: ["Line", "Word", "Character"],
+    description: "How the glitch effect is spatially scoped.",
   },
   blockSize: {
     type: ControlType.Number,

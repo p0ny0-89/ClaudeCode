@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from "react"
-import TextGlitch, { type GlitchScope } from "./TextGlitch"
+import TextGlitch, { type GlitchScope, type GlitchEffect } from "./TextGlitch"
 
 // ── Font presets ─────────────────────────────────────────────────────────────
 
@@ -96,6 +96,7 @@ export default function App() {
   const [color, setColor] = useState("#FF0000")
   const [textAlign, setTextAlign] = useState<"left" | "center" | "right" | "justify">("center")
   const [scope, setScope] = useState<GlitchScope>("line")
+  const [effect, setEffect] = useState<GlitchEffect>("random")
   const [blockSize, setBlockSize] = useState(8)
   const [influenceRadius, setInfluenceRadius] = useState(140)
   const [intensity, setIntensity] = useState(60)
@@ -123,6 +124,7 @@ export default function App() {
         color={color}
         textAlign={textAlign}
         scope={scope}
+        effect={effect}
         blockSize={blockSize}
         influenceRadius={influenceRadius}
         intensity={intensity}
@@ -216,6 +218,16 @@ export default function App() {
         <hr style={dividerStyle} />
 
         {/* ── Effect ── */}
+        <div style={labelStyle}><span>Effect</span></div>
+        <select
+          value={effect}
+          onChange={(e) => setEffect(e.target.value as GlitchEffect)}
+          style={selectStyle}
+        >
+          <option value="random">Random</option>
+          <option value="directional">Directional</option>
+        </select>
+
         <div style={labelStyle}><span>Scope</span></div>
         <select
           value={scope}
