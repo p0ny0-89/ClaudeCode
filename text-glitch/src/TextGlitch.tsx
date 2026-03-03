@@ -8,6 +8,8 @@ import {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export type GlitchScope = "line" | "word" | "character"
+
 export interface TextGlitchProps {
   /** The text to display. Use \n for line breaks. */
   text?: string
@@ -26,9 +28,11 @@ export interface TextGlitchProps {
   /** Text color (any CSS color) */
   color?: string
   /** Text alignment */
-  textAlign?: CSSProperties["textAlign"]
+  textAlign?: "left" | "center" | "right" | "justify"
   /** Height of each glitch slice in px. Smaller = finer grain. */
   blockSize?: number
+  /** How the glitch effect is scoped: full line, word region, or character region */
+  scope?: GlitchScope
   /** Radius (px) of the cursor's influence zone */
   influenceRadius?: number
   /** Maximum horizontal displacement in px */
@@ -54,31 +58,26 @@ function hash01(i: number, seed: number): number {
 }
 
 /**
- * Per-slice displacement profile.
- * Groups of ~2-4 adjacent slices share direction (simulating "block" glitch),
- * with per-slice magnitude variation including "spikes" and "dead" zones.
+ * Per-cell displacement direction.
+ * Groups of ~2-4 adjacent cells share direction (simulating "block" glitch).
  */
-function sliceDirection(i: number): number {
-  // Group slices into bands of 2-4 that share a base direction
-  const groupSize = 2 + Math.floor(hash01(Math.floor(i / 3), 77.7) * 3) // 2–4
+function cellDirection(i: number): number {
+  const groupSize = 2 + Math.floor(hash01(Math.floor(i / 3), 77.7) * 3)
   const groupId = Math.floor(i / groupSize)
-  const base = hash01(groupId, 311.7) * 2 - 1 // -1..1
-  // Add per-slice jitter so they're not perfectly aligned
+  const base = hash01(groupId, 311.7) * 2 - 1
   const jitter = (hash01(i, 529.3) - 0.5) * 0.3
   const v = base + jitter
-  // Sharpen toward -1 or 1
   return Math.sign(v) * Math.pow(Math.min(1, Math.abs(v)), 0.6)
 }
 
 /**
- * Per-slice magnitude: bimodal distribution.
- * ~25% of slices barely move (gaps), ~15% spike dramatically, rest moderate.
+ * Per-cell magnitude: bimodal distribution.
+ * ~25% barely move, ~15% spike dramatically, rest moderate.
  */
-function sliceMagnitude(i: number): number {
+function cellMagnitude(i: number): number {
   const v = hash01(i, 183.3)
-  if (v < 0.25) return v * 0.15 // near-zero: creates "intact" text bands
-  if (v > 0.85) return 1.2 + (v - 0.85) * 4 // spike: dramatic shift (1.2–1.8x)
-  // moderate range, with slight bias toward higher values
+  if (v < 0.25) return v * 0.15
+  if (v > 0.85) return 1.2 + (v - 0.85) * 4
   return 0.3 + (v - 0.25) * 1.1
 }
 
@@ -108,6 +107,7 @@ export default function TextGlitch({
   color = "#FF0000",
   textAlign = "center",
   blockSize = 8,
+  scope = "line",
   influenceRadius = 140,
   intensity = 60,
   trailDuration = 300,
@@ -117,41 +117,61 @@ export default function TextGlitch({
   style,
 }: TextGlitchProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const sliceContainerRef = useRef<HTMLDivElement>(null)
-  const [containerHeight, setContainerHeight] = useState(0)
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
 
   // Mutable refs for the animation loop (no re-renders)
   const mouseTrail = useRef<TrailPoint[]>([])
   const mouseActive = useRef(false)
-  const sliceDisplacements = useRef<Float64Array>(new Float64Array(0))
-  const sliceTargets = useRef<Float64Array>(new Float64Array(0))
-  const sliceEls = useRef<HTMLDivElement[]>([])
+  const cellDisplacements = useRef<Float64Array>(new Float64Array(0))
+  const cellTargets = useRef<Float64Array>(new Float64Array(0))
+  const cellEls = useRef<HTMLDivElement[]>([])
   const rafId = useRef(0)
 
   const clampedBlockSize = Math.max(2, blockSize)
-  const sliceCount = containerHeight > 0 ? Math.ceil(containerHeight / clampedBlockSize) : 0
+  const { w: containerWidth, h: containerHeight } = containerSize
 
-  // ── Measure container height ───────────────────────────────────────────
+  // ── Grid dimensions ────────────────────────────────────────────────────
+  const rowCount = containerHeight > 0 ? Math.ceil(containerHeight / clampedBlockSize) : 0
+
+  let colCount: number
+  let colWidth: number
+  if (scope === "line" || containerWidth <= 0) {
+    colCount = 1
+    colWidth = containerWidth
+  } else {
+    const targetColW =
+      scope === "word"
+        ? Math.max(clampedBlockSize * 4, fontSize * 2.5)
+        : Math.max(clampedBlockSize * 2, fontSize * 0.6)
+    colCount = Math.max(1, Math.ceil(containerWidth / targetColW))
+    colWidth = containerWidth / colCount
+  }
+
+  const cellCount = rowCount * colCount
+
+  // ── Measure container ──────────────────────────────────────────────────
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver((entries) => {
-      const h = entries[0].contentRect.height
-      if (h !== containerHeight) setContainerHeight(h)
+      const { width: w, height: h } = entries[0].contentRect
+      setContainerSize((prev) =>
+        prev.w !== w || prev.h !== h ? { w, h } : prev
+      )
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [containerHeight])
+  }, [])
 
-  // ── Resize displacement arrays when slice count changes ────────────────
+  // ── Resize displacement arrays ─────────────────────────────────────────
   useEffect(() => {
-    if (sliceCount > 0) {
-      sliceDisplacements.current = new Float64Array(sliceCount)
-      sliceTargets.current = new Float64Array(sliceCount)
+    if (cellCount > 0) {
+      cellDisplacements.current = new Float64Array(cellCount)
+      cellTargets.current = new Float64Array(cellCount)
     }
-  }, [sliceCount])
+  }, [cellCount])
 
-  // ── Mouse handlers (no state, just refs) ───────────────────────────────
+  // ── Mouse handlers ─────────────────────────────────────────────────────
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
       const rect = containerRef.current?.getBoundingClientRect()
@@ -163,7 +183,6 @@ export default function TextGlitch({
         y: e.clientY - rect.top,
         time: now,
       })
-      // Prune old points
       const cutoff = now - trailDuration
       while (
         mouseTrail.current.length > 0 &&
@@ -181,12 +200,14 @@ export default function TextGlitch({
 
   // ── Animation loop ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (sliceCount === 0) return
+    if (cellCount === 0) return
+
+    const isLine = scope === "line"
 
     const animate = () => {
-      const disps = sliceDisplacements.current
-      const targets = sliceTargets.current
-      const els = sliceEls.current
+      const disps = cellDisplacements.current
+      const targets = cellTargets.current
+      const els = cellEls.current
       const trail = mouseTrail.current
       const now = performance.now()
       const active = mouseActive.current
@@ -199,48 +220,59 @@ export default function TextGlitch({
         }
       }
 
-      // Calculate targets for each slice
-      for (let i = 0; i < sliceCount; i++) {
-        const sliceCenterY = i * clampedBlockSize + clampedBlockSize / 2
+      for (let r = 0; r < rowCount; r++) {
+        const cellCenterY = r * clampedBlockSize + clampedBlockSize / 2
 
-        if (active && trail.length > 0) {
-          // Find the maximum influence from any single trail point (no accumulation)
-          let peakInfluence = 0
-          for (let p = 0; p < trail.length; p++) {
-            const pt = trail[p]
-            const age = (now - pt.time) / trailDuration
-            const timeFade = Math.max(0, 1 - age)
+        for (let c = 0; c < colCount; c++) {
+          const idx = r * colCount + c
+          const cellCenterX = c * colWidth + colWidth / 2
 
-            const dy = pt.y - sliceCenterY
-            const dist = Math.abs(dy)
+          if (active && trail.length > 0) {
+            let peakInfluence = 0
+            for (let p = 0; p < trail.length; p++) {
+              const pt = trail[p]
+              const age = (now - pt.time) / trailDuration
+              const timeFade = Math.max(0, 1 - age)
 
-            const spatial = falloff(dist, influenceRadius)
-            const combined = spatial * timeFade
-            if (combined > peakInfluence) peakInfluence = combined
+              let dist: number
+              if (isLine) {
+                // Line mode: Y distance only (full-width rows)
+                dist = Math.abs(pt.y - cellCenterY)
+              } else {
+                // Word/Character: 2D distance
+                const dx = pt.x - cellCenterX
+                const dy = pt.y - cellCenterY
+                dist = Math.sqrt(dx * dx + dy * dy)
+              }
+
+              const spatial = falloff(dist, influenceRadius)
+              const combined = spatial * timeFade
+              if (combined > peakInfluence) peakInfluence = combined
+            }
+
+            const dir = cellDirection(idx)
+            const mag = cellMagnitude(idx)
+            targets[idx] = dir * mag * intensity * peakInfluence
+          } else {
+            targets[idx] = 0
           }
 
-          const dir = sliceDirection(i)
-          const mag = sliceMagnitude(i)
-          targets[i] = dir * mag * intensity * peakInfluence
-        } else {
-          targets[i] = 0
-        }
-
-        // Lerp current toward target
-        const diff = targets[i] - disps[i]
-        if (Math.abs(diff) > 0.05) {
-          disps[i] += diff * smoothing
-        } else {
-          disps[i] = targets[i]
-        }
-
-        // Apply to DOM (direct manipulation, bypassing React)
-        const el = els[i]
-        if (el) {
-          if (Math.abs(disps[i]) < 0.05) {
-            el.style.transform = "translateX(0)"
+          // Lerp current toward target
+          const diff = targets[idx] - disps[idx]
+          if (Math.abs(diff) > 0.05) {
+            disps[idx] += diff * smoothing
           } else {
-            el.style.transform = `translateX(${disps[i]}px)`
+            disps[idx] = targets[idx]
+          }
+
+          // Apply to DOM
+          const el = els[idx]
+          if (el) {
+            if (Math.abs(disps[idx]) < 0.05) {
+              el.style.transform = "translateX(0)"
+            } else {
+              el.style.transform = `translateX(${disps[idx]}px)`
+            }
           }
         }
       }
@@ -250,7 +282,7 @@ export default function TextGlitch({
 
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
-  }, [sliceCount, clampedBlockSize, influenceRadius, intensity, trailDuration, smoothing])
+  }, [cellCount, rowCount, colCount, colWidth, clampedBlockSize, scope, influenceRadius, intensity, trailDuration, smoothing])
 
   // ── Shared text styles ─────────────────────────────────────────────────
   const textStyle: CSSProperties = {
@@ -261,7 +293,7 @@ export default function TextGlitch({
     letterSpacing: `${letterSpacing}em`,
     lineHeight,
     color,
-    textAlign: textAlign as CSSProperties["textAlign"],
+    textAlign,
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     margin: 0,
@@ -270,30 +302,37 @@ export default function TextGlitch({
     WebkitUserSelect: "none",
   }
 
-  // ── Build slice elements ───────────────────────────────────────────────
-  const slices: React.ReactNode[] = []
-  sliceEls.current = []
+  // ── Build cell elements ────────────────────────────────────────────────
+  const cells: React.ReactNode[] = []
+  cellEls.current = []
 
-  for (let i = 0; i < sliceCount; i++) {
-    const top = i * clampedBlockSize
+  for (let r = 0; r < rowCount; r++) {
+    const top = r * clampedBlockSize
     const bottom = Math.max(0, containerHeight - top - clampedBlockSize)
-    slices.push(
-      <div
-        key={i}
-        ref={(el) => {
-          if (el) sliceEls.current[i] = el
-        }}
-        style={{
-          position: "absolute",
-          inset: 0,
-          clipPath: `inset(${top}px 0px ${bottom}px 0px)`,
-          willChange: "transform",
-          backfaceVisibility: "hidden",
-        }}
-      >
-        <div style={textStyle}>{text}</div>
-      </div>
-    )
+
+    for (let c = 0; c < colCount; c++) {
+      const idx = r * colCount + c
+      const left = c * colWidth
+      const right = Math.max(0, containerWidth - left - colWidth)
+
+      cells.push(
+        <div
+          key={idx}
+          ref={(el) => {
+            if (el) cellEls.current[idx] = el
+          }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            clipPath: `inset(${top}px ${right}px ${bottom}px ${left}px)`,
+            willChange: "transform",
+            backfaceVisibility: "hidden",
+          }}
+        >
+          <div style={textStyle}>{text}</div>
+        </div>
+      )
+    }
   }
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -311,7 +350,7 @@ export default function TextGlitch({
         ...style,
       }}
     >
-      {/* Invisible sizing element — determines container height */}
+      {/* Invisible sizing element */}
       <div
         style={{
           ...textStyle,
@@ -323,17 +362,16 @@ export default function TextGlitch({
         {text}
       </div>
 
-      {/* Sliced text overlay */}
+      {/* Cell grid overlay */}
       {containerHeight > 0 && (
         <div
-          ref={sliceContainerRef}
           style={{
             position: "absolute",
             inset: 0,
             pointerEvents: "none",
           }}
         >
-          {slices}
+          {cells}
         </div>
       )}
     </div>
