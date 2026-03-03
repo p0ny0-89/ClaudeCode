@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "text-glitch-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["text-glitch/node_modules/vite/bin/vite.js", "dev", "text-glitch", "--host"],
+      "port": 5173
+    }
+  ]
+}
