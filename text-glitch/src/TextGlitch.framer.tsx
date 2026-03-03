@@ -54,19 +54,24 @@ interface TrailPoint {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-interface Props {
-  text?: string
-  fontSize?: number
+interface FontConfig {
   fontFamily?: string
   fontWeight?: number
   textTransform?: CSSProperties["textTransform"]
   letterSpacing?: number
   lineHeight?: number
+}
+
+interface Props {
+  text?: string
+  fontSize?: number
+  font?: FontConfig
   color?: string
   textAlign?: "left" | "center" | "right" | "justify"
   blockSize?: number
   scope?: "line" | "word" | "character"
   effect?: "random" | "directional"
+  clipOverflow?: boolean
   influenceRadius?: number
   intensity?: number
   trailDuration?: number
@@ -77,18 +82,15 @@ interface Props {
 }
 
 function TextGlitch({
-  text = "LIKE A\nMACHINE",
+  text = "SLOWLY\nMALFUNCTIONING",
   fontSize = 120,
-  fontFamily = "Inter, system-ui, -apple-system, sans-serif",
-  fontWeight = 900,
-  textTransform = "uppercase",
-  letterSpacing = -0.02,
-  lineHeight = 0.95,
-  color = "#FF0000",
+  font,
+  color = "#FFFFFF",
   textAlign = "center",
   blockSize = 8,
   scope = "line",
   effect = "random",
+  clipOverflow = true,
   influenceRadius = 140,
   intensity = 60,
   trailDuration = 300,
@@ -97,6 +99,15 @@ function TextGlitch({
   height,
   style,
 }: Props) {
+  // Destructure font config with defaults
+  const {
+    fontFamily = "Inter, system-ui, -apple-system, sans-serif",
+    fontWeight = 900,
+    textTransform = "uppercase" as CSSProperties["textTransform"],
+    letterSpacing = -0.02,
+    lineHeight = 0.95,
+  } = font ?? {}
+
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
 
@@ -364,7 +375,7 @@ function TextGlitch({
       onPointerLeave={handlePointerLeave}
       style={{
         position: "relative",
-        overflow: "hidden",
+        overflow: clipOverflow ? "hidden" : "visible",
         cursor: "default",
         width: width ?? "100%",
         height: height ?? "auto",
@@ -393,7 +404,7 @@ addPropertyControls(TextGlitch, {
   text: {
     type: ControlType.String,
     title: "Text",
-    defaultValue: "LIKE A\nMACHINE",
+    defaultValue: "SLOWLY\nMALFUNCTIONING",
     displayTextArea: true,
   },
   fontSize: {
@@ -405,56 +416,62 @@ addPropertyControls(TextGlitch, {
     step: 1,
     unit: "px",
   },
-  fontFamily: {
-    type: ControlType.String,
-    title: "Font Family",
-    defaultValue: "Inter, system-ui, -apple-system, sans-serif",
-  },
-  fontWeight: {
-    type: ControlType.Enum,
-    title: "Font Weight",
-    defaultValue: 900,
-    options: [100, 200, 300, 400, 500, 600, 700, 800, 900],
-    optionTitles: [
-      "Thin",
-      "Extra Light",
-      "Light",
-      "Regular",
-      "Medium",
-      "Semi Bold",
-      "Bold",
-      "Extra Bold",
-      "Black",
-    ],
-  },
-  textTransform: {
-    type: ControlType.Enum,
-    title: "Transform",
-    defaultValue: "uppercase",
-    options: ["none", "uppercase", "lowercase", "capitalize"],
-    optionTitles: ["None", "Uppercase", "Lowercase", "Capitalize"],
-  },
-  letterSpacing: {
-    type: ControlType.Number,
-    title: "Letter Spacing",
-    defaultValue: -0.02,
-    min: -0.2,
-    max: 0.5,
-    step: 0.005,
-    unit: "em",
-  },
-  lineHeight: {
-    type: ControlType.Number,
-    title: "Line Height",
-    defaultValue: 0.95,
-    min: 0.5,
-    max: 3,
-    step: 0.05,
+  font: {
+    type: ControlType.Object,
+    title: "Font",
+    controls: {
+      fontFamily: {
+        type: ControlType.String,
+        title: "Family",
+        defaultValue: "Inter, system-ui, -apple-system, sans-serif",
+      },
+      fontWeight: {
+        type: ControlType.Enum,
+        title: "Weight",
+        defaultValue: 900,
+        options: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+        optionTitles: [
+          "Thin",
+          "Extra Light",
+          "Light",
+          "Regular",
+          "Medium",
+          "Semi Bold",
+          "Bold",
+          "Extra Bold",
+          "Black",
+        ],
+      },
+      textTransform: {
+        type: ControlType.Enum,
+        title: "Transform",
+        defaultValue: "uppercase",
+        options: ["none", "uppercase", "lowercase", "capitalize"],
+        optionTitles: ["None", "Uppercase", "Lowercase", "Capitalize"],
+      },
+      letterSpacing: {
+        type: ControlType.Number,
+        title: "Letter Spacing",
+        defaultValue: -0.02,
+        min: -0.2,
+        max: 0.5,
+        step: 0.005,
+        unit: "em",
+      },
+      lineHeight: {
+        type: ControlType.Number,
+        title: "Line Height",
+        defaultValue: 0.95,
+        min: 0.5,
+        max: 3,
+        step: 0.05,
+      },
+    },
   },
   color: {
     type: ControlType.Color,
     title: "Color",
-    defaultValue: "#FF0000",
+    defaultValue: "#FFFFFF",
   },
   textAlign: {
     type: ControlType.Enum,
@@ -469,8 +486,6 @@ addPropertyControls(TextGlitch, {
     defaultValue: "random",
     options: ["random", "directional"],
     optionTitles: ["Random", "Directional"],
-    description:
-      "Random: chaotic per-slice displacement. Directional: push/pull following cursor velocity.",
   },
   scope: {
     type: ControlType.Enum,
@@ -478,7 +493,11 @@ addPropertyControls(TextGlitch, {
     defaultValue: "line",
     options: ["line", "word", "character"],
     optionTitles: ["Line", "Word", "Character"],
-    description: "How the glitch effect is spatially scoped.",
+  },
+  clipOverflow: {
+    type: ControlType.Boolean,
+    title: "Clip Overflow",
+    defaultValue: true,
   },
   blockSize: {
     type: ControlType.Number,
@@ -488,7 +507,6 @@ addPropertyControls(TextGlitch, {
     max: 40,
     step: 1,
     unit: "px",
-    description: "Height of each glitch slice. Smaller = finer grain.",
   },
   influenceRadius: {
     type: ControlType.Number,
@@ -498,7 +516,6 @@ addPropertyControls(TextGlitch, {
     max: 400,
     step: 5,
     unit: "px",
-    description: "How far the cursor's glitch effect reaches.",
   },
   intensity: {
     type: ControlType.Number,
@@ -508,7 +525,6 @@ addPropertyControls(TextGlitch, {
     max: 200,
     step: 1,
     unit: "px",
-    description: "Maximum horizontal displacement of slices.",
   },
   trailDuration: {
     type: ControlType.Number,
@@ -518,7 +534,6 @@ addPropertyControls(TextGlitch, {
     max: 800,
     step: 10,
     unit: "ms",
-    description: "How long the mouse trail persists.",
   },
   smoothing: {
     type: ControlType.Number,
@@ -527,7 +542,6 @@ addPropertyControls(TextGlitch, {
     min: 0.02,
     max: 0.5,
     step: 0.01,
-    description: "Animation interpolation speed. Lower = smoother.",
   },
 })
 
