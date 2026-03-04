@@ -339,11 +339,12 @@ function TextGlitch({
     pointerEvents: "none",
   }
 
-  // Mask-based recolor style: SVG becomes a mask, backgroundColor fills it
+  // Mask-based recolor style: SVG becomes a mask, background fills it
+  // Using `background` instead of `backgroundColor` to support gradients
   const maskStyle: CSSProperties = {
     width: "100%",
     height: "100%",
-    backgroundColor: svgColor,
+    background: svgColor,
     WebkitMaskImage: svgImage ? `url(${svgImage})` : undefined,
     maskImage: svgImage ? `url(${svgImage})` : undefined,
     WebkitMaskSize: "contain",
