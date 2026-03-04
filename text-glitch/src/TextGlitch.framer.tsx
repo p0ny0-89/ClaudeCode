@@ -67,6 +67,7 @@ interface Props {
   scope?: "line" | "word" | "character"
   effect?: "random" | "directional"
   angle?: number
+  preserveSpacing?: boolean
   clipOverflow?: boolean
   influenceRadius?: number
   intensity?: number
@@ -90,6 +91,7 @@ function TextGlitch({
   scope = "line",
   effect = "random",
   angle = 0,
+  preserveSpacing = false,
   clipOverflow = true,
   influenceRadius = 140,
   intensity = 60,
@@ -358,8 +360,8 @@ function TextGlitch({
     ...(font as CSSProperties),
     textTransform,
     color,
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
+    whiteSpace: preserveSpacing ? "pre" : "pre-wrap",
+    ...(preserveSpacing ? {} : { wordBreak: "break-word" as const }),
     margin: 0,
     padding: 0,
     userSelect: "none",
@@ -501,6 +503,12 @@ addPropertyControls(TextGlitch, {
     type: ControlType.Color,
     title: "Color",
     defaultValue: "#FFFFFF",
+    hidden: (props: any) => props.mode === "svg",
+  },
+  preserveSpacing: {
+    type: ControlType.Boolean,
+    title: "Preserve Spacing",
+    defaultValue: false,
     hidden: (props: any) => props.mode === "svg",
   },
   svgImage: {

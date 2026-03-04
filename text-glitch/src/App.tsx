@@ -98,6 +98,7 @@ export default function App() {
   const [scope, setScope] = useState<GlitchScope>("line")
   const [effect, setEffect] = useState<GlitchEffect>("random")
   const [angle, setAngle] = useState(0)
+  const [preserveSpacing, setPreserveSpacing] = useState(false)
   const [blockSize, setBlockSize] = useState(8)
   const [influenceRadius, setInfluenceRadius] = useState(140)
   const [intensity, setIntensity] = useState(60)
@@ -127,6 +128,7 @@ export default function App() {
         scope={scope}
         effect={effect}
         angle={angle}
+        preserveSpacing={preserveSpacing}
         blockSize={blockSize}
         influenceRadius={influenceRadius}
         intensity={intensity}
@@ -249,6 +251,17 @@ export default function App() {
           type="range" min={0} max={180} value={angle}
           onChange={(e) => setAngle(+e.target.value)}
           style={sliderStyle}
+        />
+
+        <div style={labelStyle}>
+          <span>Preserve Spacing</span>
+          <span style={{ color: "#fff" }}>{preserveSpacing ? "On" : "Off"}</span>
+        </div>
+        <input
+          type="checkbox"
+          checked={preserveSpacing}
+          onChange={(e) => setPreserveSpacing(e.target.checked)}
+          style={{ marginBottom: 12 }}
         />
 
         <div style={labelStyle}>

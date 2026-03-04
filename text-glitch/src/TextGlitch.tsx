@@ -38,6 +38,8 @@ export interface TextGlitchProps {
   effect?: GlitchEffect
   /** Displacement angle in degrees. 0 = horizontal, 90 = vertical. */
   angle?: number
+  /** When true, uses whiteSpace: "pre" to preserve exact spacing (for ASCII art). */
+  preserveSpacing?: boolean
   /** Radius (px) of the cursor's influence zone */
   influenceRadius?: number
   /** Maximum horizontal displacement in px */
@@ -117,6 +119,7 @@ export default function TextGlitch({
   scope = "line",
   effect = "random",
   angle = 0,
+  preserveSpacing = false,
   influenceRadius = 140,
   intensity = 60,
   trailDuration = 300,
@@ -355,8 +358,8 @@ export default function TextGlitch({
     lineHeight,
     color,
     textAlign,
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
+    whiteSpace: preserveSpacing ? "pre" : "pre-wrap",
+    ...(preserveSpacing ? {} : { wordBreak: "break-word" as const }),
     margin: 0,
     padding: 0,
     userSelect: "none",
