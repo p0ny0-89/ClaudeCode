@@ -36,6 +36,8 @@ export interface TextGlitchProps {
   scope?: GlitchScope
   /** Effect style: "random" = chaotic per-slice hash, "directional" = push/pull following cursor velocity */
   effect?: GlitchEffect
+  /** Displacement angle in degrees. 0 = horizontal, 90 = vertical. */
+  angle?: number
   /** Radius (px) of the cursor's influence zone */
   influenceRadius?: number
   /** Maximum horizontal displacement in px */
@@ -114,6 +116,7 @@ export default function TextGlitch({
   blockSize = 8,
   scope = "line",
   effect = "random",
+  angle = 0,
   influenceRadius = 140,
   intensity = 60,
   trailDuration = 300,
@@ -223,6 +226,9 @@ export default function TextGlitch({
 
     const isLine = scope === "line"
     const isDirectional = effect === "directional"
+    const angleRad = (angle * Math.PI) / 180
+    const cosA = Math.cos(angleRad)
+    const sinA = Math.sin(angleRad)
     // Sensitivity scaling: convert px/ms velocity into usable displacement
     const velocitySensitivity = 12
 
@@ -323,9 +329,10 @@ export default function TextGlitch({
           const el = els[idx]
           if (el) {
             if (Math.abs(disps[idx]) < 0.05) {
-              el.style.transform = "translateX(0)"
+              el.style.transform = "translate(0,0)"
             } else {
-              el.style.transform = `translateX(${disps[idx]}px)`
+              const d = disps[idx]
+              el.style.transform = `translate(${d * cosA}px,${d * sinA}px)`
             }
           }
         }
@@ -336,7 +343,7 @@ export default function TextGlitch({
 
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
-  }, [cellCount, rowCount, colCount, colWidth, clampedBlockSize, scope, effect, influenceRadius, intensity, trailDuration, smoothing])
+  }, [cellCount, rowCount, colCount, colWidth, clampedBlockSize, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing])
 
   // ── Shared text styles ─────────────────────────────────────────────────
   const textStyle: CSSProperties = {

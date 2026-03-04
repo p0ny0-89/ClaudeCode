@@ -97,6 +97,7 @@ export default function App() {
   const [textAlign, setTextAlign] = useState<"left" | "center" | "right" | "justify">("center")
   const [scope, setScope] = useState<GlitchScope>("line")
   const [effect, setEffect] = useState<GlitchEffect>("random")
+  const [angle, setAngle] = useState(0)
   const [blockSize, setBlockSize] = useState(8)
   const [influenceRadius, setInfluenceRadius] = useState(140)
   const [intensity, setIntensity] = useState(60)
@@ -125,6 +126,7 @@ export default function App() {
         textAlign={textAlign}
         scope={scope}
         effect={effect}
+        angle={angle}
         blockSize={blockSize}
         influenceRadius={influenceRadius}
         intensity={intensity}
@@ -238,6 +240,16 @@ export default function App() {
           <option value="word">Word</option>
           <option value="character">Character</option>
         </select>
+
+        <div style={labelStyle}>
+          <span>Angle</span>
+          <span style={{ color: "#fff" }}>{angle}°</span>
+        </div>
+        <input
+          type="range" min={0} max={180} value={angle}
+          onChange={(e) => setAngle(+e.target.value)}
+          style={sliderStyle}
+        />
 
         <div style={labelStyle}>
           <span>Block Size</span>

@@ -62,6 +62,7 @@ interface Props {
   blockSize?: number
   scope?: "line" | "word" | "character"
   effect?: "random" | "directional"
+  angle?: number
   clipOverflow?: boolean
   influenceRadius?: number
   intensity?: number
@@ -80,6 +81,7 @@ function TextGlitch({
   blockSize = 8,
   scope = "line",
   effect = "random",
+  angle = 0,
   clipOverflow = true,
   influenceRadius = 140,
   intensity = 60,
@@ -191,6 +193,9 @@ function TextGlitch({
 
     const isLine = scope === "line"
     const isDirectional = effect === "directional"
+    const angleRad = (angle * Math.PI) / 180
+    const cosA = Math.cos(angleRad)
+    const sinA = Math.sin(angleRad)
     const velocitySensitivity = 12
 
     const animate = () => {
@@ -282,9 +287,10 @@ function TextGlitch({
           const el = els[idx]
           if (el) {
             if (Math.abs(disps[idx]) < 0.05) {
-              el.style.transform = "translateX(0)"
+              el.style.transform = "translate(0,0)"
             } else {
-              el.style.transform = `translateX(${disps[idx]}px)`
+              const d = disps[idx]
+              el.style.transform = `translate(${d * cosA}px,${d * sinA}px)`
             }
           }
         }
@@ -303,6 +309,7 @@ function TextGlitch({
     clampedBlockSize,
     scope,
     effect,
+    angle,
     influenceRadius,
     intensity,
     trailDuration,
@@ -433,6 +440,15 @@ addPropertyControls(TextGlitch, {
     defaultValue: "line",
     options: ["line", "word", "character"],
     optionTitles: ["Line", "Word", "Character"],
+  },
+  angle: {
+    type: ControlType.Number,
+    title: "Angle",
+    defaultValue: 0,
+    min: 0,
+    max: 180,
+    step: 1,
+    unit: "°",
   },
   clipOverflow: {
     type: ControlType.Boolean,
