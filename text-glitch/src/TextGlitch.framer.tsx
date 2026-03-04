@@ -524,7 +524,8 @@ addPropertyControls(TextGlitch, {
     hidden: (props: any) => props.mode !== "svg",
   },
   svgColor: {
-    type: ControlType.Color,
+    // @ts-ignore — ControlType.Background gives access to Framer's gradient picker
+    type: ControlType.Background,
     title: "SVG Color",
     defaultValue: "#FFFFFF",
     hidden: (props: any) => props.mode !== "svg" || !props.recolorSvg,
