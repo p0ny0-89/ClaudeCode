@@ -479,7 +479,7 @@ addPropertyControls(TextGlitch, {
     title: "Mode",
     defaultValue: "text",
     options: ["text", "svg"],
-    optionTitles: ["Text", "SVG"],
+    optionTitles: ["Text", "Image"],
     displaySegmentedControl: true,
   },
   text: {
@@ -527,7 +527,7 @@ addPropertyControls(TextGlitch, {
   },
   svgImage: {
     type: ControlType.Image,
-    title: "SVG File",
+    title: "Image",
     hidden: (props: any) => props.mode !== "svg",
   },
   recolorSvg: {
