@@ -61,6 +61,8 @@ interface Props {
   textTransform?: CSSProperties["textTransform"]
   color?: string
   svgImage?: string
+  recolorSvg?: boolean
+  svgColor?: string
   blockSize?: number
   scope?: "line" | "word" | "character"
   effect?: "random" | "directional"
@@ -82,6 +84,8 @@ function TextGlitch({
   textTransform = "uppercase",
   color = "#FFFFFF",
   svgImage,
+  recolorSvg = false,
+  svgColor = "#FFFFFF",
   blockSize = 8,
   scope = "line",
   effect = "random",
@@ -333,6 +337,22 @@ function TextGlitch({
     pointerEvents: "none",
   }
 
+  // Mask-based recolor style: SVG becomes a mask, backgroundColor fills it
+  const maskStyle: CSSProperties = {
+    width: "100%",
+    height: "100%",
+    backgroundColor: svgColor,
+    WebkitMaskImage: svgImage ? `url(${svgImage})` : undefined,
+    maskImage: svgImage ? `url(${svgImage})` : undefined,
+    WebkitMaskSize: "contain",
+    maskSize: "contain",
+    WebkitMaskRepeat: "no-repeat",
+    maskRepeat: "no-repeat",
+    WebkitMaskPosition: "center",
+    maskPosition: "center",
+    pointerEvents: "none",
+  }
+
   // Spread the native font props, then layer on our overrides
   const textStyle: CSSProperties = {
     ...(font as CSSProperties),
@@ -349,7 +369,9 @@ function TextGlitch({
   // Content rendered inside each cell
   const cellContent = isSvg
     ? svgImage
-      ? <img src={svgImage} style={imgStyle} draggable={false} />
+      ? recolorSvg
+        ? <div style={maskStyle} />
+        : <img src={svgImage} style={imgStyle} draggable={false} />
       : null
     : <div style={textStyle}>{text}</div>
 
@@ -402,12 +424,16 @@ function TextGlitch({
       {/* Hidden sizing element */}
       {isSvg ? (
         svgImage ? (
-          <img
-            src={svgImage}
-            style={{ ...imgStyle, visibility: "hidden" }}
-            aria-hidden="true"
-            draggable={false}
-          />
+          recolorSvg ? (
+            <div style={{ ...maskStyle, visibility: "hidden" }} aria-hidden="true" />
+          ) : (
+            <img
+              src={svgImage}
+              style={{ ...imgStyle, visibility: "hidden" }}
+              aria-hidden="true"
+              draggable={false}
+            />
+          )
         ) : (
           <div style={{ width: "100%", height: "100%", visibility: "hidden" }} />
         )
@@ -481,6 +507,18 @@ addPropertyControls(TextGlitch, {
     type: ControlType.Image,
     title: "SVG File",
     hidden: (props: any) => props.mode !== "svg",
+  },
+  recolorSvg: {
+    type: ControlType.Boolean,
+    title: "Recolor",
+    defaultValue: false,
+    hidden: (props: any) => props.mode !== "svg",
+  },
+  svgColor: {
+    type: ControlType.Color,
+    title: "SVG Color",
+    defaultValue: "#FFFFFF",
+    hidden: (props: any) => props.mode !== "svg" || !props.recolorSvg,
   },
   effect: {
     type: ControlType.Enum,
