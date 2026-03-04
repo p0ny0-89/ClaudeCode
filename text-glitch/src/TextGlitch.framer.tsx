@@ -62,7 +62,10 @@ interface Props {
   color?: string
   svgImage?: string
   recolorSvg?: boolean
+  svgFill?: "solid" | "linear" | "radial"
   svgColor?: string
+  svgColorEnd?: string
+  svgGradientAngle?: number
   blockSize?: number
   scope?: "line" | "word" | "character"
   effect?: "random" | "directional"
@@ -86,7 +89,10 @@ function TextGlitch({
   color = "#FFFFFF",
   svgImage,
   recolorSvg = false,
+  svgFill = "solid",
   svgColor = "#FFFFFF",
+  svgColorEnd = "#000000",
+  svgGradientAngle = 180,
   blockSize = 8,
   scope = "line",
   effect = "random",
@@ -339,12 +345,19 @@ function TextGlitch({
     pointerEvents: "none",
   }
 
+  // Build the background value based on fill type
+  const svgBackground =
+    svgFill === "linear"
+      ? `linear-gradient(${svgGradientAngle}deg, ${svgColor}, ${svgColorEnd})`
+      : svgFill === "radial"
+        ? `radial-gradient(circle, ${svgColor}, ${svgColorEnd})`
+        : svgColor
+
   // Mask-based recolor style: SVG becomes a mask, background fills it
-  // Using `background` instead of `backgroundColor` to support gradients
   const maskStyle: CSSProperties = {
     width: "100%",
     height: "100%",
-    background: svgColor,
+    background: svgBackground,
     WebkitMaskImage: svgImage ? `url(${svgImage})` : undefined,
     maskImage: svgImage ? `url(${svgImage})` : undefined,
     WebkitMaskSize: "contain",
@@ -523,12 +536,38 @@ addPropertyControls(TextGlitch, {
     defaultValue: false,
     hidden: (props: any) => props.mode !== "svg",
   },
+  svgFill: {
+    type: ControlType.Enum,
+    title: "Fill Type",
+    defaultValue: "solid",
+    options: ["solid", "linear", "radial"],
+    optionTitles: ["Solid", "Linear", "Radial"],
+    displaySegmentedControl: true,
+    hidden: (props: any) => props.mode !== "svg" || !props.recolorSvg,
+  },
   svgColor: {
-    // @ts-ignore — ControlType.Background gives access to Framer's gradient picker
-    type: ControlType.Background,
-    title: "SVG Color",
+    type: ControlType.Color,
+    title: "Color",
     defaultValue: "#FFFFFF",
     hidden: (props: any) => props.mode !== "svg" || !props.recolorSvg,
+  },
+  svgColorEnd: {
+    type: ControlType.Color,
+    title: "Color End",
+    defaultValue: "#000000",
+    hidden: (props: any) =>
+      props.mode !== "svg" || !props.recolorSvg || props.svgFill === "solid",
+  },
+  svgGradientAngle: {
+    type: ControlType.Number,
+    title: "Gradient Angle",
+    defaultValue: 180,
+    min: 0,
+    max: 360,
+    step: 1,
+    unit: "°",
+    hidden: (props: any) =>
+      props.mode !== "svg" || !props.recolorSvg || props.svgFill !== "linear",
   },
   effect: {
     type: ControlType.Enum,
