@@ -55,10 +55,12 @@ interface TrailPoint {
 // ── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
+  mode?: "text" | "svg"
   text?: string
   font?: Record<string, any>
   textTransform?: CSSProperties["textTransform"]
   color?: string
+  svgImage?: string
   blockSize?: number
   scope?: "line" | "word" | "character"
   effect?: "random" | "directional"
@@ -74,10 +76,12 @@ interface Props {
 }
 
 function TextGlitch({
+  mode = "text",
   text = "SLOWLY\nMALFUNCTIONING",
   font,
   textTransform = "uppercase",
   color = "#FFFFFF",
+  svgImage,
   blockSize = 8,
   scope = "line",
   effect = "random",
@@ -316,6 +320,19 @@ function TextGlitch({
     smoothing,
   ])
 
+  const isSvg = mode === "svg"
+
+  // Shared image style for SVG mode
+  const imgStyle: CSSProperties = {
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    display: "block",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+    pointerEvents: "none",
+  }
+
   // Spread the native font props, then layer on our overrides
   const textStyle: CSSProperties = {
     ...(font as CSSProperties),
@@ -328,6 +345,13 @@ function TextGlitch({
     userSelect: "none",
     WebkitUserSelect: "none",
   }
+
+  // Content rendered inside each cell
+  const cellContent = isSvg
+    ? svgImage
+      ? <img src={svgImage} style={imgStyle} draggable={false} />
+      : null
+    : <div style={textStyle}>{text}</div>
 
   const cells: React.ReactNode[] = []
   cellEls.current = []
@@ -355,7 +379,7 @@ function TextGlitch({
             backfaceVisibility: "hidden",
           }}
         >
-          <div style={textStyle}>{text}</div>
+          {cellContent}
         </div>
       )
     }
@@ -375,12 +399,26 @@ function TextGlitch({
         ...style,
       }}
     >
-      <div
-        style={{ ...textStyle, visibility: "hidden", pointerEvents: "none" }}
-        aria-hidden="true"
-      >
-        {text}
-      </div>
+      {/* Hidden sizing element */}
+      {isSvg ? (
+        svgImage ? (
+          <img
+            src={svgImage}
+            style={{ ...imgStyle, visibility: "hidden" }}
+            aria-hidden="true"
+            draggable={false}
+          />
+        ) : (
+          <div style={{ width: "100%", height: "100%", visibility: "hidden" }} />
+        )
+      ) : (
+        <div
+          style={{ ...textStyle, visibility: "hidden", pointerEvents: "none" }}
+          aria-hidden="true"
+        >
+          {text}
+        </div>
+      )}
 
       {containerHeight > 0 && (
         <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
@@ -394,11 +432,20 @@ function TextGlitch({
 // ── Framer Property Controls ─────────────────────────────────────────────────
 
 addPropertyControls(TextGlitch, {
+  mode: {
+    type: ControlType.Enum,
+    title: "Mode",
+    defaultValue: "text",
+    options: ["text", "svg"],
+    optionTitles: ["Text", "SVG"],
+    displaySegmentedControl: true,
+  },
   text: {
     type: ControlType.String,
     title: "Text",
     defaultValue: "SLOWLY\nMALFUNCTIONING",
     displayTextArea: true,
+    hidden: (props: any) => props.mode === "svg",
   },
   font: {
     // @ts-ignore — undocumented Framer native font picker
@@ -414,6 +461,7 @@ addPropertyControls(TextGlitch, {
       letterSpacing: "-0.02em",
       textAlign: "center",
     },
+    hidden: (props: any) => props.mode === "svg",
   },
   textTransform: {
     type: ControlType.Enum,
@@ -421,11 +469,18 @@ addPropertyControls(TextGlitch, {
     defaultValue: "uppercase",
     options: ["none", "uppercase", "lowercase", "capitalize"],
     optionTitles: ["None", "Uppercase", "Lowercase", "Capitalize"],
+    hidden: (props: any) => props.mode === "svg",
   },
   color: {
     type: ControlType.Color,
     title: "Color",
     defaultValue: "#FFFFFF",
+    hidden: (props: any) => props.mode === "svg",
+  },
+  svgImage: {
+    type: ControlType.Image,
+    title: "SVG File",
+    hidden: (props: any) => props.mode !== "svg",
   },
   effect: {
     type: ControlType.Enum,
