@@ -60,7 +60,10 @@ interface Props {
   text?: string
   font?: Record<string, any>
   textTransform?: CSSProperties["textTransform"]
+  textFill?: "solid" | "linear" | "radial"
   color?: string
+  colorEnd?: string
+  textGradientAngle?: number
   svgImage?: string
   recolorSvg?: boolean
   svgFill?: "solid" | "linear" | "radial"
@@ -84,10 +87,13 @@ interface Props {
 
 function Glitch({
   mode = "text",
-  text = "SLOWLY\nMALFUNCTIONING",
+  text = "Glitch Effect.\nEnter text here, or switch to image mode.",
   font,
-  textTransform = "uppercase",
+  textTransform = "none",
+  textFill = "solid",
   color = "#FFFFFF",
+  colorEnd = "#000000",
+  textGradientAngle = 180,
   svgImage,
   recolorSvg = false,
   svgFill = "solid",
@@ -412,11 +418,28 @@ function Glitch({
     pointerEvents: "none",
   }
 
+  // Build text color/gradient styles
+  const isTextGradient = textFill !== "solid"
+  const textBackground =
+    textFill === "linear"
+      ? `linear-gradient(${textGradientAngle}deg, ${color}, ${colorEnd})`
+      : textFill === "radial"
+        ? `radial-gradient(circle, ${color}, ${colorEnd})`
+        : undefined
+
   // Spread the native font props, then layer on our overrides
   const textStyle: CSSProperties = {
     ...(font as CSSProperties),
     textTransform,
-    color,
+    ...(isTextGradient
+      ? {
+          background: textBackground,
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          color: "transparent",
+        }
+      : { color }),
     whiteSpace: preserveSpacing ? "pre" : "pre-wrap",
     ...(preserveSpacing ? {} : { wordBreak: "break-word" as const }),
     margin: 0,
@@ -528,7 +551,7 @@ addPropertyControls(Glitch, {
   text: {
     type: ControlType.String,
     title: "Text",
-    defaultValue: "SLOWLY\nMALFUNCTIONING",
+    defaultValue: "Glitch Effect.\nEnter text here, or switch to image mode.",
     displayTextArea: true,
     hidden: (props: any) => props.mode === "svg",
   },
@@ -551,9 +574,18 @@ addPropertyControls(Glitch, {
   textTransform: {
     type: ControlType.Enum,
     title: "Case",
-    defaultValue: "uppercase",
+    defaultValue: "none",
     options: ["none", "uppercase", "lowercase", "capitalize"],
     optionTitles: ["None", "Uppercase", "Lowercase", "Capitalize"],
+    hidden: (props: any) => props.mode === "svg",
+  },
+  textFill: {
+    type: ControlType.Enum,
+    title: "Fill Type",
+    defaultValue: "solid",
+    options: ["solid", "linear", "radial"],
+    optionTitles: ["Solid", "Linear", "Radial"],
+    displaySegmentedControl: true,
     hidden: (props: any) => props.mode === "svg",
   },
   color: {
@@ -561,6 +593,24 @@ addPropertyControls(Glitch, {
     title: "Color",
     defaultValue: "#FFFFFF",
     hidden: (props: any) => props.mode === "svg",
+  },
+  colorEnd: {
+    type: ControlType.Color,
+    title: "Color End",
+    defaultValue: "#000000",
+    hidden: (props: any) =>
+      props.mode === "svg" || props.textFill === "solid" || !props.textFill,
+  },
+  textGradientAngle: {
+    type: ControlType.Number,
+    title: "Gradient Angle",
+    defaultValue: 180,
+    min: 0,
+    max: 360,
+    step: 1,
+    unit: "°",
+    hidden: (props: any) =>
+      props.mode === "svg" || props.textFill !== "linear",
   },
   preserveSpacing: {
     type: ControlType.Boolean,
