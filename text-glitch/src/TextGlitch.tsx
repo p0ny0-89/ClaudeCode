@@ -101,6 +101,8 @@ interface TrailPoint {
   time: number
   /** Horizontal velocity at this point (px/ms). Used by directional mode. */
   vx: number
+  /** Vertical velocity at this point (px/ms). Used by directional mode at non-zero angles. */
+  vy: number
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -143,19 +145,43 @@ export default function TextGlitch({
   const { w: containerWidth, h: containerHeight } = containerSize
 
   // ── Grid dimensions ────────────────────────────────────────────────────
-  const rowCount = containerHeight > 0 ? Math.ceil(containerHeight / clampedBlockSize) : 0
+  // sinA blends between horizontal (0) and vertical (1) cell layouts
+  const sinA = Math.abs(Math.sin((angle * Math.PI) / 180))
 
+  let rowCount: number
+  let rowHeight: number
   let colCount: number
   let colWidth: number
-  if (scope === "line" || containerWidth <= 0) {
+
+  if (containerWidth <= 0 || containerHeight <= 0) {
+    rowCount = 0
+    rowHeight = clampedBlockSize
     colCount = 1
     colWidth = containerWidth
+  } else if (scope === "line") {
+    // Line scope: at 0° many rows + 1 col, at 90° 1 row + many cols
+    const rowH = clampedBlockSize + sinA * (containerHeight - clampedBlockSize)
+    rowCount = Math.max(1, Math.ceil(containerHeight / rowH))
+    rowHeight = containerHeight / rowCount
+
+    const colW = containerWidth - sinA * (containerWidth - clampedBlockSize)
+    colCount = Math.max(1, Math.ceil(containerWidth / colW))
+    colWidth = containerWidth / colCount
   } else {
-    const targetColW =
+    // Word/character scope: blend scope-based width with angle
+    const baseColW =
       scope === "word"
         ? Math.max(clampedBlockSize * 4, fontSize * 2.5)
         : Math.max(clampedBlockSize * 2, fontSize * 0.3)
-    colCount = Math.max(1, Math.ceil(containerWidth / targetColW))
+
+    // Row height: blockSize at 0°, blend toward baseColW at 90°
+    const rowH = clampedBlockSize + sinA * (baseColW - clampedBlockSize)
+    rowCount = Math.max(1, Math.ceil(containerHeight / rowH))
+    rowHeight = containerHeight / rowCount
+
+    // Col width: baseColW at 0°, blend toward blockSize at 90°
+    const colW = baseColW - sinA * (baseColW - clampedBlockSize)
+    colCount = Math.max(1, Math.ceil(containerWidth / colW))
     colWidth = containerWidth / colCount
   }
 
@@ -185,6 +211,7 @@ export default function TextGlitch({
 
   // Smoothed velocity for directional mode
   const smoothVx = useRef(0)
+  const smoothVy = useRef(0)
 
   // ── Mouse handlers ─────────────────────────────────────────────────────
   const handlePointerMove = useCallback(
@@ -199,17 +226,20 @@ export default function TextGlitch({
       // Compute instantaneous velocity from previous trail point
       const trail = mouseTrail.current
       let vx = 0
+      let vy = 0
       if (trail.length > 0) {
         const prev = trail[trail.length - 1]
         const dt = now - prev.time
         if (dt > 0 && dt < 100) {
-          vx = (localX - prev.x) / dt // px/ms
+          vx = (localX - prev.x) / dt
+          vy = (localY - prev.y) / dt
         }
       }
       // Smooth the velocity
       smoothVx.current += (vx - smoothVx.current) * 0.4
+      smoothVy.current += (vy - smoothVy.current) * 0.4
 
-      trail.push({ x: localX, y: localY, time: now, vx: smoothVx.current })
+      trail.push({ x: localX, y: localY, time: now, vx: smoothVx.current, vy: smoothVy.current })
 
       const cutoff = now - trailDuration
       while (trail.length > 0 && trail[0].time < cutoff) {
@@ -231,8 +261,8 @@ export default function TextGlitch({
     const isDirectional = effect === "directional"
     const angleRad = (angle * Math.PI) / 180
     const cosA = Math.cos(angleRad)
-    const sinA = Math.sin(angleRad)
-    // Sensitivity scaling: convert px/ms velocity into usable displacement
+    const sinADisp = Math.sin(angleRad)
+    const sinABlend = Math.abs(sinADisp) // 0 at 0°, 1 at 90°, 0 at 180°
     const velocitySensitivity = 12
 
     const animate = () => {
@@ -243,7 +273,6 @@ export default function TextGlitch({
       const now = performance.now()
       const active = mouseActive.current
 
-      // Prune old trail points
       if (active) {
         const cutoff = now - trailDuration
         while (trail.length > 0 && trail[0].time < cutoff) {
@@ -252,7 +281,7 @@ export default function TextGlitch({
       }
 
       for (let r = 0; r < rowCount; r++) {
-        const cellCenterY = r * clampedBlockSize + clampedBlockSize / 2
+        const cellCenterY = r * rowHeight + rowHeight / 2
 
         for (let c = 0; c < colCount; c++) {
           const idx = r * colCount + c
@@ -260,11 +289,8 @@ export default function TextGlitch({
 
           if (active && trail.length > 0) {
             if (isDirectional) {
-              // ── Directional mode ──────────────────────────────────
-              // Find the trail point with the strongest influence,
-              // then use its velocity to determine displacement direction.
               let peakInfluence = 0
-              let peakVx = 0
+              let peakV = 0
               for (let p = 0; p < trail.length; p++) {
                 const pt = trail[p]
                 const age = (now - pt.time) / trailDuration
@@ -272,7 +298,9 @@ export default function TextGlitch({
 
                 let dist: number
                 if (isLine) {
-                  dist = Math.abs(pt.y - cellCenterY)
+                  const dy = Math.abs(pt.y - cellCenterY)
+                  const dx = Math.abs(pt.x - cellCenterX)
+                  dist = dy * (1 - sinABlend) + dx * sinABlend
                 } else {
                   const dx = pt.x - cellCenterX
                   const dy = pt.y - cellCenterY
@@ -283,15 +311,13 @@ export default function TextGlitch({
                 const combined = spatial * timeFade
                 if (combined > peakInfluence) {
                   peakInfluence = combined
-                  peakVx = pt.vx
+                  peakV = pt.vx * cosA + pt.vy * sinADisp
                 }
               }
 
-              // Displacement follows cursor velocity, scaled by influence
               targets[idx] =
-                peakVx * velocitySensitivity * intensity * peakInfluence
+                peakV * velocitySensitivity * intensity * peakInfluence
             } else {
-              // ── Random mode (original) ────────────────────────────
               let peakInfluence = 0
               for (let p = 0; p < trail.length; p++) {
                 const pt = trail[p]
@@ -300,7 +326,9 @@ export default function TextGlitch({
 
                 let dist: number
                 if (isLine) {
-                  dist = Math.abs(pt.y - cellCenterY)
+                  const dy = Math.abs(pt.y - cellCenterY)
+                  const dx = Math.abs(pt.x - cellCenterX)
+                  dist = dy * (1 - sinABlend) + dx * sinABlend
                 } else {
                   const dx = pt.x - cellCenterX
                   const dy = pt.y - cellCenterY
@@ -320,7 +348,6 @@ export default function TextGlitch({
             targets[idx] = 0
           }
 
-          // Lerp current toward target
           const diff = targets[idx] - disps[idx]
           if (Math.abs(diff) > 0.05) {
             disps[idx] += diff * smoothing
@@ -328,14 +355,13 @@ export default function TextGlitch({
             disps[idx] = targets[idx]
           }
 
-          // Apply to DOM
           const el = els[idx]
           if (el) {
             if (Math.abs(disps[idx]) < 0.05) {
               el.style.transform = "translate(0,0)"
             } else {
               const d = disps[idx]
-              el.style.transform = `translate(${d * cosA}px,${d * sinA}px)`
+              el.style.transform = `translate(${d * cosA}px,${d * sinADisp}px)`
             }
           }
         }
@@ -346,7 +372,7 @@ export default function TextGlitch({
 
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
-  }, [cellCount, rowCount, colCount, colWidth, clampedBlockSize, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing])
+  }, [cellCount, rowCount, colCount, colWidth, rowHeight, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing])
 
   // ── Shared text styles ─────────────────────────────────────────────────
   const textStyle: CSSProperties = {
@@ -371,8 +397,8 @@ export default function TextGlitch({
   cellEls.current = []
 
   for (let r = 0; r < rowCount; r++) {
-    const top = r * clampedBlockSize
-    const bottom = Math.max(0, containerHeight - top - clampedBlockSize)
+    const top = r * rowHeight
+    const bottom = Math.max(0, containerHeight - top - rowHeight)
 
     for (let c = 0; c < colCount; c++) {
       const idx = r * colCount + c
