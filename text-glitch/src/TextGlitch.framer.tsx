@@ -120,6 +120,15 @@ function Glitch({
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
 
+  // Track natural image dimensions so "Hug content" frames can auto-size
+  const [imgNaturalSize, setImgNaturalSize] = useState<{ w: number; h: number } | null>(null)
+  useEffect(() => {
+    if (!svgImage) { setImgNaturalSize(null); return }
+    const img = new Image()
+    img.onload = () => setImgNaturalSize({ w: img.naturalWidth, h: img.naturalHeight })
+    img.src = svgImage
+  }, [svgImage])
+
   const mouseTrail = useRef<TrailPoint[]>([])
   const mouseActive = useRef(false)
   const cellDisplacements = useRef<Float64Array>(new Float64Array(0))
@@ -474,16 +483,16 @@ function Glitch({
       {/* Hidden sizing element */}
       {isSvg ? (
         svgImage ? (
-          recolorSvg ? (
-            <div style={{ ...maskStyle, visibility: "hidden" }} aria-hidden="true" />
-          ) : (
-            <img
-              src={svgImage}
-              style={{ ...imgStyle, visibility: "hidden" }}
-              aria-hidden="true"
-              draggable={false}
-            />
-          )
+          <div
+            style={{
+              width: imgNaturalSize ? imgNaturalSize.w : "100%",
+              height: imgNaturalSize ? imgNaturalSize.h : "100%",
+              maxWidth: "100%",
+              maxHeight: "100%",
+              visibility: "hidden",
+            }}
+            aria-hidden="true"
+          />
         ) : (
           <div style={{ width: "100%", height: "100%", visibility: "hidden" }} />
         )
@@ -676,5 +685,13 @@ addPropertyControls(Glitch, {
     step: 0.01,
   },
 })
+
+// Default canvas size when the component is first placed in Framer
+// @ts-ignore — Framer reads these to set the initial frame dimensions
+Glitch.defaultProps = {
+  ...Glitch.defaultProps,
+  width: 400,
+  height: 400,
+}
 
 export default Glitch
