@@ -47,6 +47,44 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
 }
 
+// ── Easing functions ─────────────────────────────────────────────────────────
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+}
+
+function easeOutQuad(t: number): number {
+  return 1 - (1 - t) * (1 - t)
+}
+
+function easeOutExpo(t: number): number {
+  return t === 1 ? 1 : 1 - Math.pow(2, -10 * t)
+}
+
+function easeOutBounce(t: number): number {
+  const n1 = 7.5625
+  const d1 = 2.75
+  if (t < 1 / d1) {
+    return n1 * t * t
+  } else if (t < 2 / d1) {
+    t -= 1.5 / d1
+    return n1 * t * t + 0.75
+  } else if (t < 2.5 / d1) {
+    t -= 2.25 / d1
+    return n1 * t * t + 0.9375
+  } else {
+    t -= 2.625 / d1
+    return n1 * t * t + 0.984375
+  }
+}
+
+const EASING_FNS: Record<string, (t: number) => number> = {
+  smooth: easeInOutCubic,
+  gentle: easeOutQuad,
+  snap: easeOutExpo,
+  bounce: easeOutBounce,
+}
+
 const GLITCH_ATTR = "data-glitch-overlay"
 
 /**
@@ -122,6 +160,8 @@ interface Props {
   intensity?: number
   trailDuration?: number
   smoothing?: number
+  returnDuration?: number
+  returnEasing?: "smooth" | "gentle" | "snap" | "bounce"
   interaction?: "pointer" | "tilt" | "auto"
   tiltSensitivity?: number
 }
@@ -136,6 +176,8 @@ function GlitchFrame({
   intensity = 60,
   trailDuration = 300,
   smoothing = 0.12,
+  returnDuration = 600,
+  returnEasing = "smooth",
   interaction = "auto",
   tiltSensitivity = 1.0,
 }: Props) {
@@ -153,6 +195,8 @@ function GlitchFrame({
   const tiltActive = useRef(false)
   const cellDisplacements = useRef<Float64Array>(new Float64Array(0))
   const cellTargets = useRef<Float64Array>(new Float64Array(0))
+  const cellReturnStart = useRef<Float64Array>(new Float64Array(0))
+  const cellReturnTime = useRef<Float64Array>(new Float64Array(0))
   const rafId = useRef(0)
 
   const smoothVx = useRef(0)
@@ -247,6 +291,8 @@ function GlitchFrame({
     if (cellCount > 0) {
       cellDisplacements.current = new Float64Array(cellCount)
       cellTargets.current = new Float64Array(cellCount)
+      cellReturnStart.current = new Float64Array(cellCount)
+      cellReturnTime.current = new Float64Array(cellCount)
     }
   }, [cellCount])
 
@@ -523,6 +569,8 @@ function GlitchFrame({
     const velocitySensitivity = 12
     const POPULATE_THRESHOLD = 0.3
     const DEPOPULATE_THRESHOLD = 0.05
+    const easeFn = EASING_FNS[returnEasing] || EASING_FNS.smooth
+    const returnDur = returnDuration
 
     const animate = () => {
       const disps = cellDisplacements.current
@@ -534,6 +582,8 @@ function GlitchFrame({
       const populated = cellPopulatedRef.current
       const template = templateRef.current
       const base = baseRef.current
+      const returnStarts = cellReturnStart.current
+      const returnTimes = cellReturnTime.current
 
       if (active) {
         const cutoff = now - trailDuration
@@ -588,19 +638,47 @@ function GlitchFrame({
             targets[idx] = 0
           }
 
-          const diff = targets[idx] - disps[idx]
-          disps[idx] += Math.abs(diff) > 0.05 ? diff * smoothing : diff
-
           const el = els[idx]
           if (!el) continue
 
-          const absDisp = Math.abs(disps[idx])
           const absTarget = Math.abs(targets[idx])
+          const prevAbsDisp = Math.abs(disps[idx])
+
+          // ── Displacement: attack (lerp) vs return (easing) ──
+          // "Released" = trail influence has dropped well below current
+          // displacement, meaning the cell should start easing back to rest.
+          const isReleased = absTarget < Math.max(0.5, prevAbsDisp * 0.3)
+
+          if (!isReleased) {
+            // Attack: actively influenced by pointer — responsive lerp
+            returnTimes[idx] = 0
+            const diff = targets[idx] - disps[idx]
+            disps[idx] += Math.abs(diff) > 0.05 ? diff * smoothing : diff
+          } else if (prevAbsDisp > DEPOPULATE_THRESHOLD || returnTimes[idx] > 0) {
+            // Return: ease back to rest with configurable curve
+            if (returnTimes[idx] === 0) {
+              returnStarts[idx] = disps[idx]
+              returnTimes[idx] = now
+            }
+            const elapsed = now - returnTimes[idx]
+            const t = Math.min(1, elapsed / returnDur)
+            disps[idx] = returnStarts[idx] * (1 - easeFn(t))
+            if (t >= 1) {
+              disps[idx] = 0
+              returnTimes[idx] = 0
+            }
+          } else {
+            disps[idx] = 0
+            returnTimes[idx] = 0
+          }
+
+          const absDisp = Math.abs(disps[idx])
+          const isReturning = returnTimes[idx] > 0
 
           // ── Lazy population: add/remove content clones on demand ──
           if (template && populated) {
-            const needsContent = absDisp > POPULATE_THRESHOLD || absTarget > POPULATE_THRESHOLD
-            const isSettled = absDisp < DEPOPULATE_THRESHOLD && absTarget < DEPOPULATE_THRESHOLD
+            const needsContent = absDisp > POPULATE_THRESHOLD || absTarget > POPULATE_THRESHOLD || isReturning
+            const isSettled = !isReturning && absDisp < DEPOPULATE_THRESHOLD && absTarget < DEPOPULATE_THRESHOLD
 
             if (needsContent && !populated[idx]) {
               el.appendChild(template.cloneNode(true) as HTMLDivElement)
@@ -653,7 +731,7 @@ function GlitchFrame({
 
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
-  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing])
+  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing, returnDuration, returnEasing])
 
   // ── Render: invisible self-marker ───────────────────────────────────────
 
@@ -761,6 +839,22 @@ addPropertyControls(GlitchFrame, {
     min: 0.02,
     max: 0.5,
     step: 0.01,
+  },
+  returnDuration: {
+    type: ControlType.Number,
+    title: "Return Duration",
+    defaultValue: 600,
+    min: 100,
+    max: 2000,
+    step: 50,
+    unit: "ms",
+  },
+  returnEasing: {
+    type: ControlType.Enum,
+    title: "Return Easing",
+    defaultValue: "smooth",
+    options: ["smooth", "gentle", "snap", "bounce"],
+    optionTitles: ["Smooth", "Gentle", "Snap", "Bounce"],
   },
 })
 
