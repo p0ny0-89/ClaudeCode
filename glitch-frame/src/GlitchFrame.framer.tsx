@@ -255,28 +255,52 @@ function GlitchFrame({
     const siblings: HTMLElement[] = []
     for (const child of Array.from(parent.children)) {
       const el = child as HTMLElement
-      if (el.contains(self)) continue // skip wrapper chain containing our component
+      if (el.contains(self)) continue
       if (el.hasAttribute(GLITCH_ATTR)) continue
       siblings.push(el)
     }
 
     if (siblings.length === 0) return
 
-    // Hide originals
-    const origDisplay: string[] = siblings.map((s) => s.style.visibility)
-    siblings.forEach((s) => { s.style.visibility = "hidden" })
+    /**
+     * Clone the entire parent to preserve its layout context (flex, grid,
+     * auto-layout, etc.), then strip decorative styles and remove the
+     * GlitchFrame component's wrapper chain from the clone.
+     */
+    const cloneParentContent = (): HTMLDivElement => {
+      const pc = parent.cloneNode(true) as HTMLDivElement
 
-    // Clone all siblings into a wrapper
-    const cloneSiblings = (): HTMLDivElement => {
-      const wrapper = document.createElement("div")
-      wrapper.style.cssText = "position:absolute;inset:0;pointer-events:none;"
-      for (const sib of siblings) {
-        const clone = sib.cloneNode(true) as HTMLElement
-        clone.style.visibility = "visible"
+      // Remove glitch overlay elements from clone
+      pc.querySelectorAll(`[${GLITCH_ATTR}]`).forEach((n) => n.remove())
 
-        wrapper.appendChild(clone)
-      }
-      return wrapper
+      // Remove GlitchFrame component wrapper chain from clone
+      pc.querySelectorAll("[data-glitch-frame]").forEach((gf) => {
+        let el: HTMLElement | null = gf as HTMLElement
+        while (el && el.parentElement !== pc) el = el.parentElement
+        if (el) el.remove()
+      })
+
+      // Restore visibility on any children hidden by a previous pass
+      pc.querySelectorAll("*").forEach((n) => {
+        const h = n as HTMLElement
+        if (h.style?.visibility === "hidden") h.style.visibility = "visible"
+      })
+
+      // Position as overlay that preserves the parent's layout rules
+      pc.style.position = "absolute"
+      pc.style.inset = "0"
+      pc.style.margin = "0"
+      pc.style.pointerEvents = "none"
+
+      // Strip decorative styles (keep layout: display, flex, gap, padding…)
+      pc.style.background = "none"
+      pc.style.backgroundColor = "transparent"
+      pc.style.border = "none"
+      pc.style.boxShadow = "none"
+      pc.style.outline = "none"
+      pc.style.overflow = "visible"
+
+      return pc
     }
 
     // Create overlay
@@ -284,7 +308,7 @@ function GlitchFrame({
     overlay.setAttribute(GLITCH_ATTR, "true")
     overlay.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:999;${clipOverflow ? "overflow:hidden;" : ""}`
 
-    // Build cells
+    // Build cells — each cell contains a full parent-layout clone
     const cells: HTMLDivElement[] = []
     for (let r = 0; r < rowCount; r++) {
       const top = r * rowHeight
@@ -294,22 +318,26 @@ function GlitchFrame({
         const right = Math.max(0, pw - left - colWidth)
         const cell = document.createElement("div")
         cell.style.cssText = `position:absolute;inset:0;clip-path:inset(${top}px ${right}px ${bottom}px ${left}px);will-change:transform;backface-visibility:hidden;`
-        cell.appendChild(cloneSiblings())
+        cell.appendChild(cloneParentContent())
         overlay.appendChild(cell)
         cells.push(cell)
       }
     }
 
+    // Append overlay BEFORE hiding originals (so content is never invisible)
     parent.appendChild(overlay)
     overlayRef.current = overlay
     cellEls.current = cells
+
+    // Now hide the original siblings
+    const origVisibility: string[] = siblings.map((s) => s.style.visibility)
+    siblings.forEach((s) => { s.style.visibility = "hidden" })
 
     return () => {
       overlay.remove()
       overlayRef.current = null
       cellEls.current = []
-      // Restore original visibility
-      siblings.forEach((s, i) => { s.style.visibility = origDisplay[i] })
+      siblings.forEach((s, i) => { s.style.visibility = origVisibility[i] })
     }
   }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, clipOverflow, rebuildKey])
 
