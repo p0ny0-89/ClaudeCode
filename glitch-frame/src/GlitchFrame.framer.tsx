@@ -273,7 +273,7 @@ function GlitchFrame({
       for (const sib of siblings) {
         const clone = sib.cloneNode(true) as HTMLElement
         clone.style.visibility = "visible"
-        clone.removeAttribute(SELF_ATTR)
+
         wrapper.appendChild(clone)
       }
       return wrapper
