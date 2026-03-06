@@ -160,6 +160,7 @@ interface Props {
   intensity?: number
   trailDuration?: number
   smoothing?: number
+  invert?: boolean
   returnDuration?: number
   returnEasing?: "smooth" | "gentle" | "snap" | "bounce"
   interaction?: "pointer" | "tilt" | "auto"
@@ -176,6 +177,7 @@ function GlitchFrame({
   intensity = 60,
   trailDuration = 300,
   smoothing = 0.12,
+  invert = false,
   returnDuration = 600,
   returnEasing = "smooth",
   interaction = "auto",
@@ -615,6 +617,7 @@ function GlitchFrame({
                 const combined = falloff(dist, influenceRadius) * timeFade
                 if (combined > peakInfluence) { peakInfluence = combined; peakV = pt.vx * cosA + pt.vy * sinADisp }
               }
+              if (invert) peakInfluence = 1 - peakInfluence
               targets[idx] = peakV * velocitySensitivity * intensity * peakInfluence
             } else {
               let peakInfluence = 0
@@ -632,6 +635,7 @@ function GlitchFrame({
                 const combined = falloff(dist, influenceRadius) * timeFade
                 if (combined > peakInfluence) peakInfluence = combined
               }
+              if (invert) peakInfluence = 1 - peakInfluence
               targets[idx] = cellDirection(idx) * cellMagnitude(idx) * intensity * peakInfluence
             }
           } else {
@@ -731,7 +735,7 @@ function GlitchFrame({
 
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
-  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing, returnDuration, returnEasing])
+  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing, invert, returnDuration, returnEasing])
 
   // ── Render: invisible self-marker ───────────────────────────────────────
 
@@ -790,6 +794,11 @@ addPropertyControls(GlitchFrame, {
     max: 3.0,
     step: 0.1,
     hidden: (props: any) => props.interaction === "pointer",
+  },
+  invert: {
+    type: ControlType.Boolean,
+    title: "Invert",
+    defaultValue: false,
   },
   clipOverflow: {
     type: ControlType.Boolean,
