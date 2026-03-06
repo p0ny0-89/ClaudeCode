@@ -51,7 +51,8 @@ function clamp(v: number, min: number, max: number): number {
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type GlitchScope = "line" | "word" | "character"
-export type GlitchEffect = "random" | "directional"
+export type GlitchEffect = "random" | "directional" | "parallax"
+export type GlitchDirectionMode = "cursor" | "manual"
 export type GlitchInteraction = "pointer" | "tilt" | "auto"
 
 interface TrailPoint {
@@ -67,6 +68,7 @@ export interface GlitchFrameProps {
   blockSize?: number
   scope?: GlitchScope
   effect?: GlitchEffect
+  directionMode?: GlitchDirectionMode
   angle?: number
   clipOverflow?: boolean
   influenceRadius?: number
@@ -85,6 +87,7 @@ export default function GlitchFrame({
   blockSize = 8,
   scope = "line",
   effect = "random",
+  directionMode = "cursor",
   angle = 0,
   clipOverflow = true,
   influenceRadius = 140,
@@ -103,6 +106,8 @@ export default function GlitchFrame({
   const tiltActive = useRef(false)
   const cellDisplacements = useRef<Float64Array>(new Float64Array(0))
   const cellTargets = useRef<Float64Array>(new Float64Array(0))
+  const cellDispsX = useRef<Float64Array>(new Float64Array(0))
+  const cellDispsY = useRef<Float64Array>(new Float64Array(0))
   const cellEls = useRef<HTMLDivElement[]>([])
   const rafId = useRef(0)
 
@@ -175,6 +180,8 @@ export default function GlitchFrame({
     if (cellCount > 0) {
       cellDisplacements.current = new Float64Array(cellCount)
       cellTargets.current = new Float64Array(cellCount)
+      cellDispsX.current = new Float64Array(cellCount)
+      cellDispsY.current = new Float64Array(cellCount)
     }
   }, [cellCount])
 
@@ -339,6 +346,7 @@ export default function GlitchFrame({
 
     const isLine = scope === "line"
     const isDirectional = effect === "directional"
+    const isCursorDir = directionMode === "cursor"
     const angleRad = (angle * Math.PI) / 180
     const cosA = Math.cos(angleRad)
     const sinADisp = Math.sin(angleRad)
@@ -348,6 +356,8 @@ export default function GlitchFrame({
     const animate = () => {
       const disps = cellDisplacements.current
       const targets = cellTargets.current
+      const pdx = cellDispsX.current
+      const pdy = cellDispsY.current
       const els = cellEls.current
       const trail = mouseTrail.current
       const now = performance.now()
@@ -367,81 +377,101 @@ export default function GlitchFrame({
           const idx = r * colCount + c
           const cellCenterX = c * colWidth + colWidth / 2
 
-          if (active && trail.length > 0) {
-            if (isDirectional) {
-              let peakInfluence = 0
-              let peakV = 0
+          if (isCursorDir) {
+            // ── Cursor-driven direction: 2D velocity-based ──
+            if (active && trail.length > 0) {
+              let peakInfluence = 0, peakVx = 0, peakVy = 0
               for (let p = 0; p < trail.length; p++) {
                 const pt = trail[p]
                 const age = (now - pt.time) / trailDuration
                 const timeFade = Math.max(0, 1 - age)
-
                 let dist: number
                 if (isLine) {
-                  const dy = Math.abs(pt.y - cellCenterY)
-                  const dx = Math.abs(pt.x - cellCenterX)
-                  dist = dy * (1 - sinABlend) + dx * sinABlend
+                  dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
                 } else {
-                  const dx = pt.x - cellCenterX
-                  const dy = pt.y - cellCenterY
-                  dist = Math.sqrt(dx * dx + dy * dy)
+                  const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
+                  dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
                 }
-
-                const spatial = falloff(dist, influenceRadius)
-                const combined = spatial * timeFade
+                const combined = falloff(dist, influenceRadius) * timeFade
                 if (combined > peakInfluence) {
                   peakInfluence = combined
-                  peakV = pt.vx * cosA + pt.vy * sinADisp
+                  peakVx = pt.vx; peakVy = pt.vy
                 }
               }
-
-              targets[idx] =
-                peakV * velocitySensitivity * intensity * peakInfluence
+              const mag = isDirectional ? 1 : cellMagnitude(idx)
+              const targetX = peakVx * velocitySensitivity * intensity * peakInfluence * mag
+              const targetY = peakVy * velocitySensitivity * intensity * peakInfluence * mag
+              pdx[idx] += (targetX - pdx[idx]) * smoothing
+              pdy[idx] += (targetY - pdy[idx]) * smoothing
             } else {
-              let peakInfluence = 0
-              for (let p = 0; p < trail.length; p++) {
-                const pt = trail[p]
-                const age = (now - pt.time) / trailDuration
-                const timeFade = Math.max(0, 1 - age)
-
-                let dist: number
-                if (isLine) {
-                  const dy = Math.abs(pt.y - cellCenterY)
-                  const dx = Math.abs(pt.x - cellCenterX)
-                  dist = dy * (1 - sinABlend) + dx * sinABlend
-                } else {
-                  const dx = pt.x - cellCenterX
-                  const dy = pt.y - cellCenterY
-                  dist = Math.sqrt(dx * dx + dy * dy)
-                }
-
-                const spatial = falloff(dist, influenceRadius)
-                const combined = spatial * timeFade
-                if (combined > peakInfluence) peakInfluence = combined
-              }
-
-              const dir = cellDirection(idx)
-              const mag = cellMagnitude(idx)
-              targets[idx] = dir * mag * intensity * peakInfluence
+              pdx[idx] += (0 - pdx[idx]) * smoothing
+              pdy[idx] += (0 - pdy[idx]) * smoothing
+              if (Math.abs(pdx[idx]) < 0.01) pdx[idx] = 0
+              if (Math.abs(pdy[idx]) < 0.01) pdy[idx] = 0
+            }
+            const el = els[idx]
+            if (el) {
+              const absPX = Math.abs(pdx[idx]) + Math.abs(pdy[idx])
+              el.style.transform = absPX < 0.05
+                ? "translate(0,0)"
+                : `translate(${pdx[idx]}px,${pdy[idx]}px)`
             }
           } else {
-            targets[idx] = 0
-          }
-
-          const diff = targets[idx] - disps[idx]
-          if (Math.abs(diff) > 0.05) {
-            disps[idx] += diff * smoothing
-          } else {
-            disps[idx] = targets[idx]
-          }
-
-          const el = els[idx]
-          if (el) {
-            if (Math.abs(disps[idx]) < 0.05) {
-              el.style.transform = "translate(0,0)"
+            // ── Manual direction: 1D projection ──
+            if (active && trail.length > 0) {
+              if (isDirectional) {
+                let peakInfluence = 0, peakV = 0
+                for (let p = 0; p < trail.length; p++) {
+                  const pt = trail[p]
+                  const age = (now - pt.time) / trailDuration
+                  const timeFade = Math.max(0, 1 - age)
+                  let dist: number
+                  if (isLine) {
+                    dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
+                  } else {
+                    const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
+                    dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                  }
+                  const combined = falloff(dist, influenceRadius) * timeFade
+                  if (combined > peakInfluence) {
+                    peakInfluence = combined
+                    peakV = pt.vx * cosA + pt.vy * sinADisp
+                  }
+                }
+                targets[idx] = peakV * velocitySensitivity * intensity * peakInfluence
+              } else {
+                let peakInfluence = 0
+                for (let p = 0; p < trail.length; p++) {
+                  const pt = trail[p]
+                  const age = (now - pt.time) / trailDuration
+                  const timeFade = Math.max(0, 1 - age)
+                  let dist: number
+                  if (isLine) {
+                    dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
+                  } else {
+                    const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
+                    dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                  }
+                  const combined = falloff(dist, influenceRadius) * timeFade
+                  if (combined > peakInfluence) peakInfluence = combined
+                }
+                targets[idx] = cellDirection(idx) * cellMagnitude(idx) * intensity * peakInfluence
+              }
             } else {
-              const d = disps[idx]
-              el.style.transform = `translate(${d * cosA}px,${d * sinADisp}px)`
+              targets[idx] = 0
+            }
+
+            const diff = targets[idx] - disps[idx]
+            disps[idx] += Math.abs(diff) > 0.05 ? diff * smoothing : diff
+
+            const el = els[idx]
+            if (el) {
+              if (Math.abs(disps[idx]) < 0.05) {
+                el.style.transform = "translate(0,0)"
+              } else {
+                const d = disps[idx]
+                el.style.transform = `translate(${d * cosA}px,${d * sinADisp}px)`
+              }
             }
           }
         }
@@ -460,6 +490,7 @@ export default function GlitchFrame({
     rowHeight,
     scope,
     effect,
+    directionMode,
     angle,
     influenceRadius,
     intensity,

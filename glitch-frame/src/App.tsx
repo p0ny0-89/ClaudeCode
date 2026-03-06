@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from "react"
-import GlitchFrame, { type GlitchScope, type GlitchEffect, type GlitchInteraction } from "./GlitchFrame"
+import GlitchFrame, { type GlitchScope, type GlitchEffect, type GlitchDirectionMode, type GlitchInteraction } from "./GlitchFrame"
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
@@ -64,6 +64,7 @@ const dividerStyle: CSSProperties = {
 export default function App() {
   const [scope, setScope] = useState<GlitchScope>("line")
   const [effect, setEffect] = useState<GlitchEffect>("random")
+  const [directionMode, setDirectionMode] = useState<GlitchDirectionMode>("cursor")
   const [interaction, setInteraction] = useState<GlitchInteraction>("auto")
   const [angle, setAngle] = useState(0)
   const [blockSize, setBlockSize] = useState(8)
@@ -89,6 +90,7 @@ export default function App() {
       <GlitchFrame
         scope={scope}
         effect={effect}
+        directionMode={directionMode}
         angle={angle}
         blockSize={blockSize}
         clipOverflow={clipOverflow}
@@ -198,15 +200,29 @@ export default function App() {
           <option value="character">Block</option>
         </select>
 
-        <div style={labelStyle}>
-          <span>Direction</span>
-          <span style={{ color: "#fff" }}>{angle}°</span>
-        </div>
-        <input
-          type="range" min={0} max={180} value={angle}
-          onChange={(e) => setAngle(+e.target.value)}
-          style={sliderStyle}
-        />
+        <div style={labelStyle}><span>Direction</span></div>
+        <select
+          value={directionMode}
+          onChange={(e) => setDirectionMode(e.target.value as GlitchDirectionMode)}
+          style={selectStyle}
+        >
+          <option value="cursor">Cursor</option>
+          <option value="manual">Manual</option>
+        </select>
+
+        {directionMode === "manual" && (
+          <>
+            <div style={labelStyle}>
+              <span>Angle</span>
+              <span style={{ color: "#fff" }}>{angle}°</span>
+            </div>
+            <input
+              type="range" min={0} max={180} value={angle}
+              onChange={(e) => setAngle(+e.target.value)}
+              style={sliderStyle}
+            />
+          </>
+        )}
 
         <hr style={dividerStyle} />
 
