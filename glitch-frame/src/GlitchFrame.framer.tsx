@@ -4,8 +4,8 @@
  * Copy this entire file into Framer's Code Editor (Assets → Code → New File).
  * The component will appear in your Insert menu as "Glitch Frame".
  *
- * Drop any content (text, images, stacks, video) INSIDE this component
- * on the canvas, and the glitch effect applies to whatever is nested.
+ * Connect any frame or component to the "Content" slot in the properties panel,
+ * and the glitch effect applies to whatever is connected.
  *
  * On mobile, the effect responds to phone tilting via the DeviceOrientation API.
  */
@@ -63,7 +63,7 @@ interface TrailPoint {
 // ── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
-  children?: React.ReactNode
+  content?: React.ReactNode
   blockSize?: number
   scope?: "line" | "word" | "character"
   effect?: "random" | "directional"
@@ -81,7 +81,7 @@ interface Props {
 }
 
 function GlitchFrame({
-  children,
+  content,
   blockSize = 8,
   scope = "line",
   effect = "random",
@@ -514,7 +514,7 @@ function GlitchFrame({
             backfaceVisibility: "hidden",
           }}
         >
-          {children}
+          {content}
         </div>
       )
     }
@@ -534,9 +534,9 @@ function GlitchFrame({
         ...style,
       }}
     >
-      {/* Children define the size — render them visually hidden for layout */}
+      {/* Content defines the size — render it visually hidden for layout */}
       <div style={{ visibility: "hidden", pointerEvents: "none" }}>
-        {children}
+        {content}
       </div>
 
       {/* Glitch cell overlay */}
@@ -552,6 +552,10 @@ function GlitchFrame({
 // ── Framer Property Controls ─────────────────────────────────────────────────
 
 addPropertyControls(GlitchFrame, {
+  content: {
+    type: ControlType.ComponentInstance,
+    title: "Content",
+  },
   effect: {
     type: ControlType.Enum,
     title: "Effect",
