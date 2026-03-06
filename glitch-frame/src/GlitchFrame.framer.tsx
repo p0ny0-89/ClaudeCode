@@ -48,7 +48,59 @@ function clamp(v: number, min: number, max: number): number {
 }
 
 const GLITCH_ATTR = "data-glitch-overlay"
-const SELF_ATTR = "data-glitch-frame"
+
+/**
+ * Walk up from self until we find an ancestor that has other visible children
+ * (i.e. the user's frame, not a Framer component wrapper).
+ */
+function findTargetParent(self: HTMLElement): HTMLElement | null {
+  let el = self.parentElement
+  while (el) {
+    const hasOtherContent = Array.from(el.children).some((child) => {
+      if (child.contains(self)) return false
+      if ((child as HTMLElement).hasAttribute?.(GLITCH_ATTR)) return false
+      return true
+    })
+    if (hasOtherContent) return el
+    el = el.parentElement
+  }
+  return null
+}
+
+/**
+ * Collapse all wrapper elements between `self` and `targetParent` so they
+ * take zero space in auto-layout / stacks.
+ */
+function collapseWrappers(self: HTMLElement, targetParent: HTMLElement): (() => void) {
+  const origStyles: { el: HTMLElement; pos: string; w: string; h: string; ov: string; min: string }[] = []
+  let wrapper = self.parentElement
+  while (wrapper && wrapper !== targetParent) {
+    origStyles.push({
+      el: wrapper,
+      pos: wrapper.style.position,
+      w: wrapper.style.width,
+      h: wrapper.style.height,
+      ov: wrapper.style.overflow,
+      min: wrapper.style.minHeight,
+    })
+    wrapper.style.position = "absolute"
+    wrapper.style.width = "0"
+    wrapper.style.height = "0"
+    wrapper.style.overflow = "visible"
+    wrapper.style.minHeight = "0"
+    wrapper = wrapper.parentElement
+  }
+  // Return a restore function
+  return () => {
+    for (const s of origStyles) {
+      s.el.style.position = s.pos
+      s.el.style.width = s.w
+      s.el.style.height = s.h
+      s.el.style.overflow = s.ov
+      s.el.style.minHeight = s.min
+    }
+  }
+}
 
 interface TrailPoint {
   x: number
@@ -139,17 +191,24 @@ function GlitchFrame({
 
   const cellCount = rowCount * colCount
 
-  // ── Phase 1: Find parent, observe size ──────────────────────────────────
+  // ── Phase 1: Find parent, collapse wrappers, observe size ────────────────
 
   useEffect(() => {
     const self = selfRef.current
     if (!self) return
-    const parent = self.parentElement as HTMLElement
+
+    // Skip past Framer wrapper(s) to the actual user frame
+    const parent = findTargetParent(self)
     if (!parent) return
     parentRef.current = parent
 
+    // Collapse any intermediate Framer wrapper elements so they don't
+    // interfere with auto-layout / stacks
+    const restoreWrappers = collapseWrappers(self, parent)
+
     // Ensure parent is positioned for absolute overlay
     const cs = getComputedStyle(parent)
+    const origPosition = parent.style.position
     if (cs.position === "static") {
       parent.style.position = "relative"
     }
@@ -163,6 +222,8 @@ function GlitchFrame({
     ro.observe(parent)
     return () => {
       ro.disconnect()
+      restoreWrappers()
+      parent.style.position = origPosition
       parentRef.current = null
     }
   }, [])
@@ -190,11 +251,11 @@ function GlitchFrame({
       overlayRef.current = null
     }
 
-    // Gather siblings (skip self and any previous overlay)
+    // Gather siblings (skip our wrapper chain and any previous overlay)
     const siblings: HTMLElement[] = []
     for (const child of Array.from(parent.children)) {
       const el = child as HTMLElement
-      if (el === self) continue
+      if (el.contains(self)) continue // skip wrapper chain containing our component
       if (el.hasAttribute(GLITCH_ATTR)) continue
       siblings.push(el)
     }
@@ -261,10 +322,12 @@ function GlitchFrame({
 
     let timeout: ReturnType<typeof setTimeout>
     const mo = new MutationObserver((mutations) => {
-      // Ignore mutations inside our overlay or to ourselves
+      // Ignore mutations inside our overlay or our wrapper chain
       const relevant = mutations.some((m) => {
         const target = m.target as HTMLElement
-        if (target === self) return false
+        if (!target) return false
+        if (target.contains?.(self)) return false // wrapper chain
+        if (self.contains?.(target)) return false // inside self
         if (target.hasAttribute?.(GLITCH_ATTR)) return false
         if (target.closest?.(`[${GLITCH_ATTR}]`)) return false
         return true
