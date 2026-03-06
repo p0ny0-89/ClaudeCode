@@ -143,8 +143,6 @@ function GlitchFrame({
   const overlayRef = useRef<HTMLDivElement | null>(null)
   const parentRef = useRef<HTMLElement | null>(null)
   const cellEls = useRef<HTMLDivElement[]>([])
-  const templateRef = useRef<HTMLDivElement | null>(null)
-  const cellPopulatedRef = useRef<boolean[]>([])
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 })
 
   const mouseTrail = useRef<TrailPoint[]>([])
@@ -299,23 +297,16 @@ function GlitchFrame({
       pc.style.overflow = "visible"
       return pc
     })()
-    templateRef.current = template
 
     // Create overlay
     const overlay = document.createElement("div")
     overlay.setAttribute(GLITCH_ATTR, "true")
     overlay.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:999;${clipOverflow ? "overflow:hidden;" : ""}`
 
-    // Base layer — single undisplaced content clone (visible through empty cells)
-    const base = template.cloneNode(true) as HTMLDivElement
-    base.style.zIndex = "0"
-    overlay.appendChild(base)
-
-    // Build lightweight empty cell divs via DocumentFragment (content added
-    // lazily by the animation loop only when displacement is non-zero)
+    // Build cells via DocumentFragment — each gets a cheap template clone
+    // (cleanup ran once on the template; cloneNode just copies the clean DOM)
     const frag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
-    const populated: boolean[] = []
     for (let r = 0; r < rowCount; r++) {
       const top = r * rowHeight
       const bottom = Math.max(0, ph - top - rowHeight)
@@ -323,10 +314,10 @@ function GlitchFrame({
         const left = c * colWidth
         const right = Math.max(0, pw - left - colWidth)
         const cell = document.createElement("div")
-        cell.style.cssText = `position:absolute;inset:0;clip-path:inset(${top}px ${right}px ${bottom}px ${left}px);will-change:transform;backface-visibility:hidden;contain:strict;z-index:1;`
+        cell.style.cssText = `position:absolute;inset:0;clip-path:inset(${top}px ${right}px ${bottom}px ${left}px);will-change:transform;backface-visibility:hidden;contain:strict;`
+        cell.appendChild(template.cloneNode(true) as HTMLDivElement)
         frag.appendChild(cell)
         cells.push(cell)
-        populated.push(false)
       }
     }
     overlay.appendChild(frag)
@@ -335,7 +326,6 @@ function GlitchFrame({
     parent.appendChild(overlay)
     overlayRef.current = overlay
     cellEls.current = cells
-    cellPopulatedRef.current = populated
 
     // Now hide the original siblings
     const origVisibility: string[] = siblings.map((s) => s.style.visibility)
@@ -345,8 +335,6 @@ function GlitchFrame({
       overlay.remove()
       overlayRef.current = null
       cellEls.current = []
-      cellPopulatedRef.current = []
-      templateRef.current = null
       siblings.forEach((s, i) => { s.style.visibility = origVisibility[i] })
     }
   }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, clipOverflow, rebuildKey])
@@ -504,7 +492,7 @@ function GlitchFrame({
     }
   }, [interaction, trailDuration, tiltSensitivity])
 
-  // ── Phase 5: Animation loop (with lazy cell population) ─────────────────
+  // ── Phase 5: Animation loop ─────────────────────────────────────────────
 
   useEffect(() => {
     if (cellCount === 0) return
@@ -516,8 +504,6 @@ function GlitchFrame({
     const sinADisp = Math.sin(angleRad)
     const sinABlend = Math.abs(sinADisp)
     const velocitySensitivity = 12
-    const POPULATE_THRESHOLD = 0.3   // add content clone when displacement exceeds this
-    const DEPOPULATE_THRESHOLD = 0.05 // remove content clone when fully settled below this
 
     const animate = () => {
       const disps = cellDisplacements.current
@@ -526,8 +512,6 @@ function GlitchFrame({
       const trail = mouseTrail.current
       const now = performance.now()
       const active = mouseActive.current || tiltActive.current
-      const populated = cellPopulatedRef.current
-      const template = templateRef.current
 
       if (active) {
         const cutoff = now - trailDuration
@@ -586,32 +570,12 @@ function GlitchFrame({
           const el = els[idx]
           if (!el) continue
 
-          const absDisp = Math.abs(disps[idx])
-          const absTarget = Math.abs(targets[idx])
-
-          // ── Lazy population: add/remove content clones on demand ──
-          // Cells at rest stay empty (the base layer shows through).
-          // Only cells with visible displacement get a content clone.
-          if (template && populated) {
-            const needsContent = absDisp > POPULATE_THRESHOLD || absTarget > POPULATE_THRESHOLD
-            const isSettled = absDisp < DEPOPULATE_THRESHOLD && absTarget < DEPOPULATE_THRESHOLD
-
-            if (needsContent && !populated[idx]) {
-              el.appendChild(template.cloneNode(true) as HTMLDivElement)
-              populated[idx] = true
-            } else if (isSettled && populated[idx]) {
-              while (el.firstChild) el.removeChild(el.firstChild)
-              populated[idx] = false
-            }
-          }
-
-          // Only write transform when cell has visible content
-          if (populated && populated[idx]) {
-            el.style.transform = absDisp < 0.05
-              ? "none"
-              : `translate(${disps[idx] * cosA}px,${disps[idx] * sinADisp}px)`
-          } else if (el.style.transform !== "none") {
-            el.style.transform = "none"
+          // Skip redundant transform writes on cells at rest
+          const d = disps[idx]
+          if (Math.abs(d) < 0.05) {
+            if (el.style.transform !== "none") el.style.transform = "none"
+          } else {
+            el.style.transform = `translate(${d * cosA}px,${d * sinADisp}px)`
           }
         }
       }
