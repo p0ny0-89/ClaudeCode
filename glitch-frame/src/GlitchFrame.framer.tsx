@@ -154,6 +154,7 @@ interface Props {
   blockSize?: number
   scope?: "line" | "word" | "character"
   effect?: "random" | "directional" | "parallax"
+  directionMode?: "cursor" | "manual"
   angle?: number
   clipOverflow?: boolean
   influenceRadius?: number
@@ -173,6 +174,7 @@ function GlitchFrame({
   blockSize = 8,
   scope = "line",
   effect = "random",
+  directionMode = "cursor",
   angle = 0,
   clipOverflow = true,
   influenceRadius = 140,
@@ -584,6 +586,7 @@ function GlitchFrame({
     const isLine = scope === "line"
     const isDirectional = effect === "directional"
     const isParallax = effect === "parallax"
+    const isCursorDir = directionMode === "cursor" && !isParallax
     const angleRad = (angle * Math.PI) / 180
     const cosA = Math.cos(angleRad)
     const sinADisp = Math.sin(angleRad)
@@ -640,35 +643,88 @@ function GlitchFrame({
               pdx[idx] += (targetX - pdx[idx]) * smoothing
               pdy[idx] += (targetY - pdy[idx]) * smoothing
             } else if (!active) {
-              // Return to rest when cursor leaves
               pdx[idx] += (0 - pdx[idx]) * smoothing
               pdy[idx] += (0 - pdy[idx]) * smoothing
               if (Math.abs(pdx[idx]) < 0.01) pdx[idx] = 0
               if (Math.abs(pdy[idx]) < 0.01) pdy[idx] = 0
             }
             // isStationary + active: freeze in place (skip lerp)
+          } else if (isCursorDir) {
+            // ── Cursor-driven direction: 2D velocity-based displacement ──
+            if (isStationary) {
+              // Freeze: pdx/pdy stay at current values
+            } else if (invert && active) {
+              // Inverted + cursor: calm zone at pointer, velocity-driven outside
+              const mx = lastPointerPos.current.x
+              const my = lastPointerPos.current.y
+              let dist: number
+              if (isLine) {
+                dist = Math.abs(my - cellCenterY) * (1 - sinABlend) + Math.abs(mx - cellCenterX) * sinABlend
+              } else {
+                const dx2 = mx - cellCenterX, dy2 = my - cellCenterY
+                dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+              }
+              const rawInfluence = falloff(dist, influenceRadius)
+              const invertedInfluence = Math.pow(Math.max(0, 1 - rawInfluence * 22.76), 2)
+              let peakVx = 0, peakVy = 0
+              if (trail.length > 0) {
+                const latest = trail[trail.length - 1]
+                peakVx = latest.vx; peakVy = latest.vy
+              }
+              const mag = isDirectional ? 1 : cellMagnitude(idx)
+              const targetX = peakVx * velocitySensitivity * intensity * invertedInfluence * mag
+              const targetY = peakVy * velocitySensitivity * intensity * invertedInfluence * mag
+              pdx[idx] += (targetX - pdx[idx]) * smoothing
+              pdy[idx] += (targetY - pdy[idx]) * smoothing
+            } else if (active && trail.length > 0) {
+              // Normal cursor mode: find peak-influence trail point, use its velocity
+              let peakInfluence = 0, peakVx = 0, peakVy = 0
+              for (let p = 0; p < trail.length; p++) {
+                const pt = trail[p]
+                const age = (now - pt.time) / trailDuration
+                const timeFade = Math.max(0, 1 - age)
+                let dist: number
+                if (isLine) {
+                  dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
+                } else {
+                  const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
+                  dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                }
+                const combined = falloff(dist, influenceRadius) * timeFade
+                if (combined > peakInfluence) {
+                  peakInfluence = combined
+                  peakVx = pt.vx; peakVy = pt.vy
+                }
+              }
+              const mag = isDirectional ? 1 : cellMagnitude(idx)
+              const targetX = peakVx * velocitySensitivity * intensity * peakInfluence * mag
+              const targetY = peakVy * velocitySensitivity * intensity * peakInfluence * mag
+              pdx[idx] += (targetX - pdx[idx]) * smoothing
+              pdy[idx] += (targetY - pdy[idx]) * smoothing
+            } else {
+              // Return to rest
+              pdx[idx] += (0 - pdx[idx]) * smoothing
+              pdy[idx] += (0 - pdy[idx]) * smoothing
+              if (Math.abs(pdx[idx]) < 0.01) pdx[idx] = 0
+              if (Math.abs(pdy[idx]) < 0.01) pdy[idx] = 0
+            }
           } else if (isStationary) {
-            // Freeze: skip target recalculation, targets stay at last values
+            // Manual mode freeze: targets stay at last values
           } else if (invert && active) {
-            // ── Inverted: use lastPointerPos directly (no trail dependency) ──
-            // Calm zone persists as long as cursor is over parent,
-            // independent of trail point expiration.
+            // ── Manual inverted: use lastPointerPos directly (1D) ──
             const mx = lastPointerPos.current.x
             const my = lastPointerPos.current.y
             let dist: number
             if (isLine) {
               dist = Math.abs(my - cellCenterY) * (1 - sinABlend) + Math.abs(mx - cellCenterX) * sinABlend
             } else {
-              const dx = mx - cellCenterX, dy = my - cellCenterY
-              dist = Math.sqrt(dx * dx + dy * dy)
+              const dx2 = mx - cellCenterX, dy2 = my - cellCenterY
+              dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
             }
             const rawInfluence = falloff(dist, influenceRadius)
-            // Sharp inversion: cells inside radius → 0, outside → ramps up.
-            // 22.76 ≈ exp(3.125) = 1/falloff(radius, radius).
             const invertedInfluence = Math.pow(Math.max(0, 1 - rawInfluence * 22.76), 2)
 
             if (isDirectional) {
-              // Use latest trail velocity if available, otherwise 0
               let peakV = 0
               if (trail.length > 0) {
                 const latest = trail[trail.length - 1]
@@ -679,7 +735,7 @@ function GlitchFrame({
               targets[idx] = cellDirection(idx) * cellMagnitude(idx) * intensity * invertedInfluence
             }
           } else if (active && trail.length > 0) {
-            // ── Normal mode: trail-based influence ──
+            // ── Manual normal mode: trail-based influence (1D) ──
             if (isDirectional) {
               let peakInfluence = 0, peakV = 0
               for (let p = 0; p < trail.length; p++) {
@@ -690,8 +746,8 @@ function GlitchFrame({
                 if (isLine) {
                   dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
                 } else {
-                  const dx = pt.x - cellCenterX, dy = pt.y - cellCenterY
-                  dist = Math.sqrt(dx * dx + dy * dy)
+                  const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
+                  dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
                 }
                 const combined = falloff(dist, influenceRadius) * timeFade
                 if (combined > peakInfluence) { peakInfluence = combined; peakV = pt.vx * cosA + pt.vy * sinADisp }
@@ -707,8 +763,8 @@ function GlitchFrame({
                 if (isLine) {
                   dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
                 } else {
-                  const dx = pt.x - cellCenterX, dy = pt.y - cellCenterY
-                  dist = Math.sqrt(dx * dx + dy * dy)
+                  const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
+                  dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
                 }
                 const combined = falloff(dist, influenceRadius) * timeFade
                 if (combined > peakInfluence) peakInfluence = combined
@@ -722,8 +778,8 @@ function GlitchFrame({
           const el = els[idx]
           if (!el) continue
 
-          // ── Parallax uses 2D displacement directly ──
-          if (isParallax) {
+          // ── 2D displacement (parallax OR cursor direction) ──
+          if (isParallax || isCursorDir) {
             const absPX = Math.abs(pdx[idx]) + Math.abs(pdy[idx])
 
             if (template && populated) {
@@ -748,7 +804,7 @@ function GlitchFrame({
             continue
           }
 
-          // ── Non-parallax: 1D displacement with attack/return ──
+          // ── Manual direction: 1D displacement with attack/return ──
           const absTarget = Math.abs(targets[idx])
           const prevAbsDisp = Math.abs(disps[idx])
 
@@ -838,7 +894,7 @@ function GlitchFrame({
 
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
-  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing, invert, pauseOnHover, parallaxDirection, returnDuration, returnEasing])
+  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, directionMode, angle, influenceRadius, intensity, trailDuration, smoothing, invert, pauseOnHover, parallaxDirection, returnDuration, returnEasing])
 
   // ── Render: invisible self-marker ───────────────────────────────────────
 
@@ -873,14 +929,23 @@ addPropertyControls(GlitchFrame, {
     options: ["line", "word", "character"],
     optionTitles: ["Line", "Segment", "Block"],
   },
+  directionMode: {
+    type: ControlType.Enum,
+    title: "Direction",
+    defaultValue: "cursor",
+    options: ["cursor", "manual"],
+    optionTitles: ["Cursor", "Manual"],
+    hidden: (props: any) => props.effect === "parallax",
+  },
   angle: {
     type: ControlType.Number,
-    title: "Direction",
+    title: "Angle",
     defaultValue: 0,
     min: 0,
     max: 180,
     step: 1,
     unit: "°",
+    hidden: (props: any) => props.directionMode === "cursor" || props.effect === "parallax",
   },
   interaction: {
     type: ControlType.Enum,
@@ -977,7 +1042,7 @@ addPropertyControls(GlitchFrame, {
     max: 2000,
     step: 50,
     unit: "ms",
-    hidden: (props: any) => props.effect === "parallax",
+    hidden: (props: any) => props.effect === "parallax" || props.directionMode === "cursor",
   },
   returnEasing: {
     type: ControlType.Enum,
@@ -985,7 +1050,7 @@ addPropertyControls(GlitchFrame, {
     defaultValue: "smooth",
     options: ["smooth", "gentle", "snap", "bounce"],
     optionTitles: ["Smooth", "Gentle", "Snap", "Bounce"],
-    hidden: (props: any) => props.effect === "parallax",
+    hidden: (props: any) => props.effect === "parallax" || props.directionMode === "cursor",
   },
 })
 
