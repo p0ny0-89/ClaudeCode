@@ -161,6 +161,7 @@ interface Props {
   trailDuration?: number
   smoothing?: number
   invert?: boolean
+  pauseOnHover?: boolean
   returnDuration?: number
   returnEasing?: "smooth" | "gentle" | "snap" | "bounce"
   interaction?: "pointer" | "tilt" | "auto"
@@ -178,6 +179,7 @@ function GlitchFrame({
   trailDuration = 300,
   smoothing = 0.12,
   invert = false,
+  pauseOnHover = false,
   returnDuration = 600,
   returnEasing = "smooth",
   interaction = "auto",
@@ -195,6 +197,8 @@ function GlitchFrame({
   const mouseTrail = useRef<TrailPoint[]>([])
   const mouseActive = useRef(false)
   const tiltActive = useRef(false)
+  const lastPointerPos = useRef({ x: 0, y: 0 })
+  const lastMoveTime = useRef(0)
   const cellDisplacements = useRef<Float64Array>(new Float64Array(0))
   const cellTargets = useRef<Float64Array>(new Float64Array(0))
   const cellReturnStart = useRef<Float64Array>(new Float64Array(0))
@@ -468,6 +472,9 @@ function GlitchFrame({
       }
       smoothVx.current += (vx - smoothVx.current) * 0.4
       smoothVy.current += (vy - smoothVy.current) * 0.4
+      lastPointerPos.current.x = localX
+      lastPointerPos.current.y = localY
+      lastMoveTime.current = now
       trail.push({ x: localX, y: localY, time: now, vx: smoothVx.current, vy: smoothVy.current })
 
       const cutoff = now - trailDuration
@@ -527,9 +534,15 @@ function GlitchFrame({
       smoothVx.current += (vx - smoothVx.current) * 0.3
       smoothVy.current += (vy - smoothVy.current) * 0.3
 
+      const clampedX = clamp(virtualX, 0, cw)
+      const clampedY = clamp(virtualY, 0, ch)
+      lastPointerPos.current.x = clampedX
+      lastPointerPos.current.y = clampedY
+      lastMoveTime.current = now
+
       const trail = mouseTrail.current
       trail.push({
-        x: clamp(virtualX, 0, cw), y: clamp(virtualY, 0, ch),
+        x: clampedX, y: clampedY,
         time: now, vx: smoothVx.current, vy: smoothVy.current,
       })
       const cutoff = now - trailDuration
@@ -592,6 +605,10 @@ function GlitchFrame({
         while (trail.length > 0 && trail[0].time < cutoff) trail.shift()
       }
 
+      // Pause-on-hover: detect stationary cursor (80ms threshold)
+      const PAUSE_THRESHOLD = 80
+      const isStationary = pauseOnHover && active && (now - lastMoveTime.current > PAUSE_THRESHOLD)
+
       let maskDirty = false
 
       for (let r = 0; r < rowCount; r++) {
@@ -600,7 +617,9 @@ function GlitchFrame({
           const idx = r * colCount + c
           const cellCenterX = c * colWidth + colWidth / 2
 
-          if (active && trail.length > 0) {
+          if (isStationary) {
+            // Freeze: skip target recalculation, targets stay at last values
+          } else if (active && trail.length > 0) {
             if (isDirectional) {
               let peakInfluence = 0, peakV = 0
               for (let p = 0; p < trail.length; p++) {
@@ -747,7 +766,7 @@ function GlitchFrame({
 
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
-  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing, invert, returnDuration, returnEasing])
+  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing, invert, pauseOnHover, returnDuration, returnEasing])
 
   // ── Render: invisible self-marker ───────────────────────────────────────
 
@@ -810,6 +829,11 @@ addPropertyControls(GlitchFrame, {
   invert: {
     type: ControlType.Boolean,
     title: "Invert",
+    defaultValue: false,
+  },
+  pauseOnHover: {
+    type: ControlType.Boolean,
+    title: "Pause on Hover",
     defaultValue: false,
   },
   clipOverflow: {
