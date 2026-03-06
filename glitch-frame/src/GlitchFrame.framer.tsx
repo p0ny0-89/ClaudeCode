@@ -619,7 +619,37 @@ function GlitchFrame({
 
           if (isStationary) {
             // Freeze: skip target recalculation, targets stay at last values
+          } else if (invert && active) {
+            // ── Inverted: use lastPointerPos directly (no trail dependency) ──
+            // Calm zone persists as long as cursor is over parent,
+            // independent of trail point expiration.
+            const mx = lastPointerPos.current.x
+            const my = lastPointerPos.current.y
+            let dist: number
+            if (isLine) {
+              dist = Math.abs(my - cellCenterY) * (1 - sinABlend) + Math.abs(mx - cellCenterX) * sinABlend
+            } else {
+              const dx = mx - cellCenterX, dy = my - cellCenterY
+              dist = Math.sqrt(dx * dx + dy * dy)
+            }
+            const rawInfluence = falloff(dist, influenceRadius)
+            // Sharp inversion: cells inside radius → 0, outside → ramps up.
+            // 22.76 ≈ exp(3.125) = 1/falloff(radius, radius).
+            const invertedInfluence = Math.pow(Math.max(0, 1 - rawInfluence * 22.76), 2)
+
+            if (isDirectional) {
+              // Use latest trail velocity if available, otherwise 0
+              let peakV = 0
+              if (trail.length > 0) {
+                const latest = trail[trail.length - 1]
+                peakV = latest.vx * cosA + latest.vy * sinADisp
+              }
+              targets[idx] = peakV * velocitySensitivity * intensity * invertedInfluence
+            } else {
+              targets[idx] = cellDirection(idx) * cellMagnitude(idx) * intensity * invertedInfluence
+            }
           } else if (active && trail.length > 0) {
+            // ── Normal mode: trail-based influence ──
             if (isDirectional) {
               let peakInfluence = 0, peakV = 0
               for (let p = 0; p < trail.length; p++) {
@@ -635,13 +665,6 @@ function GlitchFrame({
                 }
                 const combined = falloff(dist, influenceRadius) * timeFade
                 if (combined > peakInfluence) { peakInfluence = combined; peakV = pt.vx * cosA + pt.vy * sinADisp }
-              }
-              if (invert) {
-                // Sharp inversion: calm zone extends to the influence radius.
-                // 22.76 ≈ exp(3.125) = 1/falloff(radius, radius), mapping
-                // gaussian value at the radius boundary to 1.0. Cells within
-                // the radius get zero influence; outside ramps smoothly.
-                peakInfluence = Math.pow(Math.max(0, 1 - peakInfluence * 22.76), 2)
               }
               targets[idx] = peakV * velocitySensitivity * intensity * peakInfluence
             } else {
@@ -659,13 +682,6 @@ function GlitchFrame({
                 }
                 const combined = falloff(dist, influenceRadius) * timeFade
                 if (combined > peakInfluence) peakInfluence = combined
-              }
-              if (invert) {
-                // Sharp inversion: calm zone extends to the influence radius.
-                // 22.76 ≈ exp(3.125) = 1/falloff(radius, radius), mapping
-                // gaussian value at the radius boundary to 1.0. Cells within
-                // the radius get zero influence; outside ramps smoothly.
-                peakInfluence = Math.pow(Math.max(0, 1 - peakInfluence * 22.76), 2)
               }
               targets[idx] = cellDirection(idx) * cellMagnitude(idx) * intensity * peakInfluence
             }
