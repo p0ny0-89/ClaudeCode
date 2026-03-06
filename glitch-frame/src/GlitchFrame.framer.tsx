@@ -153,7 +153,7 @@ interface TrailPoint {
 interface Props {
   blockSize?: number
   scope?: "line" | "word" | "character"
-  effect?: "random" | "directional"
+  effect?: "random" | "directional" | "parallax"
   angle?: number
   clipOverflow?: boolean
   influenceRadius?: number
@@ -164,6 +164,7 @@ interface Props {
   pauseOnHover?: boolean
   returnDuration?: number
   returnEasing?: "smooth" | "gentle" | "snap" | "bounce"
+  parallaxDirection?: "toward" | "away"
   interaction?: "pointer" | "tilt" | "auto"
   tiltSensitivity?: number
 }
@@ -182,6 +183,7 @@ function GlitchFrame({
   pauseOnHover = false,
   returnDuration = 600,
   returnEasing = "smooth",
+  parallaxDirection = "away",
   interaction = "auto",
   tiltSensitivity = 1.0,
 }: Props) {
@@ -203,6 +205,8 @@ function GlitchFrame({
   const cellTargets = useRef<Float64Array>(new Float64Array(0))
   const cellReturnStart = useRef<Float64Array>(new Float64Array(0))
   const cellReturnTime = useRef<Float64Array>(new Float64Array(0))
+  const parallaxDispsX = useRef<Float64Array>(new Float64Array(0))
+  const parallaxDispsY = useRef<Float64Array>(new Float64Array(0))
   const rafId = useRef(0)
 
   const smoothVx = useRef(0)
@@ -299,6 +303,8 @@ function GlitchFrame({
       cellTargets.current = new Float64Array(cellCount)
       cellReturnStart.current = new Float64Array(cellCount)
       cellReturnTime.current = new Float64Array(cellCount)
+      parallaxDispsX.current = new Float64Array(cellCount)
+      parallaxDispsY.current = new Float64Array(cellCount)
     }
   }, [cellCount])
 
@@ -577,6 +583,7 @@ function GlitchFrame({
 
     const isLine = scope === "line"
     const isDirectional = effect === "directional"
+    const isParallax = effect === "parallax"
     const angleRad = (angle * Math.PI) / 180
     const cosA = Math.cos(angleRad)
     const sinADisp = Math.sin(angleRad)
@@ -599,6 +606,8 @@ function GlitchFrame({
       const base = baseRef.current
       const returnStarts = cellReturnStart.current
       const returnTimes = cellReturnTime.current
+      const pdx = parallaxDispsX.current
+      const pdy = parallaxDispsY.current
 
       if (active) {
         const cutoff = now - trailDuration
@@ -617,7 +626,28 @@ function GlitchFrame({
           const idx = r * colCount + c
           const cellCenterX = c * colWidth + colWidth / 2
 
-          if (isStationary) {
+          // ── Parallax: 2D global shift based on cursor offset from center ──
+          if (isParallax) {
+            if (active && !isStationary) {
+              const mx = lastPointerPos.current.x
+              const my = lastPointerPos.current.y
+              const normX = pw > 0 ? (mx - pw / 2) / (pw / 2) : 0
+              const normY = ph > 0 ? (my - ph / 2) / (ph / 2) : 0
+              const sign = parallaxDirection === "toward" ? -1 : 1
+              const depth = 0.2 + hash01(idx, 999.9) * 0.8
+              const targetX = sign * normX * depth * intensity
+              const targetY = sign * normY * depth * intensity
+              pdx[idx] += (targetX - pdx[idx]) * smoothing
+              pdy[idx] += (targetY - pdy[idx]) * smoothing
+            } else if (!active) {
+              // Return to rest when cursor leaves
+              pdx[idx] += (0 - pdx[idx]) * smoothing
+              pdy[idx] += (0 - pdy[idx]) * smoothing
+              if (Math.abs(pdx[idx]) < 0.01) pdx[idx] = 0
+              if (Math.abs(pdy[idx]) < 0.01) pdy[idx] = 0
+            }
+            // isStationary + active: freeze in place (skip lerp)
+          } else if (isStationary) {
             // Freeze: skip target recalculation, targets stay at last values
           } else if (invert && active) {
             // ── Inverted: use lastPointerPos directly (no trail dependency) ──
@@ -692,10 +722,36 @@ function GlitchFrame({
           const el = els[idx]
           if (!el) continue
 
+          // ── Parallax uses 2D displacement directly ──
+          if (isParallax) {
+            const absPX = Math.abs(pdx[idx]) + Math.abs(pdy[idx])
+
+            if (template && populated) {
+              if (absPX > POPULATE_THRESHOLD && !populated[idx]) {
+                el.appendChild(template.cloneNode(true) as HTMLDivElement)
+                populated[idx] = true
+                maskDirty = true
+              } else if (absPX < DEPOPULATE_THRESHOLD && populated[idx]) {
+                while (el.firstChild) el.removeChild(el.firstChild)
+                populated[idx] = false
+                maskDirty = true
+              }
+            }
+
+            if (populated && populated[idx]) {
+              el.style.transform = absPX < 0.05
+                ? "none"
+                : `translate(${pdx[idx]}px,${pdy[idx]}px)`
+            } else if (el.style.transform !== "none") {
+              el.style.transform = "none"
+            }
+            continue
+          }
+
+          // ── Non-parallax: 1D displacement with attack/return ──
           const absTarget = Math.abs(targets[idx])
           const prevAbsDisp = Math.abs(disps[idx])
 
-          // ── Displacement: attack (lerp) vs return (easing) ──
           // "Released" = trail influence has dropped well below current
           // displacement, meaning the cell should start easing back to rest.
           const isReleased = absTarget < Math.max(0.5, prevAbsDisp * 0.3)
@@ -782,7 +838,7 @@ function GlitchFrame({
 
     rafId.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId.current)
-  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing, invert, pauseOnHover, returnDuration, returnEasing])
+  }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, scope, effect, angle, influenceRadius, intensity, trailDuration, smoothing, invert, pauseOnHover, parallaxDirection, returnDuration, returnEasing])
 
   // ── Render: invisible self-marker ───────────────────────────────────────
 
@@ -807,8 +863,8 @@ addPropertyControls(GlitchFrame, {
     type: ControlType.Enum,
     title: "Effect",
     defaultValue: "random",
-    options: ["random", "directional"],
-    optionTitles: ["Random", "Directional"],
+    options: ["random", "directional", "parallax"],
+    optionTitles: ["Random", "Directional", "Parallax"],
   },
   scope: {
     type: ControlType.Enum,
@@ -842,15 +898,25 @@ addPropertyControls(GlitchFrame, {
     step: 0.1,
     hidden: (props: any) => props.interaction === "pointer",
   },
+  parallaxDirection: {
+    type: ControlType.Enum,
+    title: "Parallax Direction",
+    defaultValue: "away",
+    options: ["toward", "away"],
+    optionTitles: ["Toward", "Away"],
+    hidden: (props: any) => props.effect !== "parallax",
+  },
   invert: {
     type: ControlType.Boolean,
     title: "Invert",
     defaultValue: false,
+    hidden: (props: any) => props.effect === "parallax",
   },
   pauseOnHover: {
     type: ControlType.Boolean,
     title: "Pause on Hover",
     defaultValue: false,
+    hidden: (props: any) => props.effect === "parallax",
   },
   clipOverflow: {
     type: ControlType.Boolean,
@@ -874,6 +940,7 @@ addPropertyControls(GlitchFrame, {
     max: 400,
     step: 5,
     unit: "px",
+    hidden: (props: any) => props.effect === "parallax",
   },
   intensity: {
     type: ControlType.Number,
@@ -892,6 +959,7 @@ addPropertyControls(GlitchFrame, {
     max: 800,
     step: 10,
     unit: "ms",
+    hidden: (props: any) => props.effect === "parallax",
   },
   smoothing: {
     type: ControlType.Number,
@@ -909,6 +977,7 @@ addPropertyControls(GlitchFrame, {
     max: 2000,
     step: 50,
     unit: "ms",
+    hidden: (props: any) => props.effect === "parallax",
   },
   returnEasing: {
     type: ControlType.Enum,
@@ -916,6 +985,7 @@ addPropertyControls(GlitchFrame, {
     defaultValue: "smooth",
     options: ["smooth", "gentle", "snap", "bounce"],
     optionTitles: ["Smooth", "Gentle", "Snap", "Bounce"],
+    hidden: (props: any) => props.effect === "parallax",
   },
 })
 
