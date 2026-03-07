@@ -151,12 +151,13 @@ function neutralizeMedia(template: HTMLElement, parent: HTMLElement) {
 
   templateVideos.forEach((tVideo, i) => {
     const orig = origVideos[i]
-    const img = document.createElement("img")
-    img.style.cssText = tVideo.style.cssText
-    img.setAttribute("draggable", "false")
+    // Use a transparent placeholder — the original video stays visible
+    // behind the overlay so it plays through the "hole" in the clone.
+    const ph = document.createElement("div")
+    ph.style.cssText = tVideo.style.cssText
+    ph.style.background = "transparent"
 
-    // Try to capture the current playing frame
-    let captured = false
+    // Try to capture the current frame as a bonus (works when same-origin)
     if (orig && orig.readyState >= 2) {
       try {
         const c = document.createElement("canvas")
@@ -165,18 +166,12 @@ function neutralizeMedia(template: HTMLElement, parent: HTMLElement) {
         const ctx = c.getContext("2d")
         if (ctx) {
           ctx.drawImage(orig, 0, 0, c.width, c.height)
-          img.src = c.toDataURL("image/jpeg", 0.7)
-          captured = true
+          ph.style.backgroundImage = `url(${c.toDataURL("image/jpeg", 0.7)})`
+          ph.style.backgroundSize = "cover"
         }
-      } catch { /* CORS restriction — fall back */ }
+      } catch { /* CORS — transparent fallback is fine */ }
     }
-    if (!captured && (orig?.poster || tVideo.poster)) {
-      img.src = orig?.poster || tVideo.poster
-    }
-    if (!captured && !img.src) {
-      img.style.background = "#000"
-    }
-    tVideo.parentElement?.replaceChild(img, tVideo)
+    tVideo.parentElement?.replaceChild(ph, tVideo)
   })
 
   // Also neutralize audio and iframes
@@ -184,7 +179,7 @@ function neutralizeMedia(template: HTMLElement, parent: HTMLElement) {
   template.querySelectorAll("iframe").forEach((iframe) => {
     const div = document.createElement("div")
     div.style.cssText = (iframe as HTMLElement).style.cssText
-    div.style.background = "#000"
+    div.style.background = "transparent"
     iframe.parentElement?.replaceChild(div, iframe)
   })
 }
@@ -468,6 +463,17 @@ function GlitchFrame({
     const origVisibility: string[] = siblings.map((s) => s.style.visibility)
     siblings.forEach((s) => { s.style.visibility = "hidden" })
 
+    // Re-show video/iframe elements so they play through the transparent
+    // holes in the overlay clones (visibility:visible overrides parent hidden)
+    const mediaEls: HTMLElement[] = []
+    siblings.forEach((s) => {
+      s.querySelectorAll("video, iframe").forEach((m) => {
+        const el = m as HTMLElement
+        mediaEls.push(el)
+        el.style.visibility = "visible"
+      })
+    })
+
     return () => {
       overlay.remove()
       overlayRef.current = null
@@ -475,6 +481,7 @@ function GlitchFrame({
       cellPopulatedRef.current = []
       templateRef.current = null
       baseRef.current = null
+      mediaEls.forEach((el) => { el.style.visibility = "" })
       siblings.forEach((s, i) => { s.style.visibility = origVisibility[i] })
     }
   }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, clipOverflow, rebuildKey])
