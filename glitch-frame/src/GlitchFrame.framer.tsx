@@ -140,6 +140,55 @@ function collapseWrappers(self: HTMLElement, targetParent: HTMLElement): (() => 
   }
 }
 
+/**
+ * Replace <video>, <audio>, and <iframe> in a template clone with lightweight
+ * static snapshots so cell clones don't spawn heavy media decoder instances.
+ * Captures the current video frame when possible, falls back to poster/placeholder.
+ */
+function neutralizeMedia(template: HTMLElement, parent: HTMLElement) {
+  const origVideos = Array.from(parent.querySelectorAll("video")) as HTMLVideoElement[]
+  const templateVideos = Array.from(template.querySelectorAll("video")) as HTMLVideoElement[]
+
+  templateVideos.forEach((tVideo, i) => {
+    const orig = origVideos[i]
+    const img = document.createElement("img")
+    img.style.cssText = tVideo.style.cssText
+    img.setAttribute("draggable", "false")
+
+    // Try to capture the current playing frame
+    let captured = false
+    if (orig && orig.readyState >= 2) {
+      try {
+        const c = document.createElement("canvas")
+        c.width = orig.videoWidth || orig.clientWidth || 320
+        c.height = orig.videoHeight || orig.clientHeight || 240
+        const ctx = c.getContext("2d")
+        if (ctx) {
+          ctx.drawImage(orig, 0, 0, c.width, c.height)
+          img.src = c.toDataURL("image/jpeg", 0.7)
+          captured = true
+        }
+      } catch { /* CORS restriction — fall back */ }
+    }
+    if (!captured && (orig?.poster || tVideo.poster)) {
+      img.src = orig?.poster || tVideo.poster
+    }
+    if (!captured && !img.src) {
+      img.style.background = "#000"
+    }
+    tVideo.parentElement?.replaceChild(img, tVideo)
+  })
+
+  // Also neutralize audio and iframes
+  template.querySelectorAll("audio").forEach((a) => a.remove())
+  template.querySelectorAll("iframe").forEach((iframe) => {
+    const div = document.createElement("div")
+    div.style.cssText = (iframe as HTMLElement).style.cssText
+    div.style.background = "#000"
+    iframe.parentElement?.replaceChild(div, iframe)
+  })
+}
+
 interface TrailPoint {
   x: number
   y: number
@@ -209,6 +258,8 @@ function GlitchFrame({
   const cellReturnTime = useRef<Float64Array>(new Float64Array(0))
   const parallaxDispsX = useRef<Float64Array>(new Float64Array(0))
   const parallaxDispsY = useRef<Float64Array>(new Float64Array(0))
+  const cellMagsRef = useRef<Float64Array>(new Float64Array(0))
+  const cellDirsRef = useRef<Float64Array>(new Float64Array(0))
   const rafId = useRef(0)
 
   const smoothVx = useRef(0)
@@ -307,6 +358,15 @@ function GlitchFrame({
       cellReturnTime.current = new Float64Array(cellCount)
       parallaxDispsX.current = new Float64Array(cellCount)
       parallaxDispsY.current = new Float64Array(cellCount)
+      // Precompute deterministic cell properties once
+      const mags = new Float64Array(cellCount)
+      const dirs = new Float64Array(cellCount)
+      for (let i = 0; i < cellCount; i++) {
+        mags[i] = cellMagnitude(i)
+        dirs[i] = cellDirection(i)
+      }
+      cellMagsRef.current = mags
+      cellDirsRef.current = dirs
     }
   }, [cellCount])
 
@@ -360,6 +420,9 @@ function GlitchFrame({
       pc.style.overflow = "visible"
       return pc
     })()
+
+    // Replace video/audio/iframe in template with static snapshots
+    neutralizeMedia(template, parent)
     templateRef.current = template
 
     // Create overlay
@@ -425,7 +488,7 @@ function GlitchFrame({
 
     let timeout: ReturnType<typeof setTimeout>
     const mo = new MutationObserver((mutations) => {
-      // Ignore mutations inside our overlay or our wrapper chain
+      // Ignore mutations inside our overlay, wrapper chain, or media elements
       const relevant = mutations.some((m) => {
         const target = m.target as HTMLElement
         if (!target) return false
@@ -433,6 +496,11 @@ function GlitchFrame({
         if (self.contains?.(target)) return false // inside self
         if (target.hasAttribute?.(GLITCH_ATTR)) return false
         if (target.closest?.(`[${GLITCH_ATTR}]`)) return false
+        // Ignore mutations on/inside media elements (video playback triggers
+        // constant attribute changes that would cause infinite rebuild loops)
+        const tag = target.tagName
+        if (tag === "VIDEO" || tag === "AUDIO" || tag === "SOURCE" || tag === "IFRAME") return false
+        if (target.closest?.("video, audio, iframe")) return false
         return true
       })
       if (!relevant) return
@@ -486,7 +554,10 @@ function GlitchFrame({
       trail.push({ x: localX, y: localY, time: now, vx: smoothVx.current, vy: smoothVy.current })
 
       const cutoff = now - trailDuration
-      while (trail.length > 0 && trail[0].time < cutoff) trail.shift()
+      let trimIdx = 0
+      while (trimIdx < trail.length && trail[trimIdx].time < cutoff) trimIdx++
+      if (trimIdx > 0) trail.splice(0, trimIdx)
+      if (trail.length > 50) trail.splice(0, trail.length - 50)
     }
 
     const handlePointerLeave = () => { mouseActive.current = false }
@@ -554,7 +625,10 @@ function GlitchFrame({
         time: now, vx: smoothVx.current, vy: smoothVy.current,
       })
       const cutoff = now - trailDuration
-      while (trail.length > 0 && trail[0].time < cutoff) trail.shift()
+      let trimIdx = 0
+      while (trimIdx < trail.length && trail[trimIdx].time < cutoff) trimIdx++
+      if (trimIdx > 0) trail.splice(0, trimIdx)
+      if (trail.length > 50) trail.splice(0, trail.length - 50)
     }
 
     const startListening = () => {
@@ -596,6 +670,9 @@ function GlitchFrame({
     const DEPOPULATE_THRESHOLD = 0.05
     const easeFn = EASING_FNS[returnEasing] || EASING_FNS.smooth
     const returnDur = returnDuration
+    const sigma = influenceRadius / 2.5
+    const invTwoSigmaSq = sigma > 0 ? 1 / (2 * sigma * sigma) : 0
+    const oneMinusSinA = 1 - sinABlend
 
     const animate = () => {
       const disps = cellDisplacements.current
@@ -611,10 +688,21 @@ function GlitchFrame({
       const returnTimes = cellReturnTime.current
       const pdx = parallaxDispsX.current
       const pdy = parallaxDispsY.current
+      const cellMags = cellMagsRef.current
+      const cellDirs = cellDirsRef.current
 
       if (active) {
         const cutoff = now - trailDuration
-        while (trail.length > 0 && trail[0].time < cutoff) trail.shift()
+        let trimIdx = 0
+        while (trimIdx < trail.length && trail[trimIdx].time < cutoff) trimIdx++
+        if (trimIdx > 0) trail.splice(0, trimIdx)
+      }
+
+      // Precompute trail fades once per frame (avoids redundant per-cell computation)
+      const trailLen = trail.length
+      const trailFades: number[] = new Array(trailLen)
+      for (let p = 0; p < trailLen; p++) {
+        trailFades[p] = Math.max(0, 1 - (now - trail[p].time) / trailDuration)
       }
 
       // Pause-on-hover: detect stationary cursor (80ms threshold)
@@ -657,46 +745,51 @@ function GlitchFrame({
               // Inverted + cursor: calm zone at pointer, velocity-driven outside
               const mx = lastPointerPos.current.x
               const my = lastPointerPos.current.y
-              let dist: number
+              let rawInfluence: number
               if (isLine) {
-                dist = Math.abs(my - cellCenterY) * (1 - sinABlend) + Math.abs(mx - cellCenterX) * sinABlend
+                const ld = Math.abs(my - cellCenterY) * oneMinusSinA + Math.abs(mx - cellCenterX) * sinABlend
+                rawInfluence = Math.exp(-ld * ld * invTwoSigmaSq)
               } else {
                 const dx2 = mx - cellCenterX, dy2 = my - cellCenterY
-                dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                rawInfluence = Math.exp(-(dx2 * dx2 + dy2 * dy2) * invTwoSigmaSq)
               }
-              const rawInfluence = falloff(dist, influenceRadius)
               const invertedInfluence = Math.pow(Math.max(0, 1 - rawInfluence * 22.76), 2)
               let peakVx = 0, peakVy = 0
-              if (trail.length > 0) {
-                const latest = trail[trail.length - 1]
+              if (trailLen > 0) {
+                const latest = trail[trailLen - 1]
                 peakVx = latest.vx; peakVy = latest.vy
               }
-              const mag = isDirectional ? 1 : cellMagnitude(idx)
+              const mag = isDirectional ? 1 : cellMags[idx]
               const targetX = peakVx * velocitySensitivity * intensity * invertedInfluence * mag
               const targetY = peakVy * velocitySensitivity * intensity * invertedInfluence * mag
               pdx[idx] += (targetX - pdx[idx]) * smoothing
               pdy[idx] += (targetY - pdy[idx]) * smoothing
-            } else if (active && trail.length > 0) {
+            } else if (active && trailLen > 0) {
               // Normal cursor mode: find peak-influence trail point, use its velocity
               let peakInfluence = 0, peakVx = 0, peakVy = 0
-              for (let p = 0; p < trail.length; p++) {
+              for (let p = 0; p < trailLen; p++) {
+                const fade = trailFades[p]
+                if (fade <= 0) continue
                 const pt = trail[p]
-                const age = (now - pt.time) / trailDuration
-                const timeFade = Math.max(0, 1 - age)
-                let dist: number
+                let spatial: number
                 if (isLine) {
-                  dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
+                  const ld = Math.abs(pt.y - cellCenterY) * oneMinusSinA + Math.abs(pt.x - cellCenterX) * sinABlend
+                  const ex = ld * ld * invTwoSigmaSq
+                  if (ex > 18) continue
+                  spatial = Math.exp(-ex)
                 } else {
                   const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
-                  dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                  const ex = (dx2 * dx2 + dy2 * dy2) * invTwoSigmaSq
+                  if (ex > 18) continue
+                  spatial = Math.exp(-ex)
                 }
-                const combined = falloff(dist, influenceRadius) * timeFade
+                const combined = spatial * fade
                 if (combined > peakInfluence) {
                   peakInfluence = combined
                   peakVx = pt.vx; peakVy = pt.vy
                 }
               }
-              const mag = isDirectional ? 1 : cellMagnitude(idx)
+              const mag = isDirectional ? 1 : cellMags[idx]
               const targetX = peakVx * velocitySensitivity * intensity * peakInfluence * mag
               const targetY = peakVy * velocitySensitivity * intensity * peakInfluence * mag
               pdx[idx] += (targetX - pdx[idx]) * smoothing
@@ -714,62 +807,72 @@ function GlitchFrame({
             // ── Manual inverted: use lastPointerPos directly (1D) ──
             const mx = lastPointerPos.current.x
             const my = lastPointerPos.current.y
-            let dist: number
+            let rawInfluence: number
             if (isLine) {
-              dist = Math.abs(my - cellCenterY) * (1 - sinABlend) + Math.abs(mx - cellCenterX) * sinABlend
+              const ld = Math.abs(my - cellCenterY) * oneMinusSinA + Math.abs(mx - cellCenterX) * sinABlend
+              rawInfluence = Math.exp(-ld * ld * invTwoSigmaSq)
             } else {
               const dx2 = mx - cellCenterX, dy2 = my - cellCenterY
-              dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+              rawInfluence = Math.exp(-(dx2 * dx2 + dy2 * dy2) * invTwoSigmaSq)
             }
-            const rawInfluence = falloff(dist, influenceRadius)
             const invertedInfluence = Math.pow(Math.max(0, 1 - rawInfluence * 22.76), 2)
 
             if (isDirectional) {
               let peakV = 0
-              if (trail.length > 0) {
-                const latest = trail[trail.length - 1]
+              if (trailLen > 0) {
+                const latest = trail[trailLen - 1]
                 peakV = latest.vx * cosA + latest.vy * sinADisp
               }
               targets[idx] = peakV * velocitySensitivity * intensity * invertedInfluence
             } else {
-              targets[idx] = cellDirection(idx) * cellMagnitude(idx) * intensity * invertedInfluence
+              targets[idx] = cellDirs[idx] * cellMags[idx] * intensity * invertedInfluence
             }
-          } else if (active && trail.length > 0) {
+          } else if (active && trailLen > 0) {
             // ── Manual normal mode: trail-based influence (1D) ──
             if (isDirectional) {
               let peakInfluence = 0, peakV = 0
-              for (let p = 0; p < trail.length; p++) {
+              for (let p = 0; p < trailLen; p++) {
+                const fade = trailFades[p]
+                if (fade <= 0) continue
                 const pt = trail[p]
-                const age = (now - pt.time) / trailDuration
-                const timeFade = Math.max(0, 1 - age)
-                let dist: number
+                let spatial: number
                 if (isLine) {
-                  dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
+                  const ld = Math.abs(pt.y - cellCenterY) * oneMinusSinA + Math.abs(pt.x - cellCenterX) * sinABlend
+                  const ex = ld * ld * invTwoSigmaSq
+                  if (ex > 18) continue
+                  spatial = Math.exp(-ex)
                 } else {
                   const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
-                  dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                  const ex = (dx2 * dx2 + dy2 * dy2) * invTwoSigmaSq
+                  if (ex > 18) continue
+                  spatial = Math.exp(-ex)
                 }
-                const combined = falloff(dist, influenceRadius) * timeFade
+                const combined = spatial * fade
                 if (combined > peakInfluence) { peakInfluence = combined; peakV = pt.vx * cosA + pt.vy * sinADisp }
               }
               targets[idx] = peakV * velocitySensitivity * intensity * peakInfluence
             } else {
               let peakInfluence = 0
-              for (let p = 0; p < trail.length; p++) {
+              for (let p = 0; p < trailLen; p++) {
+                const fade = trailFades[p]
+                if (fade <= 0) continue
                 const pt = trail[p]
-                const age = (now - pt.time) / trailDuration
-                const timeFade = Math.max(0, 1 - age)
-                let dist: number
+                let spatial: number
                 if (isLine) {
-                  dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
+                  const ld = Math.abs(pt.y - cellCenterY) * oneMinusSinA + Math.abs(pt.x - cellCenterX) * sinABlend
+                  const ex = ld * ld * invTwoSigmaSq
+                  if (ex > 18) continue
+                  spatial = Math.exp(-ex)
                 } else {
                   const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
-                  dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                  const ex = (dx2 * dx2 + dy2 * dy2) * invTwoSigmaSq
+                  if (ex > 18) continue
+                  spatial = Math.exp(-ex)
                 }
-                const combined = falloff(dist, influenceRadius) * timeFade
+                const combined = spatial * fade
                 if (combined > peakInfluence) peakInfluence = combined
               }
-              targets[idx] = cellDirection(idx) * cellMagnitude(idx) * intensity * peakInfluence
+              targets[idx] = cellDirs[idx] * cellMags[idx] * intensity * peakInfluence
             }
           } else {
             targets[idx] = 0

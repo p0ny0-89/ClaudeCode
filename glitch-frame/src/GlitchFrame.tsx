@@ -38,12 +38,6 @@ function cellMagnitude(i: number): number {
   return 0.3 + (v - 0.25) * 1.1
 }
 
-function falloff(dist: number, radius: number): number {
-  if (radius <= 0) return 0
-  const sigma = radius / 2.5
-  return Math.exp(-(dist * dist) / (2 * sigma * sigma))
-}
-
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
 }
@@ -108,6 +102,8 @@ export default function GlitchFrame({
   const cellTargets = useRef<Float64Array>(new Float64Array(0))
   const cellDispsX = useRef<Float64Array>(new Float64Array(0))
   const cellDispsY = useRef<Float64Array>(new Float64Array(0))
+  const cellMagsRef = useRef<Float64Array>(new Float64Array(0))
+  const cellDirsRef = useRef<Float64Array>(new Float64Array(0))
   const cellEls = useRef<HTMLDivElement[]>([])
   const rafId = useRef(0)
 
@@ -182,6 +178,14 @@ export default function GlitchFrame({
       cellTargets.current = new Float64Array(cellCount)
       cellDispsX.current = new Float64Array(cellCount)
       cellDispsY.current = new Float64Array(cellCount)
+      const mags = new Float64Array(cellCount)
+      const dirs = new Float64Array(cellCount)
+      for (let i = 0; i < cellCount; i++) {
+        mags[i] = cellMagnitude(i)
+        dirs[i] = cellDirection(i)
+      }
+      cellMagsRef.current = mags
+      cellDirsRef.current = dirs
     }
   }, [cellCount])
 
@@ -216,9 +220,10 @@ export default function GlitchFrame({
       trail.push({ x: localX, y: localY, time: now, vx: smoothVx.current, vy: smoothVy.current })
 
       const cutoff = now - trailDuration
-      while (trail.length > 0 && trail[0].time < cutoff) {
-        trail.shift()
-      }
+      let trimIdx = 0
+      while (trimIdx < trail.length && trail[trimIdx].time < cutoff) trimIdx++
+      if (trimIdx > 0) trail.splice(0, trimIdx)
+      if (trail.length > 50) trail.splice(0, trail.length - 50)
     },
     [trailDuration, interaction]
   )
@@ -290,9 +295,10 @@ export default function GlitchFrame({
       })
 
       const cutoff = now - trailDuration
-      while (trail.length > 0 && trail[0].time < cutoff) {
-        trail.shift()
-      }
+      let trimIdx = 0
+      while (trimIdx < trail.length && trail[trimIdx].time < cutoff) trimIdx++
+      if (trimIdx > 0) trail.splice(0, trimIdx)
+      if (trail.length > 50) trail.splice(0, trail.length - 50)
     }
 
     const startListening = () => {
@@ -352,6 +358,9 @@ export default function GlitchFrame({
     const sinADisp = Math.sin(angleRad)
     const sinABlend = Math.abs(sinADisp)
     const velocitySensitivity = 12
+    const sigma = influenceRadius / 2.5
+    const invTwoSigmaSq = sigma > 0 ? 1 / (2 * sigma * sigma) : 0
+    const oneMinusSinA = 1 - sinABlend
 
     const animate = () => {
       const disps = cellDisplacements.current
@@ -362,12 +371,21 @@ export default function GlitchFrame({
       const trail = mouseTrail.current
       const now = performance.now()
       const active = mouseActive.current || tiltActive.current
+      const cellMags = cellMagsRef.current
+      const cellDirs = cellDirsRef.current
 
       if (active) {
         const cutoff = now - trailDuration
-        while (trail.length > 0 && trail[0].time < cutoff) {
-          trail.shift()
-        }
+        let trimIdx = 0
+        while (trimIdx < trail.length && trail[trimIdx].time < cutoff) trimIdx++
+        if (trimIdx > 0) trail.splice(0, trimIdx)
+      }
+
+      // Precompute trail fades once per frame
+      const trailLen = trail.length
+      const trailFades: number[] = new Array(trailLen)
+      for (let p = 0; p < trailLen; p++) {
+        trailFades[p] = Math.max(0, 1 - (now - trail[p].time) / trailDuration)
       }
 
       for (let r = 0; r < rowCount; r++) {
@@ -379,26 +397,31 @@ export default function GlitchFrame({
 
           if (isCursorDir) {
             // ── Cursor-driven direction: 2D velocity-based ──
-            if (active && trail.length > 0) {
+            if (active && trailLen > 0) {
               let peakInfluence = 0, peakVx = 0, peakVy = 0
-              for (let p = 0; p < trail.length; p++) {
+              for (let p = 0; p < trailLen; p++) {
+                const fade = trailFades[p]
+                if (fade <= 0) continue
                 const pt = trail[p]
-                const age = (now - pt.time) / trailDuration
-                const timeFade = Math.max(0, 1 - age)
-                let dist: number
+                let spatial: number
                 if (isLine) {
-                  dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
+                  const ld = Math.abs(pt.y - cellCenterY) * oneMinusSinA + Math.abs(pt.x - cellCenterX) * sinABlend
+                  const ex = ld * ld * invTwoSigmaSq
+                  if (ex > 18) continue
+                  spatial = Math.exp(-ex)
                 } else {
                   const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
-                  dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                  const ex = (dx2 * dx2 + dy2 * dy2) * invTwoSigmaSq
+                  if (ex > 18) continue
+                  spatial = Math.exp(-ex)
                 }
-                const combined = falloff(dist, influenceRadius) * timeFade
+                const combined = spatial * fade
                 if (combined > peakInfluence) {
                   peakInfluence = combined
                   peakVx = pt.vx; peakVy = pt.vy
                 }
               }
-              const mag = isDirectional ? 1 : cellMagnitude(idx)
+              const mag = isDirectional ? 1 : cellMags[idx]
               const targetX = peakVx * velocitySensitivity * intensity * peakInfluence * mag
               const targetY = peakVy * velocitySensitivity * intensity * peakInfluence * mag
               pdx[idx] += (targetX - pdx[idx]) * smoothing
@@ -418,21 +441,26 @@ export default function GlitchFrame({
             }
           } else {
             // ── Manual direction: 1D projection ──
-            if (active && trail.length > 0) {
+            if (active && trailLen > 0) {
               if (isDirectional) {
                 let peakInfluence = 0, peakV = 0
-                for (let p = 0; p < trail.length; p++) {
+                for (let p = 0; p < trailLen; p++) {
+                  const fade = trailFades[p]
+                  if (fade <= 0) continue
                   const pt = trail[p]
-                  const age = (now - pt.time) / trailDuration
-                  const timeFade = Math.max(0, 1 - age)
-                  let dist: number
+                  let spatial: number
                   if (isLine) {
-                    dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
+                    const ld = Math.abs(pt.y - cellCenterY) * oneMinusSinA + Math.abs(pt.x - cellCenterX) * sinABlend
+                    const ex = ld * ld * invTwoSigmaSq
+                    if (ex > 18) continue
+                    spatial = Math.exp(-ex)
                   } else {
                     const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
-                    dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                    const ex = (dx2 * dx2 + dy2 * dy2) * invTwoSigmaSq
+                    if (ex > 18) continue
+                    spatial = Math.exp(-ex)
                   }
-                  const combined = falloff(dist, influenceRadius) * timeFade
+                  const combined = spatial * fade
                   if (combined > peakInfluence) {
                     peakInfluence = combined
                     peakV = pt.vx * cosA + pt.vy * sinADisp
@@ -441,21 +469,26 @@ export default function GlitchFrame({
                 targets[idx] = peakV * velocitySensitivity * intensity * peakInfluence
               } else {
                 let peakInfluence = 0
-                for (let p = 0; p < trail.length; p++) {
+                for (let p = 0; p < trailLen; p++) {
+                  const fade = trailFades[p]
+                  if (fade <= 0) continue
                   const pt = trail[p]
-                  const age = (now - pt.time) / trailDuration
-                  const timeFade = Math.max(0, 1 - age)
-                  let dist: number
+                  let spatial: number
                   if (isLine) {
-                    dist = Math.abs(pt.y - cellCenterY) * (1 - sinABlend) + Math.abs(pt.x - cellCenterX) * sinABlend
+                    const ld = Math.abs(pt.y - cellCenterY) * oneMinusSinA + Math.abs(pt.x - cellCenterX) * sinABlend
+                    const ex = ld * ld * invTwoSigmaSq
+                    if (ex > 18) continue
+                    spatial = Math.exp(-ex)
                   } else {
                     const dx2 = pt.x - cellCenterX, dy2 = pt.y - cellCenterY
-                    dist = Math.sqrt(dx2 * dx2 + dy2 * dy2)
+                    const ex = (dx2 * dx2 + dy2 * dy2) * invTwoSigmaSq
+                    if (ex > 18) continue
+                    spatial = Math.exp(-ex)
                   }
-                  const combined = falloff(dist, influenceRadius) * timeFade
+                  const combined = spatial * fade
                   if (combined > peakInfluence) peakInfluence = combined
                 }
-                targets[idx] = cellDirection(idx) * cellMagnitude(idx) * intensity * peakInfluence
+                targets[idx] = cellDirs[idx] * cellMags[idx] * intensity * peakInfluence
               }
             } else {
               targets[idx] = 0
