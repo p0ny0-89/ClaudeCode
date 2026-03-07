@@ -37,12 +37,6 @@ function cellMagnitude(i: number): number {
   return 0.3 + (v - 0.25) * 1.1
 }
 
-function falloff(dist: number, radius: number): number {
-  if (radius <= 0) return 0
-  const sigma = radius / 2.5
-  return Math.exp(-(dist * dist) / (2 * sigma * sigma))
-}
-
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
 }
@@ -141,46 +135,23 @@ function collapseWrappers(self: HTMLElement, targetParent: HTMLElement): (() => 
 }
 
 /**
- * Replace <video>, <audio>, and <iframe> in a template clone with lightweight
- * static snapshots so cell clones don't spawn heavy media decoder instances.
- * Captures the current video frame when possible, falls back to poster/placeholder.
+ * Replace <canvas> elements in a template clone with static <img> snapshots.
+ * cloneNode(true) doesn't preserve canvas pixel data, so without this the
+ * cloned cells would show blank rectangles where canvases were.
  */
-function neutralizeMedia(template: HTMLElement, parent: HTMLElement) {
-  const origVideos = Array.from(parent.querySelectorAll("video")) as HTMLVideoElement[]
-  const templateVideos = Array.from(template.querySelectorAll("video")) as HTMLVideoElement[]
-
-  templateVideos.forEach((tVideo, i) => {
-    const orig = origVideos[i]
-    // Use a transparent placeholder — the original video stays visible
-    // behind the overlay so it plays through the "hole" in the clone.
-    const ph = document.createElement("div")
-    ph.style.cssText = tVideo.style.cssText
-    ph.style.background = "transparent"
-
-    // Try to capture the current frame as a bonus (works when same-origin)
-    if (orig && orig.readyState >= 2) {
-      try {
-        const c = document.createElement("canvas")
-        c.width = orig.videoWidth || orig.clientWidth || 320
-        c.height = orig.videoHeight || orig.clientHeight || 240
-        const ctx = c.getContext("2d")
-        if (ctx) {
-          ctx.drawImage(orig, 0, 0, c.width, c.height)
-          ph.style.backgroundImage = `url(${c.toDataURL("image/jpeg", 0.7)})`
-          ph.style.backgroundSize = "cover"
-        }
-      } catch { /* CORS — transparent fallback is fine */ }
-    }
-    tVideo.parentElement?.replaceChild(ph, tVideo)
-  })
-
-  // Also neutralize audio and iframes
-  template.querySelectorAll("audio").forEach((a) => a.remove())
-  template.querySelectorAll("iframe").forEach((iframe) => {
-    const div = document.createElement("div")
-    div.style.cssText = (iframe as HTMLElement).style.cssText
-    div.style.background = "transparent"
-    iframe.parentElement?.replaceChild(div, iframe)
+function neutralizeCanvases(template: HTMLElement, parent: HTMLElement) {
+  const origCanvases = Array.from(parent.querySelectorAll("canvas"))
+  const templateCanvases = Array.from(template.querySelectorAll("canvas"))
+  templateCanvases.forEach((tCanvas, i) => {
+    const orig = origCanvases[i]
+    if (!orig) return
+    try {
+      const img = document.createElement("img")
+      img.src = orig.toDataURL()
+      img.style.cssText = (tCanvas as HTMLElement).style.cssText
+      img.setAttribute("draggable", "false")
+      tCanvas.parentElement?.replaceChild(img, tCanvas)
+    } catch { /* tainted canvas — leave as-is */ }
   })
 }
 
@@ -262,6 +233,8 @@ function GlitchFrame({
   const prevBeta = useRef<number | null>(null)
   const prevGamma = useRef<number | null>(null)
   const prevTiltTime = useRef(0)
+  const suppressObserverRef = useRef(false)
+  const trailFadesBuf = useRef<Float64Array>(new Float64Array(64))
 
   const clampedBlockSize = Math.max(2, blockSize)
   const { w: pw, h: ph } = parentSize
@@ -416,8 +389,8 @@ function GlitchFrame({
       return pc
     })()
 
-    // Replace video/audio/iframe in template with static snapshots
-    neutralizeMedia(template, parent)
+    // Replace cloned canvases with static snapshots (cloneNode loses pixel data)
+    neutralizeCanvases(template, parent)
     templateRef.current = template
 
     // Create overlay
@@ -459,30 +432,22 @@ function GlitchFrame({
     cellEls.current = cells
     cellPopulatedRef.current = populated
 
-    // Now hide the original siblings
+    // Suppress observer while we change sibling visibility (prevents rebuild loop)
+    suppressObserverRef.current = true
     const origVisibility: string[] = siblings.map((s) => s.style.visibility)
     siblings.forEach((s) => { s.style.visibility = "hidden" })
-
-    // Re-show video/iframe elements so they play through the transparent
-    // holes in the overlay clones (visibility:visible overrides parent hidden)
-    const mediaEls: HTMLElement[] = []
-    siblings.forEach((s) => {
-      s.querySelectorAll("video, iframe").forEach((m) => {
-        const el = m as HTMLElement
-        mediaEls.push(el)
-        el.style.visibility = "visible"
-      })
-    })
+    setTimeout(() => { suppressObserverRef.current = false }, 0)
 
     return () => {
+      suppressObserverRef.current = true
       overlay.remove()
       overlayRef.current = null
       cellEls.current = []
       cellPopulatedRef.current = []
       templateRef.current = null
       baseRef.current = null
-      mediaEls.forEach((el) => { el.style.visibility = "" })
       siblings.forEach((s, i) => { s.style.visibility = origVisibility[i] })
+      setTimeout(() => { suppressObserverRef.current = false }, 0)
     }
   }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, clipOverflow, rebuildKey])
 
@@ -495,7 +460,8 @@ function GlitchFrame({
 
     let timeout: ReturnType<typeof setTimeout>
     const mo = new MutationObserver((mutations) => {
-      // Ignore mutations inside our overlay, wrapper chain, or media elements
+      // Skip mutations caused by our own sibling visibility changes
+      if (suppressObserverRef.current) return
       const relevant = mutations.some((m) => {
         const target = m.target as HTMLElement
         if (!target) return false
@@ -503,11 +469,6 @@ function GlitchFrame({
         if (self.contains?.(target)) return false // inside self
         if (target.hasAttribute?.(GLITCH_ATTR)) return false
         if (target.closest?.(`[${GLITCH_ATTR}]`)) return false
-        // Ignore mutations on/inside media elements (video playback triggers
-        // constant attribute changes that would cause infinite rebuild loops)
-        const tag = target.tagName
-        if (tag === "VIDEO" || tag === "AUDIO" || tag === "SOURCE" || tag === "IFRAME") return false
-        if (target.closest?.("video, audio, iframe")) return false
         return true
       })
       if (!relevant) return
@@ -705,9 +666,13 @@ function GlitchFrame({
         if (trimIdx > 0) trail.splice(0, trimIdx)
       }
 
-      // Precompute trail fades once per frame (avoids redundant per-cell computation)
+      // Precompute trail fades once per frame (reuse buffer to avoid allocation)
       const trailLen = trail.length
-      const trailFades: number[] = new Array(trailLen)
+      let trailFades = trailFadesBuf.current
+      if (trailFades.length < trailLen) {
+        trailFades = new Float64Array(Math.max(trailLen, 64))
+        trailFadesBuf.current = trailFades
+      }
       for (let p = 0; p < trailLen; p++) {
         trailFades[p] = Math.max(0, 1 - (now - trail[p].time) / trailDuration)
       }

@@ -106,6 +106,7 @@ export default function GlitchFrame({
   const cellDirsRef = useRef<Float64Array>(new Float64Array(0))
   const cellEls = useRef<HTMLDivElement[]>([])
   const rafId = useRef(0)
+  const trailFadesBuf = useRef<Float64Array>(new Float64Array(64))
 
   const smoothVx = useRef(0)
   const smoothVy = useRef(0)
@@ -381,9 +382,13 @@ export default function GlitchFrame({
         if (trimIdx > 0) trail.splice(0, trimIdx)
       }
 
-      // Precompute trail fades once per frame
+      // Precompute trail fades once per frame (reuse buffer to avoid allocation)
       const trailLen = trail.length
-      const trailFades: number[] = new Array(trailLen)
+      let trailFades = trailFadesBuf.current
+      if (trailFades.length < trailLen) {
+        trailFades = new Float64Array(Math.max(trailLen, 64))
+        trailFadesBuf.current = trailFades
+      }
       for (let p = 0; p < trailLen; p++) {
         trailFades[p] = Math.max(0, 1 - (now - trail[p].time) / trailDuration)
       }
