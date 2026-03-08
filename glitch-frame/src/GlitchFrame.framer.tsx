@@ -210,6 +210,7 @@ function GlitchFrame({
   const cellEls = useRef<HTMLDivElement[]>([])
   const templateRef = useRef<HTMLDivElement | null>(null)
   const cellPopulatedRef = useRef<boolean[]>([])
+  const cellBoundsRef = useRef<{pL: number, pT: number, pW: number, pH: number}[]>([])
   const baseRef = useRef<HTMLDivElement | null>(null)
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 })
 
@@ -266,6 +267,11 @@ function GlitchFrame({
     colCount = Math.max(1, Math.ceil(pw / colW))
     colWidth = pw / colCount
   }
+
+  // Overscan padding: cells are enlarged by SEAM_PAD on all sides (clamped to
+  // parent bounds) so adjacent cells overlap slightly, hiding the anti-aliased
+  // hairline seams that browsers render at clip-path / overflow boundaries.
+  const SEAM_PAD = 1
 
   // Cap cell count — prevents extreme DOM bloat at small block sizes
   const MAX_CELLS = 400
@@ -419,17 +425,26 @@ function GlitchFrame({
     baseRef.current = base
 
     // Build lightweight empty cell divs (content added lazily by animation loop)
-    // Uses overflow:hidden + explicit positioning instead of clip-path:inset()
-    // to avoid anti-aliased edges that create visible grid seams between cells.
+    // Each cell is oversized by SEAM_PAD px on every side (clamped to parent
+    // bounds) so adjacent cells overlap slightly — this hides the anti-aliased
+    // hairline seams that browsers render at overflow / clip boundaries.
     const frag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
     const populated: boolean[] = []
+    const cellBounds: {pL: number, pT: number, pW: number, pH: number}[] = []
     for (let r = 0; r < rowCount; r++) {
       const cellTop = r * rowHeight
       for (let c = 0; c < colCount; c++) {
         const cellLeft = c * colWidth
+        const paddedLeft = Math.max(0, cellLeft - SEAM_PAD)
+        const paddedTop = Math.max(0, cellTop - SEAM_PAD)
+        const paddedRight = Math.min(pw, cellLeft + colWidth + SEAM_PAD)
+        const paddedBottom = Math.min(ph, cellTop + rowHeight + SEAM_PAD)
+        const paddedW = paddedRight - paddedLeft
+        const paddedH = paddedBottom - paddedTop
+        cellBounds.push({pL: paddedLeft, pT: paddedTop, pW: paddedW, pH: paddedH})
         const cell = document.createElement("div")
-        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;will-change:transform;backface-visibility:hidden;contain:strict;z-index:1;`
+        cell.style.cssText = `position:absolute;left:${paddedLeft}px;top:${paddedTop}px;width:${paddedW}px;height:${paddedH}px;overflow:hidden;will-change:transform;backface-visibility:hidden;z-index:1;`
         frag.appendChild(cell)
         cells.push(cell)
         populated.push(false)
@@ -442,6 +457,7 @@ function GlitchFrame({
     overlayRef.current = overlay
     cellEls.current = cells
     cellPopulatedRef.current = populated
+    cellBoundsRef.current = cellBounds
 
     // Suppress observer while we change sibling visibility (prevents rebuild loop)
     suppressObserverRef.current = true
@@ -455,6 +471,7 @@ function GlitchFrame({
       overlayRef.current = null
       cellEls.current = []
       cellPopulatedRef.current = []
+      cellBoundsRef.current = []
       templateRef.current = null
       baseRef.current = null
       siblings.forEach((s, i) => { s.style.visibility = origVisibility[i] })
@@ -883,12 +900,14 @@ function GlitchFrame({
 
             if (template && populated) {
               if (absPX > POPULATE_THRESHOLD && !populated[idx]) {
+                const bounds = cellBoundsRef.current[idx]
                 const clone = template.cloneNode(true) as HTMLDivElement
                 clone.style.inset = "auto"
-                clone.style.left = `-${c * colWidth}px`
-                clone.style.top = `-${r * rowHeight}px`
+                clone.style.left = `-${bounds.pL}px`
+                clone.style.top = `-${bounds.pT}px`
                 clone.style.width = `${pw}px`
                 clone.style.height = `${ph}px`
+                clone.style.backfaceVisibility = "hidden"
                 el.appendChild(clone)
                 populated[idx] = true
                 maskDirty = true
@@ -949,12 +968,14 @@ function GlitchFrame({
             const isSettled = !isReturning && absDisp < DEPOPULATE_THRESHOLD && absTarget < DEPOPULATE_THRESHOLD
 
             if (needsContent && !populated[idx]) {
+              const bounds = cellBoundsRef.current[idx]
               const clone = template.cloneNode(true) as HTMLDivElement
               clone.style.inset = "auto"
-              clone.style.left = `-${c * colWidth}px`
-              clone.style.top = `-${r * rowHeight}px`
+              clone.style.left = `-${bounds.pL}px`
+              clone.style.top = `-${bounds.pT}px`
               clone.style.width = `${pw}px`
               clone.style.height = `${ph}px`
+              clone.style.backfaceVisibility = "hidden"
               el.appendChild(clone)
               populated[idx] = true
               maskDirty = true
@@ -985,16 +1006,16 @@ function GlitchFrame({
       if (maskDirty && base && populated) {
         let hasHoles = false
         let pathD = `M 0 0 L ${pw} 0 L ${pw} ${ph} L 0 ${ph} Z`
+        const bounds = cellBoundsRef.current
         for (let idx = 0; idx < cellCount; idx++) {
-          if (populated[idx]) {
+          if (populated[idx] && bounds[idx]) {
             hasHoles = true
-            const r = Math.floor(idx / colCount)
-            const c = idx % colCount
-            const t = Math.round(r * rowHeight)
-            const b = Math.round(t + rowHeight)
-            const l = Math.round(c * colWidth)
-            const ri = Math.round(l + colWidth)
-            pathD += ` M ${l} ${t} L ${ri} ${t} L ${ri} ${b} L ${l} ${b} Z`
+            const b = bounds[idx]
+            const t = Math.round(b.pT)
+            const l = Math.round(b.pL)
+            const ri = Math.round(b.pL + b.pW)
+            const bo = Math.round(b.pT + b.pH)
+            pathD += ` M ${l} ${t} L ${ri} ${t} L ${ri} ${bo} L ${l} ${bo} Z`
           }
         }
         base.style.clipPath = hasHoles
