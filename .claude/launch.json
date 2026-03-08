@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "text-glitch-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["text-glitch/node_modules/vite/bin/vite.js", "dev", "text-glitch", "--host"],
+      "port": 5173
+    },
+    {
+      "name": "glitch-frame-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["glitch-frame/node_modules/vite/bin/vite.js", "dev", "glitch-frame", "--host", "--port", "5174"],
+      "port": 5174
+    }
+  ]
+}
