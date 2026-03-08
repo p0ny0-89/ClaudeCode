@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react"
 
 /**
- * Uses CSS mask-image instead of clip-path for the reveal effect.
- * This avoids conflicts when nested inside components that already
- * use clip-path (e.g. glitch-frame's grid cells with contain: strict).
+ * Returns a raw progress value (0–1) for the reveal animation.
+ *
+ * The actual reveal rendering is done in the component via
+ * character/line-level visibility: hidden spans. This avoids ALL
+ * CSS visual effects (clip-path, mask-image) that can be neutralized
+ * by parent components using contain: strict or their own clip-path
+ * (e.g. GlitchFrame grid cells).
  */
 export function useRevealEffect(
   enabled: boolean,
@@ -33,30 +37,5 @@ export function useRevealEffect(
     return () => cancelAnimationFrame(raf)
   }, [enabled, speed, direction])
 
-  const p = progress * 100
-
-  // Use a hard-edge linear-gradient mask to reveal content directionally.
-  // #000 = fully visible, transparent = fully hidden.
-  let gradientDir: string
-  switch (direction) {
-    case "right":
-      gradientDir = "to left"
-      break
-    case "top":
-      gradientDir = "to bottom"
-      break
-    case "bottom":
-      gradientDir = "to top"
-      break
-    default: // "left" = left-to-right reveal
-      gradientDir = "to right"
-      break
-  }
-
-  const maskImage = `linear-gradient(${gradientDir}, #000 ${p}%, transparent ${p}%)`
-
-  return {
-    WebkitMaskImage: maskImage,
-    maskImage,
-  }
+  return { progress }
 }

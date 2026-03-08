@@ -69,6 +69,91 @@ function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
   }
 }
 
+/**
+ * Renders the directional reveal using span-level visibility: hidden.
+ *
+ * This approach is immune to parent CSS containment (contain: strict),
+ * clip-path, mask-image, and stacking context isolation — because it
+ * controls each character/line's visibility directly in the DOM rather
+ * than relying on any CSS visual effect that can be overridden.
+ *
+ * - top/bottom: reveals whole lines at a time
+ * - left/right: reveals characters per line at a column threshold
+ */
+function renderReveal(
+  text: string,
+  progress: number,
+  direction: string
+): React.ReactNode {
+  const lines = text.split("\n")
+
+  if (direction === "top" || direction === "bottom") {
+    // Line-level reveal
+    const totalLines = lines.length
+    const revealedCount = Math.ceil(progress * totalLines)
+
+    return lines.map((line, i) => {
+      const lineIndex = direction === "top" ? i : totalLines - 1 - i
+      const visible = lineIndex < revealedCount
+      return (
+        <React.Fragment key={i}>
+          {visible ? line : <span style={{ visibility: "hidden" }}>{line}</span>}
+          {i < lines.length - 1 ? "\n" : ""}
+        </React.Fragment>
+      )
+    })
+  }
+
+  // left / right — character-column reveal
+  const maxLen = Math.max(...lines.map((l) => l.length), 1)
+  const revealedCols = Math.ceil(progress * maxLen)
+
+  return lines.map((line, i) => {
+    if (revealedCols >= line.length) {
+      // Entire line visible
+      return (
+        <React.Fragment key={i}>
+          {line}
+          {i < lines.length - 1 ? "\n" : ""}
+        </React.Fragment>
+      )
+    }
+    if (revealedCols <= 0) {
+      // Entire line hidden
+      return (
+        <React.Fragment key={i}>
+          <span style={{ visibility: "hidden" }}>{line}</span>
+          {i < lines.length - 1 ? "\n" : ""}
+        </React.Fragment>
+      )
+    }
+
+    const splitAt =
+      direction === "left" ? revealedCols : line.length - revealedCols
+    const visiblePart =
+      direction === "left" ? line.slice(0, splitAt) : line.slice(splitAt)
+    const hiddenPart =
+      direction === "left" ? line.slice(splitAt) : line.slice(0, splitAt)
+
+    return (
+      <React.Fragment key={i}>
+        {direction === "left" ? (
+          <>
+            {visiblePart}
+            <span style={{ visibility: "hidden" }}>{hiddenPart}</span>
+          </>
+        ) : (
+          <>
+            <span style={{ visibility: "hidden" }}>{hiddenPart}</span>
+            {visiblePart}
+          </>
+        )}
+        {i < lines.length - 1 ? "\n" : ""}
+      </React.Fragment>
+    )
+  })
+}
+
 export default function AsciiFormatter(props: AsciiFormatterProps) {
   const {
     text,
@@ -97,7 +182,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
   )
   const glitch = useGlitchEffect(text, activeEffect === "glitch", effectSpeed)
 
-  // Pick display text
+  // Pick display content
   const displayText =
     activeEffect === "glitch"
       ? glitch.displayText
@@ -107,15 +192,26 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
 
   const textStyle = getTextStyle(props)
 
-  // Effect styles — mask goes on the pre, fade on the pre
   const innerEffectStyle: React.CSSProperties = {}
-
-  if (activeEffect === "reveal") {
-    innerEffectStyle.WebkitMaskImage = reveal.WebkitMaskImage
-    innerEffectStyle.maskImage = reveal.maskImage
-  }
   if (activeEffect === "fade") {
     innerEffectStyle.opacity = fade.opacity
+  }
+
+  // Build content — reveal uses span-level visibility, others use plain text
+  let content: React.ReactNode
+  if (activeEffect === "reveal") {
+    content = renderReveal(text, reveal.progress, effectDirection)
+  } else if (activeEffect === "typing") {
+    content = (
+      <>
+        {typing.visibleText}
+        {typing.hiddenText && (
+          <span style={{ visibility: "hidden" }}>{typing.hiddenText}</span>
+        )}
+      </>
+    )
+  } else {
+    content = displayText
   }
 
   return (
@@ -128,10 +224,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
       }}
     >
       <pre style={{ ...textStyle, ...innerEffectStyle }}>
-        {displayText}
-        {activeEffect === "typing" && typing.hiddenText && (
-          <span style={{ visibility: "hidden" }}>{typing.hiddenText}</span>
-        )}
+        {content}
       </pre>
     </div>
   )
