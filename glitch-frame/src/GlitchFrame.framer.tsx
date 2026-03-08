@@ -413,20 +413,17 @@ function GlitchFrame({
     baseRef.current = base
 
     // Build lightweight empty cell divs (content added lazily by animation loop)
-    // A small overlap (0.5px) on each cell edge prevents hairline grid
-    // artifacts caused by sub-pixel gaps and clip-path anti-aliasing.
-    const SEAM_FIX = 0.5
+    // Uses overflow:hidden + explicit positioning instead of clip-path:inset()
+    // to avoid anti-aliased edges that create visible grid seams between cells.
     const frag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
     const populated: boolean[] = []
     for (let r = 0; r < rowCount; r++) {
-      const top = Math.max(0, r * rowHeight - SEAM_FIX)
-      const bottom = Math.max(0, ph - (r + 1) * rowHeight - SEAM_FIX)
+      const cellTop = r * rowHeight
       for (let c = 0; c < colCount; c++) {
-        const left = Math.max(0, c * colWidth - SEAM_FIX)
-        const right = Math.max(0, pw - (c + 1) * colWidth - SEAM_FIX)
+        const cellLeft = c * colWidth
         const cell = document.createElement("div")
-        cell.style.cssText = `position:absolute;inset:0;clip-path:inset(${top}px ${right}px ${bottom}px ${left}px);will-change:transform;backface-visibility:hidden;contain:strict;z-index:1;`
+        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;will-change:transform;backface-visibility:hidden;contain:strict;z-index:1;`
         frag.appendChild(cell)
         cells.push(cell)
         populated.push(false)
@@ -880,7 +877,13 @@ function GlitchFrame({
 
             if (template && populated) {
               if (absPX > POPULATE_THRESHOLD && !populated[idx]) {
-                el.appendChild(template.cloneNode(true) as HTMLDivElement)
+                const clone = template.cloneNode(true) as HTMLDivElement
+                clone.style.inset = "auto"
+                clone.style.left = `-${c * colWidth}px`
+                clone.style.top = `-${r * rowHeight}px`
+                clone.style.width = `${pw}px`
+                clone.style.height = `${ph}px`
+                el.appendChild(clone)
                 populated[idx] = true
                 maskDirty = true
               } else if (absPX < DEPOPULATE_THRESHOLD && populated[idx]) {
@@ -940,7 +943,13 @@ function GlitchFrame({
             const isSettled = !isReturning && absDisp < DEPOPULATE_THRESHOLD && absTarget < DEPOPULATE_THRESHOLD
 
             if (needsContent && !populated[idx]) {
-              el.appendChild(template.cloneNode(true) as HTMLDivElement)
+              const clone = template.cloneNode(true) as HTMLDivElement
+              clone.style.inset = "auto"
+              clone.style.left = `-${c * colWidth}px`
+              clone.style.top = `-${r * rowHeight}px`
+              clone.style.width = `${pw}px`
+              clone.style.height = `${ph}px`
+              el.appendChild(clone)
               populated[idx] = true
               maskDirty = true
             } else if (isSettled && populated[idx]) {
