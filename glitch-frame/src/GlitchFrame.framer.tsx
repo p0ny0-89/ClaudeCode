@@ -413,15 +413,18 @@ function GlitchFrame({
     baseRef.current = base
 
     // Build lightweight empty cell divs (content added lazily by animation loop)
+    // A small overlap (0.5px) on each cell edge prevents hairline grid
+    // artifacts caused by sub-pixel gaps and clip-path anti-aliasing.
+    const SEAM_FIX = 0.5
     const frag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
     const populated: boolean[] = []
     for (let r = 0; r < rowCount; r++) {
-      const top = r * rowHeight
-      const bottom = Math.max(0, ph - top - rowHeight)
+      const top = Math.max(0, r * rowHeight - SEAM_FIX)
+      const bottom = Math.max(0, ph - (r + 1) * rowHeight - SEAM_FIX)
       for (let c = 0; c < colCount; c++) {
-        const left = c * colWidth
-        const right = Math.max(0, pw - left - colWidth)
+        const left = Math.max(0, c * colWidth - SEAM_FIX)
+        const right = Math.max(0, pw - (c + 1) * colWidth - SEAM_FIX)
         const cell = document.createElement("div")
         cell.style.cssText = `position:absolute;inset:0;clip-path:inset(${top}px ${right}px ${bottom}px ${left}px);will-change:transform;backface-visibility:hidden;contain:strict;z-index:1;`
         frag.appendChild(cell)
@@ -965,15 +968,18 @@ function GlitchFrame({
       if (maskDirty && base && populated) {
         let hasHoles = false
         let pathD = `M 0 0 L ${pw} 0 L ${pw} ${ph} L 0 ${ph} Z`
+        // Hole overlap matches the cell SEAM_FIX (0.5px) so the base
+        // layer mask aligns with the expanded cell clip-paths.
+        const HOLE_PAD = 0.5
         for (let idx = 0; idx < cellCount; idx++) {
           if (populated[idx]) {
             hasHoles = true
             const r = Math.floor(idx / colCount)
             const c = idx % colCount
-            const t = Math.round(r * rowHeight)
-            const b = Math.round(t + rowHeight)
-            const l = Math.round(c * colWidth)
-            const ri = Math.round(l + colWidth)
+            const t = Math.max(0, r * rowHeight - HOLE_PAD)
+            const b = Math.min(ph, (r + 1) * rowHeight + HOLE_PAD)
+            const l = Math.max(0, c * colWidth - HOLE_PAD)
+            const ri = Math.min(pw, (c + 1) * colWidth + HOLE_PAD)
             pathD += ` M ${l} ${t} L ${ri} ${t} L ${ri} ${b} L ${l} ${b} Z`
           }
         }
