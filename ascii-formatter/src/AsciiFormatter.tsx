@@ -107,12 +107,12 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
 
   const textStyle = getTextStyle(props)
 
-  // Effect styles go on outer div (clip-path) or inner pre (opacity)
-  const outerEffectStyle: React.CSSProperties = {}
+  // Effect styles — mask goes on the pre, fade on the pre
   const innerEffectStyle: React.CSSProperties = {}
 
   if (activeEffect === "reveal") {
-    outerEffectStyle.clipPath = reveal.clipPath
+    innerEffectStyle.WebkitMaskImage = reveal.WebkitMaskImage
+    innerEffectStyle.maskImage = reveal.maskImage
   }
   if (activeEffect === "fade") {
     innerEffectStyle.opacity = fade.opacity
@@ -125,7 +125,6 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         overflow: "hidden",
         width: "100%",
         height: "100%",
-        ...outerEffectStyle,
       }}
     >
       <pre style={{ ...textStyle, ...innerEffectStyle }}>

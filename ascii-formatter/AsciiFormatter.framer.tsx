@@ -101,6 +101,11 @@ function useTypingEffect(text: string, enabled: boolean, speed: number) {
   }
 }
 
+/**
+ * Uses CSS mask-image instead of clip-path for the reveal effect.
+ * This avoids conflicts when nested inside components that already
+ * use clip-path (e.g. glitch-frame's grid cells with contain: strict).
+ */
 function useRevealEffect(
   enabled: boolean,
   speed: number,
@@ -130,23 +135,29 @@ function useRevealEffect(
   }, [enabled, speed, direction])
 
   const p = progress * 100
-  let clipPath: string
+
+  let gradientDir: string
   switch (direction) {
     case "right":
-      clipPath = `inset(0 0 0 ${100 - p}%)`
+      gradientDir = "to left"
       break
     case "top":
-      clipPath = `inset(0 0 ${100 - p}% 0)`
+      gradientDir = "to bottom"
       break
     case "bottom":
-      clipPath = `inset(${100 - p}% 0 0 0)`
+      gradientDir = "to top"
       break
     default:
-      clipPath = `inset(0 ${100 - p}% 0 0)`
+      gradientDir = "to right"
       break
   }
 
-  return { clipPath }
+  const maskImage = `linear-gradient(${gradientDir}, #000 ${p}%, transparent ${p}%)`
+
+  return {
+    WebkitMaskImage: maskImage,
+    maskImage,
+  }
 }
 
 function useGlitchEffect(text: string, enabled: boolean, speed: number) {
@@ -261,11 +272,11 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
 
   const textStyle = getTextStyle(props)
 
-  const outerEffectStyle: React.CSSProperties = {}
   const innerEffectStyle: React.CSSProperties = {}
 
   if (activeEffect === "reveal") {
-    outerEffectStyle.clipPath = reveal.clipPath
+    innerEffectStyle.WebkitMaskImage = reveal.WebkitMaskImage
+    innerEffectStyle.maskImage = reveal.maskImage
   }
   if (activeEffect === "fade") {
     innerEffectStyle.opacity = fade.opacity
@@ -278,7 +289,6 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         overflow: "hidden",
         width: "100%",
         height: "100%",
-        ...outerEffectStyle,
       }}
     >
       <pre style={{ ...textStyle, ...innerEffectStyle }}>

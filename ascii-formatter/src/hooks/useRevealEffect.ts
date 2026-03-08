@@ -1,5 +1,10 @@
 import { useState, useEffect } from "react"
 
+/**
+ * Uses CSS mask-image instead of clip-path for the reveal effect.
+ * This avoids conflicts when nested inside components that already
+ * use clip-path (e.g. glitch-frame's grid cells with contain: strict).
+ */
 export function useRevealEffect(
   enabled: boolean,
   speed: number,
@@ -29,21 +34,29 @@ export function useRevealEffect(
   }, [enabled, speed, direction])
 
   const p = progress * 100
-  let clipPath: string
+
+  // Use a hard-edge linear-gradient mask to reveal content directionally.
+  // #000 = fully visible, transparent = fully hidden.
+  let gradientDir: string
   switch (direction) {
     case "right":
-      clipPath = `inset(0 0 0 ${100 - p}%)`
+      gradientDir = "to left"
       break
     case "top":
-      clipPath = `inset(0 0 ${100 - p}% 0)`
+      gradientDir = "to bottom"
       break
     case "bottom":
-      clipPath = `inset(${100 - p}% 0 0 0)`
+      gradientDir = "to top"
       break
-    default: // "left" - left to right
-      clipPath = `inset(0 ${100 - p}% 0 0)`
+    default: // "left" = left-to-right reveal
+      gradientDir = "to right"
       break
   }
 
-  return { clipPath }
+  const maskImage = `linear-gradient(${gradientDir}, #000 ${p}%, transparent ${p}%)`
+
+  return {
+    WebkitMaskImage: maskImage,
+    maskImage,
+  }
 }
