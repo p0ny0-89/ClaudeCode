@@ -403,16 +403,18 @@ function GlitchFrame({
     overlay.setAttribute(GLITCH_ATTR, "true")
     overlay.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:999;${clipOverflow ? "overflow:hidden;" : ""}`
 
-    // Base layer — single undisplaced content clone. An SVG mask-image
-    // with shape-rendering="crispEdges" cuts holes where displaced cells
-    // are active, preventing bleed-through without anti-aliased edges
-    // (clip-path anti-aliases, causing visible grid seams between cells).
+    // Base layer — single undisplaced content clone. Holes are cut via
+    // clip-path (evenodd) where displaced cells are active.  To hide
+    // anti-aliased seams on hole edges, the base layer inherits the
+    // parent's background-color so semi-transparent edge pixels blend
+    // with the same color on both sides → seams become invisible.
     const base = template.cloneNode(true) as HTMLDivElement
     base.style.zIndex = "0"
-    base.style.maskSize = "100% 100%"
-    ;(base.style as any).webkitMaskSize = "100% 100%"
-    base.style.maskRepeat = "no-repeat"
-    ;(base.style as any).webkitMaskRepeat = "no-repeat"
+    base.style.willChange = "clip-path"
+    const parentBg = getComputedStyle(parent).backgroundColor
+    if (parentBg && parentBg !== "transparent" && parentBg !== "rgba(0, 0, 0, 0)") {
+      base.style.backgroundColor = parentBg
+    }
     overlay.appendChild(base)
     baseRef.current = base
 
@@ -975,28 +977,29 @@ function GlitchFrame({
       }
 
       // ── Update base layer mask: cut holes where cells are displaced ──
-      // Uses an SVG mask-image with shape-rendering="crispEdges" instead
-      // of clip-path (which anti-aliases edges, causing visible grid seams).
+      // Uses clip-path with evenodd fill rule — the outer rect is the
+      // visible area, inner rects are holes that hide base content at
+      // displaced cell positions (preventing bleed-through).
+      // Anti-aliased hole edges are hidden by the base layer's background-color
+      // matching the parent (set during overlay construction).
       if (maskDirty && base && populated) {
         let hasHoles = false
-        const holeRects: string[] = []
+        let pathD = `M 0 0 L ${pw} 0 L ${pw} ${ph} L 0 ${ph} Z`
         for (let idx = 0; idx < cellCount; idx++) {
           if (populated[idx]) {
             hasHoles = true
             const r = Math.floor(idx / colCount)
             const c = idx % colCount
-            holeRects.push(`<rect x="${c * colWidth}" y="${r * rowHeight}" width="${colWidth}" height="${rowHeight}" fill="black" shape-rendering="crispEdges"/>`)
+            const t = Math.round(r * rowHeight)
+            const b = Math.round(t + rowHeight)
+            const l = Math.round(c * colWidth)
+            const ri = Math.round(l + colWidth)
+            pathD += ` M ${l} ${t} L ${ri} ${t} L ${ri} ${b} L ${l} ${b} Z`
           }
         }
-        if (hasHoles) {
-          const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}"><rect width="${pw}" height="${ph}" fill="white" shape-rendering="crispEdges"/>${holeRects.join("")}</svg>`
-          const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
-          base.style.maskImage = url
-          ;(base.style as any).webkitMaskImage = url
-        } else {
-          base.style.maskImage = "none"
-          ;(base.style as any).webkitMaskImage = "none"
-        }
+        base.style.clipPath = hasHoles
+          ? `path(evenodd,"${pathD}")`
+          : "none"
       }
 
       rafId.current = requestAnimationFrame(animate)
