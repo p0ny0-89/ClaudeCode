@@ -463,7 +463,15 @@ function GlitchFrame({
     const self = selfRef.current
     if (!parent || !self) return
 
-    let timeout: ReturnType<typeof setTimeout>
+    // Throttle (not debounce) so rebuilds happen periodically during
+    // continuous mutations — e.g. child component animations that update
+    // the DOM every frame.  Debounce would defer all rebuilds until the
+    // mutations stop, causing animated content to stay invisible until
+    // the animation finishes.
+    const THROTTLE_MS = 100
+    let pending = false
+    let trailingTimeout: ReturnType<typeof setTimeout>
+
     const mo = new MutationObserver((mutations) => {
       // Skip mutations caused by our own sibling visibility changes
       if (suppressObserverRef.current) return
@@ -477,8 +485,13 @@ function GlitchFrame({
         return true
       })
       if (!relevant) return
-      clearTimeout(timeout)
-      timeout = setTimeout(() => setRebuildKey((k) => k + 1), 150)
+      if (!pending) {
+        pending = true
+        trailingTimeout = setTimeout(() => {
+          pending = false
+          setRebuildKey((k) => k + 1)
+        }, THROTTLE_MS)
+      }
     })
 
     mo.observe(parent, {
@@ -491,7 +504,7 @@ function GlitchFrame({
 
     return () => {
       mo.disconnect()
-      clearTimeout(timeout)
+      clearTimeout(trailingTimeout)
     }
   }, [])
 
