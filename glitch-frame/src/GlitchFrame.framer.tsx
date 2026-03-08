@@ -372,10 +372,15 @@ function GlitchFrame({
         while (el && el.parentElement !== pc) el = el.parentElement
         if (el) el.remove()
       })
-      pc.querySelectorAll("*").forEach((n) => {
-        const h = n as HTMLElement
+      // Only restore visibility on direct children of the cloned parent.
+      // These correspond to the siblings that GlitchFrame itself hides
+      // (via siblings.forEach(s => s.style.visibility = "hidden")).
+      // Deep descendants may intentionally use visibility:hidden for
+      // animations (e.g. AsciiFormatter reveal effect) — preserve those.
+      for (const child of Array.from(pc.children)) {
+        const h = child as HTMLElement
         if (h.style?.visibility === "hidden") h.style.visibility = "visible"
-      })
+      }
       pc.style.position = "absolute"
       pc.style.inset = "0"
       pc.style.margin = "0"
