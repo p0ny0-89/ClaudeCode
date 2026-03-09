@@ -403,11 +403,16 @@ function GlitchFrame({
     overlay.setAttribute(GLITCH_ATTR, "true")
     overlay.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:999;${clipOverflow ? "overflow:hidden;" : ""}`
 
-    // ── Base layer: seamless full clone (no clip-path, no holes) ──
-    // Provides the clean rest-state visual.  Displaced cells overlay on
-    // top — no mask cutting needed, so no seam artifacts.
+    // ── Base layer: seamless full clone, holes cut dynamically ──
+    // At rest (no active cells) the base has no clip-path → seamless.
+    // During displacement, clip-path evenodd holes hide the base content
+    // behind active cells so the original doesn't show through.
+    // Holes only exist while cells are populated and disappear when they
+    // settle, so anti-aliased clip-path edges are only visible during
+    // active movement where they're imperceptible.
     const base = template.cloneNode(true) as HTMLDivElement
     base.style.zIndex = "0"
+    base.style.willChange = "clip-path"
     overlay.appendChild(base)
     baseRef.current = base
 
@@ -666,6 +671,7 @@ function GlitchFrame({
       const active = mouseActive.current || tiltActive.current
       const populated = cellPopulatedRef.current
       const template = templateRef.current
+      const base = baseRef.current
       const returnStarts = cellReturnStart.current
       const returnTimes = cellReturnTime.current
       const pdx = parallaxDispsX.current
@@ -694,6 +700,8 @@ function GlitchFrame({
       // Pause-on-hover: detect stationary cursor (80ms threshold)
       const PAUSE_THRESHOLD = 80
       const isStationary = pauseOnHover && active && (now - lastMoveTime.current > PAUSE_THRESHOLD)
+
+      let maskDirty = false
 
       for (let r = 0; r < rowCount; r++) {
         const cellCenterY = r * rowHeight + rowHeight / 2
@@ -880,9 +888,11 @@ function GlitchFrame({
                 clone.style.height = `${ph}px`
                 el.appendChild(clone)
                 populated[idx] = true
+                maskDirty = true
               } else if (absPX < DEPOPULATE_THRESHOLD && populated[idx]) {
                 while (el.firstChild) el.removeChild(el.firstChild)
                 populated[idx] = false
+                maskDirty = true
               }
             }
 
@@ -942,9 +952,11 @@ function GlitchFrame({
               clone.style.height = `${ph}px`
               el.appendChild(clone)
               populated[idx] = true
+              maskDirty = true
             } else if (isSettled && populated[idx]) {
               while (el.firstChild) el.removeChild(el.firstChild)
               populated[idx] = false
+              maskDirty = true
             }
           }
 
@@ -957,6 +969,30 @@ function GlitchFrame({
             el.style.transform = "none"
           }
         }
+      }
+
+      // ── Update base layer mask: hide base content behind active cells ──
+      // Holes are cut only for currently-populated cells via clip-path
+      // (evenodd).  At rest all cells are depopulated → no holes → the
+      // base layer renders seamlessly with zero grid seams.
+      if (maskDirty && base && populated) {
+        let hasHoles = false
+        let pathD = `M 0 0 L ${pw} 0 L ${pw} ${ph} L 0 ${ph} Z`
+        for (let idx = 0; idx < cellCount; idx++) {
+          if (populated[idx]) {
+            hasHoles = true
+            const cr = Math.floor(idx / colCount)
+            const cc = idx % colCount
+            const t = Math.round(cr * rowHeight)
+            const b = Math.round(t + rowHeight)
+            const l = Math.round(cc * colWidth)
+            const ri = Math.round(l + colWidth)
+            pathD += ` M ${l} ${t} L ${ri} ${t} L ${ri} ${b} L ${l} ${b} Z`
+          }
+        }
+        base.style.clipPath = hasHoles
+          ? `path(evenodd,"${pathD}")`
+          : "none"
       }
 
       rafId.current = requestAnimationFrame(animate)
