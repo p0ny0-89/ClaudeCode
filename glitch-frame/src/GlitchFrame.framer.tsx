@@ -209,9 +209,6 @@ function GlitchFrame({
   const parentRef = useRef<HTMLElement | null>(null)
   const cellEls = useRef<HTMLDivElement[]>([])
   const templateRef = useRef<HTMLDivElement | null>(null)
-  const cellPopulatedRef = useRef<boolean[]>([])
-  const cellBoundsRef = useRef<{pL: number, pT: number, pW: number, pH: number}[]>([])
-  const baseRef = useRef<HTMLDivElement | null>(null)
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 })
 
   const mouseTrail = useRef<TrailPoint[]>([])
@@ -267,11 +264,6 @@ function GlitchFrame({
     colCount = Math.max(1, Math.ceil(pw / colW))
     colWidth = pw / colCount
   }
-
-  // Overscan padding: cells are enlarged by SEAM_PAD on all sides (clamped to
-  // parent bounds) so adjacent cells overlap slightly, hiding the anti-aliased
-  // hairline seams that browsers render at clip-path / overflow boundaries.
-  const SEAM_PAD = 1
 
   // Cap cell count — prevents extreme DOM bloat at small block sizes
   const MAX_CELLS = 400
@@ -409,45 +401,30 @@ function GlitchFrame({
     overlay.setAttribute(GLITCH_ATTR, "true")
     overlay.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:999;${clipOverflow ? "overflow:hidden;" : ""}`
 
-    // Base layer — single undisplaced content clone. Holes are cut via
-    // clip-path (evenodd) where displaced cells are active.  To hide
-    // anti-aliased seams on hole edges, the base layer inherits the
-    // parent's background-color so semi-transparent edge pixels blend
-    // with the same color on both sides → seams become invisible.
-    const base = template.cloneNode(true) as HTMLDivElement
-    base.style.zIndex = "0"
-    base.style.willChange = "clip-path"
-    const parentBg = getComputedStyle(parent).backgroundColor
-    if (parentBg && parentBg !== "transparent" && parentBg !== "rgba(0, 0, 0, 0)") {
-      base.style.backgroundColor = parentBg
-    }
-    overlay.appendChild(base)
-    baseRef.current = base
-
-    // Build lightweight empty cell divs (content added lazily by animation loop)
-    // Each cell is oversized by SEAM_PAD px on every side (clamped to parent
-    // bounds) so adjacent cells overlap slightly — this hides the anti-aliased
-    // hairline seams that browsers render at overflow / clip boundaries.
+    // ── Build cell grid: every cell gets its own cropped clone up front ──
+    // No base layer, no clip-path holes — every visible pixel is owned by
+    // exactly one cell, so there is no seam from disagreement between a
+    // masked base layer and a displaced overlay slice.
     const frag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
-    const populated: boolean[] = []
-    const cellBounds: {pL: number, pT: number, pW: number, pH: number}[] = []
     for (let r = 0; r < rowCount; r++) {
       const cellTop = r * rowHeight
       for (let c = 0; c < colCount; c++) {
         const cellLeft = c * colWidth
-        const paddedLeft = Math.max(0, cellLeft - SEAM_PAD)
-        const paddedTop = Math.max(0, cellTop - SEAM_PAD)
-        const paddedRight = Math.min(pw, cellLeft + colWidth + SEAM_PAD)
-        const paddedBottom = Math.min(ph, cellTop + rowHeight + SEAM_PAD)
-        const paddedW = paddedRight - paddedLeft
-        const paddedH = paddedBottom - paddedTop
-        cellBounds.push({pL: paddedLeft, pT: paddedTop, pW: paddedW, pH: paddedH})
         const cell = document.createElement("div")
-        cell.style.cssText = `position:absolute;left:${paddedLeft}px;top:${paddedTop}px;width:${paddedW}px;height:${paddedH}px;overflow:hidden;will-change:transform;backface-visibility:hidden;z-index:1;`
+        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;will-change:transform;backface-visibility:hidden;z-index:1;`
+        const clone = template.cloneNode(true) as HTMLDivElement
+        clone.style.position = "absolute"
+        clone.style.inset = "auto"
+        clone.style.left = `${-cellLeft}px`
+        clone.style.top = `${-cellTop}px`
+        clone.style.width = `${pw}px`
+        clone.style.height = `${ph}px`
+        clone.style.pointerEvents = "none"
+        clone.style.backfaceVisibility = "hidden"
+        cell.appendChild(clone)
         frag.appendChild(cell)
         cells.push(cell)
-        populated.push(false)
       }
     }
     overlay.appendChild(frag)
@@ -456,8 +433,6 @@ function GlitchFrame({
     parent.appendChild(overlay)
     overlayRef.current = overlay
     cellEls.current = cells
-    cellPopulatedRef.current = populated
-    cellBoundsRef.current = cellBounds
 
     // Suppress observer while we change sibling visibility (prevents rebuild loop)
     suppressObserverRef.current = true
@@ -470,10 +445,7 @@ function GlitchFrame({
       overlay.remove()
       overlayRef.current = null
       cellEls.current = []
-      cellPopulatedRef.current = []
-      cellBoundsRef.current = []
       templateRef.current = null
-      baseRef.current = null
       siblings.forEach((s, i) => { s.style.visibility = origVisibility[i] })
       setTimeout(() => { suppressObserverRef.current = false }, 0)
     }
@@ -661,7 +633,7 @@ function GlitchFrame({
     }
   }, [interaction, trailDuration, tiltSensitivity])
 
-  // ── Phase 5: Animation loop (lazy population + base mask) ───────────────
+  // ── Phase 5: Animation loop (transform cells) ──────────────────────────
 
   useEffect(() => {
     if (cellCount === 0) return
@@ -675,8 +647,7 @@ function GlitchFrame({
     const sinADisp = Math.sin(angleRad)
     const sinABlend = Math.abs(sinADisp)
     const velocitySensitivity = 12
-    const POPULATE_THRESHOLD = 0.3
-    const DEPOPULATE_THRESHOLD = 0.05
+    const REST_THRESHOLD = 0.05
     const easeFn = EASING_FNS[returnEasing] || EASING_FNS.smooth
     const returnDur = returnDuration
     const sigma = influenceRadius / 2.5
@@ -690,9 +661,6 @@ function GlitchFrame({
       const trail = mouseTrail.current
       const now = performance.now()
       const active = mouseActive.current || tiltActive.current
-      const populated = cellPopulatedRef.current
-      const template = templateRef.current
-      const base = baseRef.current
       const returnStarts = cellReturnStart.current
       const returnTimes = cellReturnTime.current
       const pdx = parallaxDispsX.current
@@ -721,8 +689,6 @@ function GlitchFrame({
       // Pause-on-hover: detect stationary cursor (80ms threshold)
       const PAUSE_THRESHOLD = 80
       const isStationary = pauseOnHover && active && (now - lastMoveTime.current > PAUSE_THRESHOLD)
-
-      let maskDirty = false
 
       for (let r = 0; r < rowCount; r++) {
         const cellCenterY = r * rowHeight + rowHeight / 2
@@ -897,34 +863,9 @@ function GlitchFrame({
           // ── 2D displacement (parallax OR cursor direction) ──
           if (isParallax || isCursorDir) {
             const absPX = Math.abs(pdx[idx]) + Math.abs(pdy[idx])
-
-            if (template && populated) {
-              if (absPX > POPULATE_THRESHOLD && !populated[idx]) {
-                const bounds = cellBoundsRef.current[idx]
-                const clone = template.cloneNode(true) as HTMLDivElement
-                clone.style.inset = "auto"
-                clone.style.left = `-${bounds.pL}px`
-                clone.style.top = `-${bounds.pT}px`
-                clone.style.width = `${pw}px`
-                clone.style.height = `${ph}px`
-                clone.style.backfaceVisibility = "hidden"
-                el.appendChild(clone)
-                populated[idx] = true
-                maskDirty = true
-              } else if (absPX < DEPOPULATE_THRESHOLD && populated[idx]) {
-                while (el.firstChild) el.removeChild(el.firstChild)
-                populated[idx] = false
-                maskDirty = true
-              }
-            }
-
-            if (populated && populated[idx]) {
-              el.style.transform = absPX < 0.05
-                ? "none"
-                : `translate(${pdx[idx]}px,${pdy[idx]}px)`
-            } else if (el.style.transform !== "none") {
-              el.style.transform = "none"
-            }
+            el.style.transform = absPX < REST_THRESHOLD
+              ? "translate3d(0,0,0)"
+              : `translate3d(${pdx[idx]}px,${pdy[idx]}px,0)`
             continue
           }
 
@@ -941,7 +882,7 @@ function GlitchFrame({
             returnTimes[idx] = 0
             const diff = targets[idx] - disps[idx]
             disps[idx] += Math.abs(diff) > 0.05 ? diff * smoothing : diff
-          } else if (prevAbsDisp > DEPOPULATE_THRESHOLD || returnTimes[idx] > 0) {
+          } else if (prevAbsDisp > REST_THRESHOLD || returnTimes[idx] > 0) {
             // Return: ease back to rest with configurable curve
             if (returnTimes[idx] === 0) {
               returnStarts[idx] = disps[idx]
@@ -960,67 +901,12 @@ function GlitchFrame({
           }
 
           const absDisp = Math.abs(disps[idx])
-          const isReturning = returnTimes[idx] > 0
 
-          // ── Lazy population: add/remove content clones on demand ──
-          if (template && populated) {
-            const needsContent = absDisp > POPULATE_THRESHOLD || absTarget > POPULATE_THRESHOLD || isReturning
-            const isSettled = !isReturning && absDisp < DEPOPULATE_THRESHOLD && absTarget < DEPOPULATE_THRESHOLD
-
-            if (needsContent && !populated[idx]) {
-              const bounds = cellBoundsRef.current[idx]
-              const clone = template.cloneNode(true) as HTMLDivElement
-              clone.style.inset = "auto"
-              clone.style.left = `-${bounds.pL}px`
-              clone.style.top = `-${bounds.pT}px`
-              clone.style.width = `${pw}px`
-              clone.style.height = `${ph}px`
-              clone.style.backfaceVisibility = "hidden"
-              el.appendChild(clone)
-              populated[idx] = true
-              maskDirty = true
-            } else if (isSettled && populated[idx]) {
-              while (el.firstChild) el.removeChild(el.firstChild)
-              populated[idx] = false
-              maskDirty = true
-            }
-          }
-
-          // Only write transform on populated cells
-          if (populated && populated[idx]) {
-            el.style.transform = absDisp < 0.05
-              ? "none"
-              : `translate(${disps[idx] * cosA}px,${disps[idx] * sinADisp}px)`
-          } else if (el.style.transform !== "none") {
-            el.style.transform = "none"
-          }
+          // Apply transform — all cells are pre-populated, just move them
+          el.style.transform = absDisp < REST_THRESHOLD
+            ? "translate3d(0,0,0)"
+            : `translate3d(${disps[idx] * cosA}px,${disps[idx] * sinADisp}px,0)`
         }
-      }
-
-      // ── Update base layer mask: cut holes where cells are displaced ──
-      // Uses clip-path with evenodd fill rule — the outer rect is the
-      // visible area, inner rects are holes that hide base content at
-      // displaced cell positions (preventing bleed-through).
-      // Anti-aliased hole edges are hidden by the base layer's background-color
-      // matching the parent (set during overlay construction).
-      if (maskDirty && base && populated) {
-        let hasHoles = false
-        let pathD = `M 0 0 L ${pw} 0 L ${pw} ${ph} L 0 ${ph} Z`
-        const bounds = cellBoundsRef.current
-        for (let idx = 0; idx < cellCount; idx++) {
-          if (populated[idx] && bounds[idx]) {
-            hasHoles = true
-            const b = bounds[idx]
-            const t = Math.round(b.pT)
-            const l = Math.round(b.pL)
-            const ri = Math.round(b.pL + b.pW)
-            const bo = Math.round(b.pT + b.pH)
-            pathD += ` M ${l} ${t} L ${ri} ${t} L ${ri} ${bo} L ${l} ${bo} Z`
-          }
-        }
-        base.style.clipPath = hasHoles
-          ? `path(evenodd,"${pathD}")`
-          : "none"
       }
 
       rafId.current = requestAnimationFrame(animate)
