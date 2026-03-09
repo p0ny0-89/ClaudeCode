@@ -31,37 +31,35 @@ function mulberry32(seed: number): () => number {
 // ---------------------------------------------------------------------------
 // Offset calculator
 // Produces an array of per-slice displacement values (in px).
-// Blends a deterministic wave pattern with seeded randomness.
-// Center slices get the strongest displacement (sin-curve bias).
+// Uses a smooth sine wave so adjacent bands flow in the same direction,
+// creating the elegant curved-edge look seen in poster typography.
+// The randomness dial blends in seeded noise on top of the wave.
 // ---------------------------------------------------------------------------
 function calculateSliceOffsets(
     count: number,
     intensity: number,
     randomness: number,
     directionMode: "mixed" | "left" | "right",
-    seed: number
+    seed: number,
+    waveFrequency: number
 ): number[] {
     if (count <= 0) return []
     const rng = mulberry32(seed)
 
     return Array.from({ length: count }, (_, i) => {
-        // Normalised position (0 → 1)
+        // Normalised position across the slice stack (0 → 1)
         const t = count > 1 ? i / (count - 1) : 0.5
 
-        // Center-bias envelope: peaks at 1 in the middle, 0 at edges
-        const centerBias = Math.sin(t * Math.PI)
+        // Primary: smooth sine wave spanning `waveFrequency` half-cycles.
+        // This makes adjacent slices move in the same direction, producing
+        // the flowing S-curve displacement visible in the reference images.
+        const wave = Math.sin(t * Math.PI * waveFrequency) * intensity
 
-        // Deterministic wave component — alternates direction per slice
-        const waveSign = i % 2 === 0 ? 1 : -1
-        const waveOffset = centerBias * intensity * waveSign
+        // Secondary: seeded random perturbation for organic variation
+        const noise = (rng() - 0.5) * 2 * intensity
 
-        // Seeded random component
-        const randomValue = (rng() - 0.5) * 2
-        const randomOffset = randomValue * intensity * centerBias
-
-        // Blend wave and random according to the randomness dial
-        let offset =
-            waveOffset * (1 - randomness) + randomOffset * randomness
+        // Blend: at randomness 0 → pure wave; at 1 → pure noise
+        let offset = wave * (1 - randomness) + noise * randomness
 
         // Constrain direction
         if (directionMode === "left") {
@@ -69,7 +67,7 @@ function calculateSliceOffsets(
         } else if (directionMode === "right") {
             offset = Math.abs(offset)
         }
-        // "mixed" keeps the natural alternating / random pattern
+        // "mixed" keeps the natural sine-wave positive/negative flow
 
         return offset
     })
@@ -97,6 +95,7 @@ interface SliceDisplaceProps {
     loopDelay?: number
     stagger?: number
     randomness?: number
+    waveFrequency?: number
     directionMode?: "mixed" | "left" | "right"
     scaleOnActive?: number
     skewOnActive?: number
@@ -121,13 +120,14 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
         children,
         triggerMode = "hover",
         intensity: rawIntensity = 40,
-        slices: rawSlices = 8,
+        slices: rawSlices = 12,
         sliceDirection = "horizontal",
         duration: rawDuration = 600,
         loop = true,
         loopDelay: rawLoopDelay = 1200,
-        stagger: rawStagger = 30,
-        randomness: rawRandomness = 0.3,
+        stagger: rawStagger = 25,
+        randomness: rawRandomness = 0.15,
+        waveFrequency: rawWaveFrequency = 2,
         directionMode = "mixed",
         scaleOnActive = 1,
         skewOnActive = 0,
@@ -145,6 +145,7 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
     const loopDelay = Math.max(0, rawLoopDelay)
     const stagger = Math.max(0, rawStagger)
     const randomness = Math.max(0, Math.min(1, rawRandomness))
+    const waveFrequency = Math.max(0.5, Math.min(6, rawWaveFrequency))
     const edgeFeather = Math.max(0, Math.min(50, rawEdgeFeather))
 
     // -----------------------------------------------------------------------
@@ -169,9 +170,10 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
                 intensity,
                 randomness,
                 directionMode,
-                seed
+                seed,
+                waveFrequency
             ),
-        [sliceCount, intensity, randomness, directionMode, seed]
+        [sliceCount, intensity, randomness, directionMode, seed, waveFrequency]
     )
 
     // -----------------------------------------------------------------------
@@ -435,7 +437,7 @@ addPropertyControls(SliceDisplace, {
     slices: {
         type: ControlType.Number,
         title: "Slices",
-        defaultValue: 8,
+        defaultValue: 12,
         min: 2,
         max: 40,
         step: 1,
@@ -468,10 +470,20 @@ addPropertyControls(SliceDisplace, {
     randomness: {
         type: ControlType.Number,
         title: "Randomness",
-        defaultValue: 0.3,
+        defaultValue: 0.15,
         min: 0,
         max: 1,
         step: 0.05,
+    },
+    waveFrequency: {
+        type: ControlType.Number,
+        title: "Wave Freq",
+        defaultValue: 2,
+        min: 0.5,
+        max: 6,
+        step: 0.25,
+        description:
+            "Number of half-cycles across the slice stack. Higher = more undulations.",
     },
 
     // --- Timing ---
@@ -487,7 +499,7 @@ addPropertyControls(SliceDisplace, {
     stagger: {
         type: ControlType.Number,
         title: "Stagger",
-        defaultValue: 30,
+        defaultValue: 25,
         min: 0,
         max: 200,
         step: 5,
