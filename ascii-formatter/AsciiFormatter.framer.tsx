@@ -1,7 +1,7 @@
 // ASCII Formatter — Framer Code Component
 // Paste this entire file into Framer's code editor (Assets > Code > +)
 
-import React, { useRef, useState, useEffect } from "react"
+import React, { useRef, useState, useEffect, useCallback } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -22,6 +22,7 @@ interface AsciiFormatterProps {
   effectSpeed: number
   effectDirection: "left" | "right" | "top" | "bottom"
   trigger: "load" | "inView"
+  hoverGlitch: boolean
   textAlign: "left" | "center" | "right"
   style?: React.CSSProperties
 }
@@ -188,6 +189,133 @@ function useGlitchEffect(text: string, enabled: boolean, speed: number) {
   return { displayText }
 }
 
+// ─── Hover Glitch Hook ──────────────────────────────────────────────
+
+function useHoverGlitch(
+  text: string,
+  enabled: boolean,
+  radius: number = 2,
+  decayMs: number = 350,
+  cycleMs: number = 60
+) {
+  const activeRef = useRef<Map<number, number>>(new Map())
+  const [overrides, setOverrides] = useState<Map<number, string>>(new Map())
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const textRef = useRef(text)
+  textRef.current = text
+
+  const flatChars = useRef<string[]>([])
+  const rowColOf = useRef<{ row: number; col: number }[]>([])
+
+  useEffect(() => {
+    const chars = text.split("")
+    flatChars.current = chars
+    const rc: { row: number; col: number }[] = []
+    let row = 0
+    let col = 0
+    for (let i = 0; i < chars.length; i++) {
+      rc.push({ row, col })
+      if (chars[i] === "\n") {
+        row++
+        col = 0
+      } else {
+        col++
+      }
+    }
+    rowColOf.current = rc
+  }, [text])
+
+  const startCycling = useCallback(() => {
+    if (intervalRef.current !== null) return
+    intervalRef.current = setInterval(() => {
+      const now = performance.now()
+      const active = activeRef.current
+      const chars = flatChars.current
+
+      for (const [idx, expiry] of active) {
+        if (now >= expiry) active.delete(idx)
+      }
+
+      if (active.size === 0) {
+        if (intervalRef.current !== null) {
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
+        }
+        setOverrides(new Map())
+        return
+      }
+
+      const next = new Map<number, string>()
+      for (const idx of active.keys()) {
+        const ch = chars[idx]
+        if (ch === " " || ch === "\n" || ch === "\r" || ch === "\t") continue
+        next.set(
+          idx,
+          GLITCH_CHARS[Math.floor(Math.random() * GLITCH_CHARS.length)]
+        )
+      }
+      setOverrides(next)
+    }, cycleMs)
+  }, [cycleMs])
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!enabled) return
+
+      const target = (e.target as HTMLElement).closest("[data-ci]") as HTMLElement | null
+      if (!target) return
+
+      const ci = parseInt(target.getAttribute("data-ci") || "", 10)
+      if (isNaN(ci)) return
+
+      const now = performance.now()
+      const expiry = now + decayMs
+      const rc = rowColOf.current
+      const chars = flatChars.current
+
+      if (!rc[ci]) return
+
+      const { row: hoverRow, col: hoverCol } = rc[ci]
+
+      for (let i = 0; i < chars.length; i++) {
+        if (chars[i] === "\n" || chars[i] === "\r") continue
+        const { row: r, col: c } = rc[i]
+        const dist = Math.abs(r - hoverRow) + Math.abs(c - hoverCol)
+        if (dist <= radius) {
+          const prob = 1 - dist / (radius + 1)
+          if (Math.random() < prob) {
+            activeRef.current.set(i, expiry)
+          }
+        }
+      }
+
+      startCycling()
+    },
+    [enabled, radius, decayMs, startCycling]
+  )
+
+  const handleMouseLeave = useCallback(() => {}, [])
+
+  useEffect(() => {
+    if (!enabled) {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+      activeRef.current.clear()
+      setOverrides(new Map())
+    }
+    return () => {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+  }, [enabled])
+
+  return { overrides, handleMouseMove, handleMouseLeave }
+}
+
 // ─── Style Helper ───────────────────────────────────────────────────
 
 function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
@@ -307,10 +435,35 @@ function renderReveal(
   })
 }
 
+// ─── Hover Glitch Renderer ──────────────────────────────────────────
+
+function renderHoverGlitchContent(
+  text: string,
+  overrides: Map<number, string>
+): React.ReactNode {
+  const nodes: React.ReactNode[] = []
+  let flatIndex = 0
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === "\n") {
+      nodes.push("\n")
+    } else {
+      const display = overrides.get(flatIndex) ?? ch
+      nodes.push(
+        <span key={flatIndex} data-ci={flatIndex}>
+          {display}
+        </span>
+      )
+    }
+    flatIndex++
+  }
+  return nodes
+}
+
 // ─── Component ──────────────────────────────────────────────────────
 
 export default function AsciiFormatter(props: AsciiFormatterProps) {
-  const { text, effect, effectSpeed, effectDirection, trigger, style } = props
+  const { text, effect, effectSpeed, effectDirection, trigger, hoverGlitch, style } = props
 
   const rootRef = useRef<HTMLDivElement>(null)
   const [inView, setInView] = useState(false)
@@ -347,6 +500,18 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
   )
   const glitch = useGlitchEffect(text, activeEffect === "glitch" && triggered, effectSpeed)
 
+  // Determine whether the entry effect has finished
+  const effectCompleted =
+    activeEffect === "none" ||
+    (activeEffect === "fade" && fade.opacity >= 1) ||
+    (activeEffect === "typing" && typing.visibleText.length >= text.length) ||
+    (activeEffect === "reveal" && reveal.progress >= 1) ||
+    (activeEffect === "glitch" && glitch.displayText === text)
+
+  // Hover glitch: active only after entry effect finishes, not on canvas
+  const hoverGlitchActive = hoverGlitch && triggered && effectCompleted && !isCanvas
+  const hoverGlitchHook = useHoverGlitch(text, hoverGlitchActive)
+
   const displayText =
     activeEffect === "glitch"
       ? glitch.displayText
@@ -362,9 +527,9 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
   }
 
   let content: React.ReactNode
-  if (activeEffect === "reveal") {
+  if (activeEffect === "reveal" && !effectCompleted) {
     content = renderReveal(text, reveal.progress, effectDirection)
-  } else if (activeEffect === "typing") {
+  } else if (activeEffect === "typing" && !effectCompleted) {
     content = (
       <>
         {typing.visibleText}
@@ -373,6 +538,8 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         )}
       </>
     )
+  } else if (hoverGlitchActive) {
+    content = renderHoverGlitchContent(displayText, hoverGlitchHook.overrides)
   } else {
     content = displayText
   }
@@ -387,7 +554,11 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         height: "100%",
       }}
     >
-      <pre style={{ ...textStyle, ...innerEffectStyle }}>
+      <pre
+        style={{ ...textStyle, ...innerEffectStyle }}
+        onMouseMove={hoverGlitchActive ? hoverGlitchHook.handleMouseMove : undefined}
+        onMouseLeave={hoverGlitchActive ? hoverGlitchHook.handleMouseLeave : undefined}
+      >
         {content}
       </pre>
     </div>
@@ -410,6 +581,7 @@ AsciiFormatter.defaultProps = {
   effectSpeed: 1,
   effectDirection: "left",
   trigger: "load",
+  hoverGlitch: false,
   textAlign: "left",
 }
 
@@ -550,6 +722,13 @@ addPropertyControls(AsciiFormatter, {
     hidden(props: AsciiFormatterProps) {
       return props.effect === "none"
     },
+  },
+  hoverGlitch: {
+    type: ControlType.Boolean,
+    title: "Hover Glitch",
+    defaultValue: false,
+    enabledTitle: "On",
+    disabledTitle: "Off",
   },
   textAlign: {
     type: ControlType.Enum,

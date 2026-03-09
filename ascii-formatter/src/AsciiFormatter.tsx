@@ -1,9 +1,10 @@
-import React, { useRef, useState, useEffect } from "react"
+import React, { useRef, useState, useEffect, useMemo } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import { useFadeEffect } from "./hooks/useFadeEffect"
 import { useTypingEffect } from "./hooks/useTypingEffect"
 import { useRevealEffect } from "./hooks/useRevealEffect"
 import { useGlitchEffect } from "./hooks/useGlitchEffect"
+import { useHoverGlitch } from "./hooks/useHoverGlitch"
 
 interface AsciiFormatterProps {
   text: string
@@ -21,6 +22,7 @@ interface AsciiFormatterProps {
   effectSpeed: number
   effectDirection: "left" | "right" | "top" | "bottom"
   trigger: "load" | "inView"
+  hoverGlitch: boolean
   textAlign: "left" | "center" | "right"
   style?: React.CSSProperties
 }
@@ -155,6 +157,35 @@ function renderReveal(
   })
 }
 
+/**
+ * Wraps every character in a <span data-ci={flatIndex}> so the hover
+ * glitch hook can target individual characters via event delegation.
+ * Newlines are emitted as raw "\n" (no span wrapping) to preserve
+ * whitespace layout.
+ */
+function renderHoverGlitchContent(
+  text: string,
+  overrides: Map<number, string>
+): React.ReactNode {
+  const nodes: React.ReactNode[] = []
+  let flatIndex = 0
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === "\n") {
+      nodes.push("\n")
+    } else {
+      const display = overrides.get(flatIndex) ?? ch
+      nodes.push(
+        <span key={flatIndex} data-ci={flatIndex}>
+          {display}
+        </span>
+      )
+    }
+    flatIndex++
+  }
+  return nodes
+}
+
 export default function AsciiFormatter(props: AsciiFormatterProps) {
   const {
     text,
@@ -162,6 +193,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
     effectSpeed,
     effectDirection,
     trigger,
+    hoverGlitch,
     style,
   } = props
 
@@ -207,6 +239,18 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
   )
   const glitch = useGlitchEffect(text, activeEffect === "glitch" && triggered, effectSpeed)
 
+  // Determine whether the entry effect has finished
+  const effectCompleted =
+    activeEffect === "none" ||
+    (activeEffect === "fade" && fade.opacity >= 1) ||
+    (activeEffect === "typing" && typing.visibleText.length >= text.length) ||
+    (activeEffect === "reveal" && reveal.progress >= 1) ||
+    (activeEffect === "glitch" && glitch.displayText === text)
+
+  // Hover glitch: active only after the entry effect finishes, and not on canvas
+  const hoverGlitchActive = hoverGlitch && triggered && effectCompleted && !isCanvas
+  const hoverGlitchHook = useHoverGlitch(text, hoverGlitchActive)
+
   // Pick display content
   const displayText =
     activeEffect === "glitch"
@@ -224,9 +268,9 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
 
   // Build content — reveal uses span-level visibility, others use plain text
   let content: React.ReactNode
-  if (activeEffect === "reveal") {
+  if (activeEffect === "reveal" && !effectCompleted) {
     content = renderReveal(text, reveal.progress, effectDirection)
-  } else if (activeEffect === "typing") {
+  } else if (activeEffect === "typing" && !effectCompleted) {
     content = (
       <>
         {typing.visibleText}
@@ -235,6 +279,9 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         )}
       </>
     )
+  } else if (hoverGlitchActive) {
+    // After entry effect completes, wrap chars in spans for hover targeting
+    content = renderHoverGlitchContent(displayText, hoverGlitchHook.overrides)
   } else {
     content = displayText
   }
@@ -249,7 +296,11 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         height: "100%",
       }}
     >
-      <pre style={{ ...textStyle, ...innerEffectStyle }}>
+      <pre
+        style={{ ...textStyle, ...innerEffectStyle }}
+        onMouseMove={hoverGlitchActive ? hoverGlitchHook.handleMouseMove : undefined}
+        onMouseLeave={hoverGlitchActive ? hoverGlitchHook.handleMouseLeave : undefined}
+      >
         {content}
       </pre>
     </div>
@@ -272,6 +323,7 @@ AsciiFormatter.defaultProps = {
   effectSpeed: 1,
   effectDirection: "left",
   trigger: "load",
+  hoverGlitch: false,
   textAlign: "left",
 }
 
@@ -412,6 +464,13 @@ addPropertyControls(AsciiFormatter, {
     hidden(props: AsciiFormatterProps) {
       return props.effect === "none"
     },
+  },
+  hoverGlitch: {
+    type: ControlType.Boolean,
+    title: "Hover Glitch",
+    defaultValue: false,
+    enabledTitle: "On",
+    disabledTitle: "Off",
   },
 
   // --- Layout ---

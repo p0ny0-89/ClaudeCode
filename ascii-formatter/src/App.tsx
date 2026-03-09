@@ -38,6 +38,7 @@ export default function App() {
   const [effectSpeed, setEffectSpeed] = useState(1)
   const [effectDirection, setEffectDirection] = useState<DirectionOption>("left")
   const [trigger, setTrigger] = useState<TriggerOption>("load")
+  const [hoverGlitch, setHoverGlitch] = useState(false)
   const [textAlign, setTextAlign] = useState<AlignOption>("left")
 
   const props = {
@@ -56,6 +57,7 @@ export default function App() {
     effectSpeed,
     effectDirection,
     trigger,
+    hoverGlitch,
     textAlign,
   }
 
@@ -241,6 +243,12 @@ export default function App() {
             </select>
           </>
         )}
+
+        <label style={{ ...labelStyle, marginTop: 8 }}>Hover Glitch</label>
+        <div style={segmentedContainer}>
+          <button style={segmentBtn(hoverGlitch)} onClick={() => setHoverGlitch(true)}>On</button>
+          <button style={segmentBtn(!hoverGlitch)} onClick={() => setHoverGlitch(false)}>Off</button>
+        </div>
 
         {/* Layout */}
         <div style={sectionTitle}>Layout</div>
