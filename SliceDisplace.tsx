@@ -377,7 +377,6 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
                 }
 
                 // --- Subtle per-slice opacity variation ---
-                // More displaced slices get slightly darker — max 7% reduction
                 const opacityDrop =
                     intensity > 0
                         ? (Math.abs(offsets[i]) / intensity) *
@@ -393,9 +392,11 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
                     ? duration * 1.15
                     : duration
 
-                const sliceStyle: CSSProperties = {
-                    // First slice is relative to establish intrinsic size;
-                    // all others overlay it absolutely.
+                // ---- Two-layer structure ----
+                // OUTER: stationary clip window. The clip-path stays
+                // fixed in place so each band acts as a viewport into
+                // the content beneath it.
+                const clipStyle: CSSProperties = {
                     position: i === 0 ? "relative" : "absolute",
                     top: 0,
                     left: 0,
@@ -403,6 +404,17 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
                     height: "100%",
                     clipPath,
                     WebkitClipPath: clipPath,
+                    pointerEvents: disablePointerEventsOnSlices
+                        ? "none"
+                        : "auto",
+                }
+
+                // INNER: shifts the content within the fixed clip
+                // window. Because the transform is on a child of the
+                // clipped element, the clip stays put while content
+                // slides underneath — producing the poster-typography
+                // slice displacement effect.
+                const contentStyle: CSSProperties = {
                     transform,
                     opacity,
                     transition: [
@@ -410,17 +422,13 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
                         `opacity ${dur}ms ease ${delay}ms`,
                     ].join(", "),
                     willChange: "transform",
-                    // clip-path clips the pointer-event hit area as well,
-                    // so each slice only captures events within its visible
-                    // band region. This preserves interactivity when idle.
-                    pointerEvents: disablePointerEventsOnSlices
-                        ? "none"
-                        : "auto",
                 }
 
                 return (
-                    <div key={i} style={sliceStyle}>
-                        {children}
+                    <div key={i} style={clipStyle}>
+                        <div style={contentStyle}>
+                            {children}
+                        </div>
                     </div>
                 )
             })}
