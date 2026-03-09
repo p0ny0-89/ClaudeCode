@@ -85,6 +85,17 @@ const GLITCH_ATTR = "data-glitch-overlay"
  * Walk up from self until we find an ancestor that has other visible children
  * (i.e. the user's frame, not a Framer component wrapper).
  */
+/** Walk up from `el` to find the first ancestor with a non-transparent bg. */
+function getEffectiveBgColor(el: HTMLElement): string {
+  let cur: HTMLElement | null = el
+  while (cur) {
+    const bg = getComputedStyle(cur).backgroundColor
+    if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") return bg
+    cur = cur.parentElement
+  }
+  return "rgb(0, 0, 0)" // fallback — black
+}
+
 function findTargetParent(self: HTMLElement): HTMLElement | null {
   let el = self.parentElement
   while (el) {
@@ -210,6 +221,7 @@ function GlitchFrame({
   const cellEls = useRef<HTMLDivElement[]>([])
   const templateRef = useRef<HTMLDivElement | null>(null)
   const cellPopulatedRef = useRef<boolean[]>([])
+  const cellBlockersRef = useRef<HTMLDivElement[]>([])
   const baseRef = useRef<HTMLDivElement | null>(null)
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 })
 
@@ -403,21 +415,34 @@ function GlitchFrame({
     overlay.setAttribute(GLITCH_ATTR, "true")
     overlay.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:999;${clipOverflow ? "overflow:hidden;" : ""}`
 
-    // ── Base layer: seamless full clone, holes cut dynamically ──
-    // At rest (no active cells) the base has no clip-path → seamless.
-    // During displacement, clip-path evenodd holes hide the base content
-    // behind active cells so the original doesn't show through.
-    // Holes only exist while cells are populated and disappear when they
-    // settle, so anti-aliased clip-path edges are only visible during
-    // active movement where they're imperceptible.
+    // ── Base layer: seamless full clone (NO clip-path anywhere) ──
+    // Provides the clean rest-state visual.
     const base = template.cloneNode(true) as HTMLDivElement
     base.style.zIndex = "0"
-    base.style.willChange = "clip-path"
     overlay.appendChild(base)
     baseRef.current = base
 
+    // ── Blocker divs: opaque rectangles that cover the base at active
+    // cell positions.  Uses the nearest ancestor's background color so
+    // the "gap" left by a displaced cell matches the real background.
+    // No clip-path, no anti-aliasing — just simple positioned divs.
+    const effectiveBg = getEffectiveBgColor(parent)
+    const blockerFrag = document.createDocumentFragment()
+    const blockers: HTMLDivElement[] = []
+    for (let r = 0; r < rowCount; r++) {
+      const cellTop = r * rowHeight
+      for (let c = 0; c < colCount; c++) {
+        const cellLeft = c * colWidth
+        const blocker = document.createElement("div")
+        blocker.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;background:${effectiveBg};display:none;`
+        blockerFrag.appendChild(blocker)
+        blockers.push(blocker)
+      }
+    }
+    overlay.appendChild(blockerFrag)
+
     // ── Empty cell grid: content clones added lazily when displaced ──
-    const frag = document.createDocumentFragment()
+    const cellFrag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
     const populated: boolean[] = []
     for (let r = 0; r < rowCount; r++) {
@@ -426,18 +451,19 @@ function GlitchFrame({
         const cellLeft = c * colWidth
         const cell = document.createElement("div")
         cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;will-change:transform;backface-visibility:hidden;z-index:1;`
-        frag.appendChild(cell)
+        cellFrag.appendChild(cell)
         cells.push(cell)
         populated.push(false)
       }
     }
-    overlay.appendChild(frag)
+    overlay.appendChild(cellFrag)
 
     // Append overlay BEFORE hiding originals (so content is never invisible)
     parent.appendChild(overlay)
     overlayRef.current = overlay
     cellEls.current = cells
     cellPopulatedRef.current = populated
+    cellBlockersRef.current = blockers
 
     // Suppress observer while we change sibling visibility (prevents rebuild loop)
     suppressObserverRef.current = true
@@ -451,6 +477,7 @@ function GlitchFrame({
       overlayRef.current = null
       cellEls.current = []
       cellPopulatedRef.current = []
+      cellBlockersRef.current = []
       templateRef.current = null
       baseRef.current = null
       siblings.forEach((s, i) => { s.style.visibility = origVisibility[i] })
@@ -671,7 +698,7 @@ function GlitchFrame({
       const active = mouseActive.current || tiltActive.current
       const populated = cellPopulatedRef.current
       const template = templateRef.current
-      const base = baseRef.current
+      const blockers = cellBlockersRef.current
       const returnStarts = cellReturnStart.current
       const returnTimes = cellReturnTime.current
       const pdx = parallaxDispsX.current
@@ -700,8 +727,6 @@ function GlitchFrame({
       // Pause-on-hover: detect stationary cursor (80ms threshold)
       const PAUSE_THRESHOLD = 80
       const isStationary = pauseOnHover && active && (now - lastMoveTime.current > PAUSE_THRESHOLD)
-
-      let maskDirty = false
 
       for (let r = 0; r < rowCount; r++) {
         const cellCenterY = r * rowHeight + rowHeight / 2
@@ -877,7 +902,7 @@ function GlitchFrame({
           if (isParallax || isCursorDir) {
             const absPX = Math.abs(pdx[idx]) + Math.abs(pdy[idx])
 
-            // Lazy populate / depopulate
+            // Lazy populate / depopulate + toggle blocker
             if (template && populated) {
               if (absPX > POPULATE_THRESHOLD && !populated[idx]) {
                 const clone = template.cloneNode(true) as HTMLDivElement
@@ -888,11 +913,11 @@ function GlitchFrame({
                 clone.style.height = `${ph}px`
                 el.appendChild(clone)
                 populated[idx] = true
-                maskDirty = true
+                if (blockers[idx]) blockers[idx].style.display = "block"
               } else if (absPX < DEPOPULATE_THRESHOLD && populated[idx]) {
                 while (el.firstChild) el.removeChild(el.firstChild)
                 populated[idx] = false
-                maskDirty = true
+                if (blockers[idx]) blockers[idx].style.display = "none"
               }
             }
 
@@ -938,7 +963,7 @@ function GlitchFrame({
           const absDisp = Math.abs(disps[idx])
           const isReturning = returnTimes[idx] > 0
 
-          // Lazy populate / depopulate
+          // Lazy populate / depopulate + toggle blocker
           if (template && populated) {
             const needsContent = absDisp > POPULATE_THRESHOLD || absTarget > POPULATE_THRESHOLD || isReturning
             const isSettled = !isReturning && absDisp < DEPOPULATE_THRESHOLD && absTarget < DEPOPULATE_THRESHOLD
@@ -952,11 +977,11 @@ function GlitchFrame({
               clone.style.height = `${ph}px`
               el.appendChild(clone)
               populated[idx] = true
-              maskDirty = true
+              if (blockers[idx]) blockers[idx].style.display = "block"
             } else if (isSettled && populated[idx]) {
               while (el.firstChild) el.removeChild(el.firstChild)
               populated[idx] = false
-              maskDirty = true
+              if (blockers[idx]) blockers[idx].style.display = "none"
             }
           }
 
@@ -969,30 +994,6 @@ function GlitchFrame({
             el.style.transform = "none"
           }
         }
-      }
-
-      // ── Update base layer mask: hide base content behind active cells ──
-      // Holes are cut only for currently-populated cells via clip-path
-      // (evenodd).  At rest all cells are depopulated → no holes → the
-      // base layer renders seamlessly with zero grid seams.
-      if (maskDirty && base && populated) {
-        let hasHoles = false
-        let pathD = `M 0 0 L ${pw} 0 L ${pw} ${ph} L 0 ${ph} Z`
-        for (let idx = 0; idx < cellCount; idx++) {
-          if (populated[idx]) {
-            hasHoles = true
-            const cr = Math.floor(idx / colCount)
-            const cc = idx % colCount
-            const t = Math.round(cr * rowHeight)
-            const b = Math.round(t + rowHeight)
-            const l = Math.round(cc * colWidth)
-            const ri = Math.round(l + colWidth)
-            pathD += ` M ${l} ${t} L ${ri} ${t} L ${ri} ${b} L ${l} ${b} Z`
-          }
-        }
-        base.style.clipPath = hasHoles
-          ? `path(evenodd,"${pathD}")`
-          : "none"
       }
 
       rafId.current = requestAnimationFrame(animate)
