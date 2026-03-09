@@ -19,6 +19,7 @@ type FontOption = "courier" | "consolas" | "firacode" | "jetbrains"
 type FillOption = "solid" | "linear" | "radial"
 type EffectOption = "none" | "reveal" | "typing" | "fade" | "glitch"
 type DirectionOption = "left" | "right" | "top" | "bottom"
+type TriggerOption = "load" | "inView"
 type AlignOption = "left" | "center" | "right"
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
   const [effect, setEffect] = useState<EffectOption>("none")
   const [effectSpeed, setEffectSpeed] = useState(1)
   const [effectDirection, setEffectDirection] = useState<DirectionOption>("left")
+  const [trigger, setTrigger] = useState<TriggerOption>("load")
   const [textAlign, setTextAlign] = useState<AlignOption>("left")
 
   const props = {
@@ -53,6 +55,7 @@ export default function App() {
     effect,
     effectSpeed,
     effectDirection,
+    trigger,
     textAlign,
   }
 
@@ -225,6 +228,16 @@ export default function App() {
               <option value="right">Right to Left</option>
               <option value="top">Top to Bottom</option>
               <option value="bottom">Bottom to Top</option>
+            </select>
+          </>
+        )}
+
+        {effect !== "none" && (
+          <>
+            <label style={{ ...labelStyle, marginTop: 8 }}>Trigger</label>
+            <select value={trigger} onChange={(e) => setTrigger(e.target.value as TriggerOption)} style={inputStyle}>
+              <option value="load">On Load</option>
+              <option value="inView">In View</option>
             </select>
           </>
         )}

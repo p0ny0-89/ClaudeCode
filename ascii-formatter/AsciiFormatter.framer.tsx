@@ -1,7 +1,7 @@
 // ASCII Formatter — Framer Code Component
 // Paste this entire file into Framer's code editor (Assets > Code > +)
 
-import React, { useState, useEffect } from "react"
+import React, { useRef, useState, useEffect } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -21,6 +21,7 @@ interface AsciiFormatterProps {
   effect: "none" | "reveal" | "typing" | "fade" | "glitch"
   effectSpeed: number
   effectDirection: "left" | "right" | "top" | "bottom"
+  trigger: "load" | "inView"
   textAlign: "left" | "center" | "right"
   style?: React.CSSProperties
 }
@@ -309,19 +310,42 @@ function renderReveal(
 // ─── Component ──────────────────────────────────────────────────────
 
 export default function AsciiFormatter(props: AsciiFormatterProps) {
-  const { text, effect, effectSpeed, effectDirection, style } = props
+  const { text, effect, effectSpeed, effectDirection, trigger, style } = props
+
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [inView, setInView] = useState(false)
 
   const isCanvas = RenderTarget.current() === RenderTarget.canvas
+
+  // IntersectionObserver: one-shot trigger when ≥10% visible
+  useEffect(() => {
+    if (trigger !== "inView" || isCanvas) return
+    const el = rootRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true)
+          observer.disconnect()
+        }
+      },
+      { threshold: 0.1 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [trigger, isCanvas])
+
+  const triggered = trigger === "load" || inView || isCanvas
   const activeEffect = isCanvas ? "none" : effect
 
-  const fade = useFadeEffect(activeEffect === "fade", effectSpeed)
-  const typing = useTypingEffect(text, activeEffect === "typing", effectSpeed)
+  const fade = useFadeEffect(activeEffect === "fade" && triggered, effectSpeed)
+  const typing = useTypingEffect(text, activeEffect === "typing" && triggered, effectSpeed)
   const reveal = useRevealEffect(
-    activeEffect === "reveal",
+    activeEffect === "reveal" && triggered,
     effectSpeed,
     effectDirection
   )
-  const glitch = useGlitchEffect(text, activeEffect === "glitch", effectSpeed)
+  const glitch = useGlitchEffect(text, activeEffect === "glitch" && triggered, effectSpeed)
 
   const displayText =
     activeEffect === "glitch"
@@ -355,6 +379,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
 
   return (
     <div
+      ref={rootRef}
       style={{
         ...style,
         overflow: "hidden",
@@ -373,7 +398,7 @@ AsciiFormatter.defaultProps = {
   text: DEFAULT_TEXT,
   font: "courier",
   fontSize: 14,
-  lineHeight: 1.2,
+  lineHeight: 1,
   letterSpacing: 0,
   preserveWhitespace: true,
   fillType: "solid",
@@ -384,6 +409,7 @@ AsciiFormatter.defaultProps = {
   effect: "none",
   effectSpeed: 1,
   effectDirection: "left",
+  trigger: "load",
   textAlign: "left",
 }
 
@@ -416,7 +442,7 @@ addPropertyControls(AsciiFormatter, {
   lineHeight: {
     type: ControlType.Number,
     title: "Line Height",
-    defaultValue: 1.2,
+    defaultValue: 1,
     min: 0.8,
     max: 3,
     step: 0.1,
@@ -513,6 +539,16 @@ addPropertyControls(AsciiFormatter, {
     ],
     hidden(props: AsciiFormatterProps) {
       return props.effect !== "reveal"
+    },
+  },
+  trigger: {
+    type: ControlType.Enum,
+    title: "Trigger",
+    defaultValue: "load",
+    options: ["load", "inView"],
+    optionTitles: ["On Load", "In View"],
+    hidden(props: AsciiFormatterProps) {
+      return props.effect === "none"
     },
   },
   textAlign: {
