@@ -31,9 +31,12 @@ function mulberry32(seed: number): () => number {
 // ---------------------------------------------------------------------------
 // Offset calculator
 // Produces an array of per-slice displacement values (in px).
-// Uses a smooth sine wave so adjacent bands flow in the same direction,
-// creating the elegant curved-edge look seen in poster typography.
-// The randomness dial blends in seeded noise on top of the wave.
+//
+// Layers three sine waves at incommensurate frequencies (golden-ratio
+// spaced) to create complex, non-repeating displacement that looks
+// *designed* rather than mathematical. The randomness dial blends in
+// seeded per-band noise for even more irregularity — matching the
+// experimental poster-typography aesthetic in the reference images.
 // ---------------------------------------------------------------------------
 function calculateSliceOffsets(
     count: number,
@@ -46,20 +49,36 @@ function calculateSliceOffsets(
     if (count <= 0) return []
     const rng = mulberry32(seed)
 
+    // Pre-generate a seeded phase offset so every component instance
+    // gets a unique-feeling pattern even at identical prop values.
+    const phaseShift = mulberry32(seed + 7)() * Math.PI * 2
+
     return Array.from({ length: count }, (_, i) => {
         // Normalised position across the slice stack (0 → 1)
         const t = count > 1 ? i / (count - 1) : 0.5
 
-        // Primary: smooth sine wave spanning `waveFrequency` half-cycles.
-        // This makes adjacent slices move in the same direction, producing
-        // the flowing S-curve displacement visible in the reference images.
-        const wave = Math.sin(t * Math.PI * waveFrequency) * intensity
+        // --- Composite wave ---
+        // Three sine waves at incommensurate frequencies break the
+        // "obviously sinusoidal" quality. The golden ratio (≈1.618)
+        // and its square ensure the waves never lock into a visible
+        // repeating pattern.
+        const f = waveFrequency
+        const w1 = Math.sin(t * Math.PI * f + phaseShift)
+        const w2 = Math.sin(t * Math.PI * f * 1.618 + phaseShift + 0.8) * 0.55
+        const w3 = Math.sin(t * Math.PI * f * 2.618 + phaseShift + 2.1) * 0.3
+        // Normalise peak to ≈ 1 so intensity stays predictable
+        const composite = (w1 + w2 + w3) / 1.85
+        const waveOffset = composite * intensity
 
-        // Secondary: seeded random perturbation for organic variation
-        const noise = (rng() - 0.5) * 2 * intensity
+        // --- Per-band noise ---
+        // Each band gets an independent seeded random offset.
+        // At randomness = 1 this dominates, giving each band a
+        // truly independent displacement like the reference posters.
+        const noiseOffset = (rng() - 0.5) * 2 * intensity
 
-        // Blend: at randomness 0 → pure wave; at 1 → pure noise
-        let offset = wave * (1 - randomness) + noise * randomness
+        // Blend wave structure with per-band randomness
+        let offset =
+            waveOffset * (1 - randomness) + noiseOffset * randomness
 
         // Constrain direction
         if (directionMode === "left") {
@@ -67,7 +86,7 @@ function calculateSliceOffsets(
         } else if (directionMode === "right") {
             offset = Math.abs(offset)
         }
-        // "mixed" keeps the natural sine-wave positive/negative flow
+        // "mixed" preserves the natural positive/negative pattern
 
         return offset
     })
@@ -119,15 +138,15 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
     const {
         children,
         triggerMode = "hover",
-        intensity: rawIntensity = 40,
-        slices: rawSlices = 12,
+        intensity: rawIntensity = 60,
+        slices: rawSlices = 8,
         sliceDirection = "horizontal",
         duration: rawDuration = 600,
         loop = true,
         loopDelay: rawLoopDelay = 1200,
         stagger: rawStagger = 25,
-        randomness: rawRandomness = 0.15,
-        waveFrequency: rawWaveFrequency = 2,
+        randomness: rawRandomness = 0.5,
+        waveFrequency: rawWaveFrequency = 3,
         directionMode = "mixed",
         scaleOnActive = 1,
         skewOnActive = 0,
@@ -437,7 +456,7 @@ addPropertyControls(SliceDisplace, {
     slices: {
         type: ControlType.Number,
         title: "Slices",
-        defaultValue: 12,
+        defaultValue: 8,
         min: 2,
         max: 40,
         step: 1,
@@ -454,7 +473,7 @@ addPropertyControls(SliceDisplace, {
     intensity: {
         type: ControlType.Number,
         title: "Intensity",
-        defaultValue: 40,
+        defaultValue: 60,
         min: 0,
         max: 300,
         step: 1,
@@ -470,7 +489,7 @@ addPropertyControls(SliceDisplace, {
     randomness: {
         type: ControlType.Number,
         title: "Randomness",
-        defaultValue: 0.15,
+        defaultValue: 0.5,
         min: 0,
         max: 1,
         step: 0.05,
@@ -478,7 +497,7 @@ addPropertyControls(SliceDisplace, {
     waveFrequency: {
         type: ControlType.Number,
         title: "Wave Freq",
-        defaultValue: 2,
+        defaultValue: 3,
         min: 0.5,
         max: 6,
         step: 0.25,
