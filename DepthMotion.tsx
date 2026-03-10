@@ -45,8 +45,7 @@ interface Props {
     parallaxDirection: ParallaxDirection
     parallaxAmount: number
     parallaxSmoothing: number
-    fgBlend: BlendMode
-    bgBlend: BlendMode
+    blendMode: BlendMode
     style?: React.CSSProperties
 }
 
@@ -95,8 +94,7 @@ export default function DepthMotion(props: Props) {
         parallaxDirection = "toward",
         parallaxAmount = 20,
         parallaxSmoothing = 0.5,
-        fgBlend = "normal",
-        bgBlend = "normal",
+        blendMode = "normal",
         style,
     } = props
 
@@ -595,8 +593,6 @@ export default function DepthMotion(props: Props) {
                             // Oversized so translated edges stay covered
                             inset: `${-parallaxAmount * 0.6}px`,
                             willChange: "transform",
-                            mixBlendMode:
-                                bgBlend !== "normal" ? bgBlend : undefined,
                         }}
                     >
                         {background}
@@ -612,7 +608,7 @@ export default function DepthMotion(props: Props) {
                         height: "100%",
                         willChange: "transform",
                         mixBlendMode:
-                            fgBlend !== "normal" ? fgBlend : undefined,
+                            blendMode !== "normal" ? blendMode : undefined,
                     }}
                 >
                     {content}
@@ -708,6 +704,7 @@ addPropertyControls(DepthMotion, {
 
     // ── Parallax ────────────────────────────────────────
 
+    // Layer setup
     parallax: {
         type: ControlType.Boolean,
         title: "Parallax",
@@ -722,6 +719,39 @@ addPropertyControls(DepthMotion, {
         hidden: (props: any) => !props.parallax,
     },
 
+    // Visual compositing
+    blendMode: {
+        type: ControlType.Enum,
+        title: "Blend Mode",
+        options: [
+            "normal",
+            "multiply",
+            "screen",
+            "overlay",
+            "soft-light",
+            "hard-light",
+            "difference",
+            "exclusion",
+            "lighten",
+            "darken",
+        ],
+        optionTitles: [
+            "Normal",
+            "Multiply",
+            "Screen",
+            "Overlay",
+            "Soft Light",
+            "Hard Light",
+            "Difference",
+            "Exclusion",
+            "Lighten",
+            "Darken",
+        ],
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax,
+    },
+
+    // Motion behavior
     parallaxSource: {
         type: ControlType.Enum,
         title: "Source",
@@ -765,6 +795,7 @@ addPropertyControls(DepthMotion, {
         hidden: (props: any) => !props.parallax,
     },
 
+    // Motion tuning
     parallaxAmount: {
         type: ControlType.Number,
         title: "Amount",
@@ -784,68 +815,6 @@ addPropertyControls(DepthMotion, {
         min: 0,
         max: 1,
         step: 0.1,
-        hidden: (props: any) => !props.parallax,
-    },
-
-    fgBlend: {
-        type: ControlType.Enum,
-        title: "Foreground Blend",
-        options: [
-            "normal",
-            "multiply",
-            "screen",
-            "overlay",
-            "soft-light",
-            "hard-light",
-            "difference",
-            "exclusion",
-            "lighten",
-            "darken",
-        ],
-        optionTitles: [
-            "Normal",
-            "Multiply",
-            "Screen",
-            "Overlay",
-            "Soft Light",
-            "Hard Light",
-            "Difference",
-            "Exclusion",
-            "Lighten",
-            "Darken",
-        ],
-        defaultValue: "normal",
-        hidden: (props: any) => !props.parallax,
-    },
-
-    bgBlend: {
-        type: ControlType.Enum,
-        title: "Background Blend",
-        options: [
-            "normal",
-            "multiply",
-            "screen",
-            "overlay",
-            "soft-light",
-            "hard-light",
-            "difference",
-            "exclusion",
-            "lighten",
-            "darken",
-        ],
-        optionTitles: [
-            "Normal",
-            "Multiply",
-            "Screen",
-            "Overlay",
-            "Soft Light",
-            "Hard Light",
-            "Difference",
-            "Exclusion",
-            "Lighten",
-            "Darken",
-        ],
-        defaultValue: "normal",
         hidden: (props: any) => !props.parallax,
     },
 })
