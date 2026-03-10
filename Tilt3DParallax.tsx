@@ -16,6 +16,7 @@ type ParallaxDirection = "normal" | "reverse"
 
 interface Props {
     content: React.ReactNode
+    background: React.ReactNode
     interaction: Interaction
     behavior: Behavior
     tiltLimit: number
@@ -44,13 +45,21 @@ function clamp(v: number, lo: number, hi: number): number {
 /**
  * 3D Tilt + Parallax — Enhanced effect wrapper.
  *
- * Extends the Tilt3D architecture with a second motion layer
- * that translates the content in response to tilt, producing
- * a floating parallax depth effect.
+ * When Parallax is on, two slots appear: a Background layer and
+ * a Content (foreground) layer. The tilt rotates them together
+ * as one surface, but each layer translates at a different rate
+ * to produce real depth separation.
+ *
+ * Structure in Framer:
+ *   → Connect your image / fill into the Background slot
+ *   → Connect your foreground elements into the Content slot
+ *   → Turn Parallax on
+ *   → The two layers will shift apart as the card tilts
  */
 export default function Tilt3DParallax(props: Props) {
     const {
         content,
+        background,
         interaction = "cursor",
         behavior = "follow",
         tiltLimit = 20,
@@ -58,7 +67,7 @@ export default function Tilt3DParallax(props: Props) {
         perspective = 5000,
         speed = 0.5,
         parallax = false,
-        parallaxDirection = "reverse",
+        parallaxDirection = "normal",
         parallaxAmount = 20,
         parallaxSmoothing = 0.5,
         style,
@@ -66,19 +75,22 @@ export default function Tilt3DParallax(props: Props) {
 
     const containerRef = useRef<HTMLDivElement>(null)
     const surfaceRef = useRef<HTMLDivElement>(null)
+    const bgRef = useRef<HTMLDivElement>(null)
+    const fgRef = useRef<HTMLDivElement>(null)
     const rafId = useRef(0)
     const loopRunning = useRef(false)
     const hovering = useRef(false)
 
-    // Tilt state
+    // Tilt state (applied to the surface)
     const target = useRef({ rx: 0, ry: 0, s: 1 })
     const current = useRef({ rx: 0, ry: 0, s: 1 })
 
-    // Parallax (translate) state
+    // Parallax state — one normalised vector, split at render time
+    // into opposite translations for bg (−) and fg (+).
     const pTarget = useRef({ tx: 0, ty: 0 })
     const pCurrent = useRef({ tx: 0, ty: 0 })
 
-    // Latest props in a ref so animation callbacks stay stable
+    // Latest props in a ref so callbacks stay stable
     const cfg = useRef({
         interaction,
         behavior,
@@ -127,14 +139,13 @@ export default function Tilt3DParallax(props: Props) {
         const pc = pCurrent.current
         const pt = pTarget.current
 
-        // Auto mode: organic Lissajous, paused on hover
+        // Auto: organic Lissajous, paused on hover
         if (mode === "auto" && !hovering.current) {
             const sec = time * 0.001 * spd
             t.rx = Math.sin(sec * 0.6 + 0.3) * limit * AUTO_INTENSITY
             t.ry = Math.cos(sec * 0.4) * limit * AUTO_INTENSITY
             t.s = 1
 
-            // Derive parallax from auto tilt motion
             if (pEnabled) {
                 const dirMul = pDir === "reverse" ? -1 : 1
                 pt.tx = (t.ry / limit) * pAmt * dirMul
@@ -152,19 +163,28 @@ export default function Tilt3DParallax(props: Props) {
         c.ry = lerp(c.ry, t.ry, smooth)
         c.s = lerp(c.s, t.s, smooth)
 
-        // ── Lerp parallax ───────────────────────────────
-        // Map user-facing 0..1 smoothing → internal lerp factor.
-        // 0 = responsive (0.15), 1 = very smooth (0.02)
-        let transformStr = `rotateX(${c.rx.toFixed(2)}deg) rotateY(${c.ry.toFixed(2)}deg) scale(${c.s.toFixed(4)})`
+        // Tilt applies to the whole surface
+        el.style.transform = `rotateX(${c.rx.toFixed(2)}deg) rotateY(${c.ry.toFixed(2)}deg) scale(${c.s.toFixed(4)})`
 
+        // ── Lerp parallax (two-layer split) ─────────────
         if (pEnabled) {
             const pLerp = 0.15 - pSmooth * 0.13
             pc.tx = lerp(pc.tx, pt.tx, pLerp)
             pc.ty = lerp(pc.ty, pt.ty, pLerp)
-            transformStr += ` translateX(${pc.tx.toFixed(2)}px) translateY(${pc.ty.toFixed(2)}px)`
-        }
 
-        el.style.transform = transformStr
+            const halfTx = pc.tx * 0.5
+            const halfTy = pc.ty * 0.5
+
+            // Background shifts opposite, foreground shifts with
+            if (bgRef.current) {
+                bgRef.current.style.transform =
+                    `translate3d(${(-halfTx).toFixed(2)}px, ${(-halfTy).toFixed(2)}px, 0)`
+            }
+            if (fgRef.current) {
+                fgRef.current.style.transform =
+                    `translate3d(${halfTx.toFixed(2)}px, ${halfTy.toFixed(2)}px, 0)`
+            }
+        }
 
         // ── Settle check ────────────────────────────────
         const tiltSettled =
@@ -177,18 +197,26 @@ export default function Tilt3DParallax(props: Props) {
             (Math.abs(pc.tx - pt.tx) < SETTLE_THRESHOLD &&
                 Math.abs(pc.ty - pt.ty) < SETTLE_THRESHOLD)
 
-        // Auto keeps the loop alive; cursor stops once settled.
         if (tiltSettled && parallaxSettled && mode !== "auto") {
+            // Snap to exact values
             c.rx = t.rx
             c.ry = t.ry
             c.s = t.s
-            let finalT = `rotateX(${c.rx}deg) rotateY(${c.ry}deg) scale(${c.s})`
+            el.style.transform = `rotateX(${c.rx}deg) rotateY(${c.ry}deg) scale(${c.s})`
+
             if (pEnabled) {
                 pc.tx = pt.tx
                 pc.ty = pt.ty
-                finalT += ` translateX(${pc.tx.toFixed(2)}px) translateY(${pc.ty.toFixed(2)}px)`
+                const hx = pc.tx * 0.5
+                const hy = pc.ty * 0.5
+                if (bgRef.current)
+                    bgRef.current.style.transform =
+                        `translate3d(${(-hx).toFixed(2)}px, ${(-hy).toFixed(2)}px, 0)`
+                if (fgRef.current)
+                    fgRef.current.style.transform =
+                        `translate3d(${hx.toFixed(2)}px, ${hy.toFixed(2)}px, 0)`
             }
-            el.style.transform = finalT
+
             loopRunning.current = false
         } else {
             rafId.current = requestAnimationFrame(tick)
@@ -211,7 +239,6 @@ export default function Tilt3DParallax(props: Props) {
         if (mode === "cursor") {
             target.current.s = cfg.current.hoverScale
         } else if (mode === "auto") {
-            // Pause auto: lerp tilt + parallax to neutral
             target.current.rx = 0
             target.current.ry = 0
             target.current.s = 1
@@ -269,7 +296,6 @@ export default function Tilt3DParallax(props: Props) {
             pTarget.current.tx = 0
             pTarget.current.ty = 0
         }
-        // Auto resumes Lissajous now that hovering is false.
         startLoop()
     }, [isCanvas, startLoop])
 
@@ -327,6 +353,37 @@ export default function Tilt3DParallax(props: Props) {
 
     // ── Render ──────────────────────────────────────────
 
+    // When parallax is off, render flat (no layer splitting).
+    if (!parallax) {
+        return (
+            <div
+                ref={containerRef}
+                style={{
+                    ...style,
+                    perspective: `${perspective}px`,
+                    overflow: "visible",
+                }}
+                onPointerEnter={onPointerEnter}
+                onPointerMove={onPointerMove}
+                onPointerLeave={onPointerLeave}
+            >
+                <div
+                    ref={surfaceRef}
+                    style={{
+                        width: "100%",
+                        height: "100%",
+                        willChange: "transform",
+                    }}
+                >
+                    {content}
+                </div>
+            </div>
+        )
+    }
+
+    // Parallax on: two-layer structure.
+    // Background + foreground get independent translations,
+    // surface gets the shared tilt rotation.
     return (
         <div
             ref={containerRef}
@@ -344,10 +401,38 @@ export default function Tilt3DParallax(props: Props) {
                 style={{
                     width: "100%",
                     height: "100%",
+                    position: "relative",
+                    overflow: "hidden",
                     willChange: "transform",
                 }}
             >
-                {content}
+                {/* Background layer — shifts opposite to foreground */}
+                {background && (
+                    <div
+                        ref={bgRef}
+                        style={{
+                            position: "absolute",
+                            // Oversized so translated edges stay covered
+                            inset: `${-parallaxAmount * 0.6}px`,
+                            willChange: "transform",
+                        }}
+                    >
+                        {background}
+                    </div>
+                )}
+
+                {/* Foreground / content layer — shifts with motion */}
+                <div
+                    ref={fgRef}
+                    style={{
+                        position: "relative",
+                        width: "100%",
+                        height: "100%",
+                        willChange: "transform",
+                    }}
+                >
+                    {content}
+                </div>
             </div>
         </div>
     )
@@ -443,13 +528,19 @@ addPropertyControls(Tilt3DParallax, {
         disabledTitle: "Off",
     },
 
+    background: {
+        type: ControlType.ComponentInstance,
+        title: "Background",
+        hidden: (props: any) => !props.parallax,
+    },
+
     parallaxDirection: {
         type: ControlType.Enum,
         title: "Direction",
         options: ["normal", "reverse"],
         optionTitles: ["Normal", "Reverse"],
         displaySegmentedControl: true,
-        defaultValue: "reverse",
+        defaultValue: "normal",
         hidden: (props: any) => !props.parallax,
     },
 
