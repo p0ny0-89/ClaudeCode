@@ -16,6 +16,17 @@ type ParallaxSource = "tilt" | "cursor"
 type ParallaxDirection = "toward" | "away"
 type ParallaxTracking = "hover" | "page"
 type HoverParallax = "off" | "cursor" | "auto"
+type BlendMode =
+    | "normal"
+    | "multiply"
+    | "screen"
+    | "overlay"
+    | "soft-light"
+    | "hard-light"
+    | "difference"
+    | "exclusion"
+    | "lighten"
+    | "darken"
 
 interface Props {
     content: React.ReactNode
@@ -34,6 +45,8 @@ interface Props {
     parallaxDirection: ParallaxDirection
     parallaxAmount: number
     parallaxSmoothing: number
+    fgBlend: BlendMode
+    bgBlend: BlendMode
     style?: React.CSSProperties
 }
 
@@ -82,6 +95,8 @@ export default function DepthMotion(props: Props) {
         parallaxDirection = "toward",
         parallaxAmount = 20,
         parallaxSmoothing = 0.5,
+        fgBlend = "normal",
+        bgBlend = "normal",
         style,
     } = props
 
@@ -567,6 +582,7 @@ export default function DepthMotion(props: Props) {
                     height: "100%",
                     position: "relative",
                     overflow: "hidden",
+                    isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                 }}
             >
@@ -579,6 +595,8 @@ export default function DepthMotion(props: Props) {
                             // Oversized so translated edges stay covered
                             inset: `${-parallaxAmount * 0.6}px`,
                             willChange: "transform",
+                            mixBlendMode:
+                                bgBlend !== "normal" ? bgBlend : undefined,
                         }}
                     >
                         {background}
@@ -593,6 +611,8 @@ export default function DepthMotion(props: Props) {
                         width: "100%",
                         height: "100%",
                         willChange: "transform",
+                        mixBlendMode:
+                            fgBlend !== "normal" ? fgBlend : undefined,
                     }}
                 >
                     {content}
@@ -764,6 +784,68 @@ addPropertyControls(DepthMotion, {
         min: 0,
         max: 1,
         step: 0.1,
+        hidden: (props: any) => !props.parallax,
+    },
+
+    fgBlend: {
+        type: ControlType.Enum,
+        title: "Foreground Blend",
+        options: [
+            "normal",
+            "multiply",
+            "screen",
+            "overlay",
+            "soft-light",
+            "hard-light",
+            "difference",
+            "exclusion",
+            "lighten",
+            "darken",
+        ],
+        optionTitles: [
+            "Normal",
+            "Multiply",
+            "Screen",
+            "Overlay",
+            "Soft Light",
+            "Hard Light",
+            "Difference",
+            "Exclusion",
+            "Lighten",
+            "Darken",
+        ],
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax,
+    },
+
+    bgBlend: {
+        type: ControlType.Enum,
+        title: "Background Blend",
+        options: [
+            "normal",
+            "multiply",
+            "screen",
+            "overlay",
+            "soft-light",
+            "hard-light",
+            "difference",
+            "exclusion",
+            "lighten",
+            "darken",
+        ],
+        optionTitles: [
+            "Normal",
+            "Multiply",
+            "Screen",
+            "Overlay",
+            "Soft Light",
+            "Hard Light",
+            "Difference",
+            "Exclusion",
+            "Lighten",
+            "Darken",
+        ],
+        defaultValue: "normal",
         hidden: (props: any) => !props.parallax,
     },
 })
