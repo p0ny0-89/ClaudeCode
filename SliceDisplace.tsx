@@ -336,25 +336,46 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
-            {Array.from({ length: sliceCount }, (_, i) => {
-                // --- Clip-path calculation ---
-                const bandPercent = 100 / sliceCount
-                const start = i * bandPercent
-                const end = (i + 1) * bandPercent
+            {/* Hidden layout reference — sits in normal flow so the
+                container gets an intrinsic size when Framer uses
+                auto-height. Invisible but still participates in layout. */}
+            <div
+                style={{
+                    visibility: "hidden",
+                    pointerEvents: "none",
+                }}
+                aria-hidden="true"
+            >
+                {children}
+            </div>
 
-                // Extend each edge by 0.5px to prevent subpixel seams
-                // between adjacent slices. First/last edges stay flush.
-                const extendTop = i > 0 ? "0.5px" : "0px"
-                const extendBottom =
-                    i < sliceCount - 1 ? "0.5px" : "0px"
+            {/* Sliced effect layers — every slice is position:absolute
+                so they all share the exact same coordinate system. */}
+            {Array.from({ length: sliceCount }, (_, i) => {
+                // --- Clip-path (pure percentages, no calc) ---
+                const bandPct = 100 / sliceCount
+                const startPct = i * bandPct
+                const endPct = (i + 1) * bandPct
+
+                // Tiny overlap to prevent subpixel seams between bands.
+                // First/last outer edges stay flush with the container.
+                const overlap = 0.15 // percentage points
+                const clipTop = Math.max(
+                    0,
+                    startPct - (i > 0 ? overlap : 0)
+                )
+                const clipBottom = Math.max(
+                    0,
+                    100 - endPct - (i < sliceCount - 1 ? overlap : 0)
+                )
 
                 let clipPath: string
                 if (sliceDirection === "horizontal") {
                     // inset(top right bottom left)
-                    clipPath = `inset(calc(${start}% - ${extendTop}) 0% calc(${100 - end}% - ${extendBottom}) 0%)`
+                    clipPath = `inset(${clipTop}% 0% ${clipBottom}% 0%)`
                 } else {
-                    // Vertical bands: inset left/right instead
-                    clipPath = `inset(0% calc(${100 - end}% - ${extendBottom}) 0% calc(${start}% - ${extendTop}))`
+                    // Vertical bands: swap axes
+                    clipPath = `inset(0% ${clipBottom}% 0% ${clipTop}%)`
                 }
 
                 // --- Displacement ---
@@ -366,12 +387,14 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
                 let transform: string
                 if (sliceDirection === "horizontal") {
                     transform = `translate3d(${displacement}px, 0, 0)`
-                    if (scaleVal !== 1) transform += ` scale(${scaleVal})`
+                    if (scaleVal !== 1)
+                        transform += ` scale(${scaleVal})`
                     if (skewVal !== 0)
                         transform += ` skewX(${skewVal}deg)`
                 } else {
                     transform = `translate3d(0, ${displacement}px, 0)`
-                    if (scaleVal !== 1) transform += ` scale(${scaleVal})`
+                    if (scaleVal !== 1)
+                        transform += ` scale(${scaleVal})`
                     if (skewVal !== 0)
                         transform += ` skewY(${skewVal}deg)`
                 }
@@ -387,34 +410,36 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
 
                 // --- Transition timing ---
                 const delay = stagger * i
-                const easing = isSettling ? EASE_SETTLE : EASE_ACTIVATE
+                const easing = isSettling
+                    ? EASE_SETTLE
+                    : EASE_ACTIVATE
                 const dur = isSettling
                     ? duration * 1.15
                     : duration
 
-                // ---- Two-layer structure ----
-                // OUTER: stationary clip window. The clip-path stays
-                // fixed in place so each band acts as a viewport into
-                // the content beneath it.
+                // OUTER: stationary clip window — stays fixed in place.
+                // Every slice is position:absolute so they all share
+                // the same origin, dimensions, and coordinate system.
                 const clipStyle: CSSProperties = {
-                    position: i === 0 ? "relative" : "absolute",
+                    position: "absolute",
                     top: 0,
                     left: 0,
                     width: "100%",
                     height: "100%",
                     clipPath,
-                    WebkitClipPath: clipPath,
                     pointerEvents: disablePointerEventsOnSlices
                         ? "none"
                         : "auto",
                 }
 
-                // INNER: shifts the content within the fixed clip
-                // window. Because the transform is on a child of the
-                // clipped element, the clip stays put while content
-                // slides underneath — producing the poster-typography
-                // slice displacement effect.
+                // INNER: shifts the content beneath the fixed clip.
+                // width/height 100% ensures children have an identical
+                // containing block in every slice. The transform also
+                // creates a containing block for any absolutely-
+                // positioned Framer children.
                 const contentStyle: CSSProperties = {
+                    width: "100%",
+                    height: "100%",
                     transform,
                     opacity,
                     transition: [
