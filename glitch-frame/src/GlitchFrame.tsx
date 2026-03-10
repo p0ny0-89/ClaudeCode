@@ -3,7 +3,7 @@
  *
  * Wraps arbitrary children and applies an interactive glitch effect.
  * On desktop: responds to pointer hover.
- * On mobile: responds to phone tilting via DeviceOrientation API.
+ * On mobile: responds to touch press and drag.
  */
 
 import {
@@ -38,17 +38,11 @@ function cellMagnitude(i: number): number {
   return 0.3 + (v - 0.25) * 1.1
 }
 
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v))
-}
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type GlitchScope = "line" | "word" | "character"
 export type GlitchEffect = "random" | "directional" | "parallax"
 export type GlitchDirectionMode = "cursor" | "manual"
-export type GlitchInteraction = "pointer" | "tilt" | "auto"
-
 interface TrailPoint {
   x: number
   y: number
@@ -69,8 +63,6 @@ export interface GlitchFrameProps {
   intensity?: number
   trailDuration?: number
   smoothing?: number
-  interaction?: GlitchInteraction
-  tiltSensitivity?: number
   style?: CSSProperties
 }
 
@@ -88,8 +80,6 @@ export default function GlitchFrame({
   intensity = 60,
   trailDuration = 300,
   smoothing = 0.12,
-  interaction = "auto",
-  tiltSensitivity = 1.0,
   style,
 }: GlitchFrameProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -97,7 +87,6 @@ export default function GlitchFrame({
 
   const mouseTrail = useRef<TrailPoint[]>([])
   const mouseActive = useRef(false)
-  const tiltActive = useRef(false)
   const cellDisplacements = useRef<Float64Array>(new Float64Array(0))
   const cellTargets = useRef<Float64Array>(new Float64Array(0))
   const cellDispsX = useRef<Float64Array>(new Float64Array(0))
@@ -110,10 +99,6 @@ export default function GlitchFrame({
 
   const smoothVx = useRef(0)
   const smoothVy = useRef(0)
-
-  const prevBeta = useRef<number | null>(null)
-  const prevGamma = useRef<number | null>(null)
-  const prevTiltTime = useRef(0)
 
   const clampedBlockSize = Math.max(2, blockSize)
   const { w: containerWidth, h: containerHeight } = containerSize
@@ -190,13 +175,10 @@ export default function GlitchFrame({
     }
   }, [cellCount])
 
-  // ── Pointer handlers ──────────────────────────────────────────────────────
-
-  const shouldUsePointer = interaction === "pointer" || interaction === "auto"
+  // ── Pointer handlers (works for mouse + touch) ──────────────────────────
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      if (interaction === "tilt") return
       const rect = containerRef.current?.getBoundingClientRect()
       if (!rect) return
       mouseActive.current = true
@@ -226,125 +208,19 @@ export default function GlitchFrame({
       if (trimIdx > 0) trail.splice(0, trimIdx)
       if (trail.length > 50) trail.splice(0, trail.length - 50)
     },
-    [trailDuration, interaction]
+    [trailDuration]
   )
 
-  const handlePointerLeave = useCallback(() => {
-    if (interaction === "tilt") return
+  const handlePointerDown = useCallback(
+    (_e: React.PointerEvent) => {
+      mouseActive.current = true
+    },
+    []
+  )
+
+  const deactivatePointer = useCallback(() => {
     mouseActive.current = false
-  }, [interaction])
-
-  // ── DeviceOrientation (tilt) handler ──────────────────────────────────────
-
-  useEffect(() => {
-    if (interaction === "pointer") return
-
-    const isMobile =
-      typeof navigator !== "undefined" && navigator.maxTouchPoints > 0
-
-    if (interaction === "auto" && !isMobile) return
-
-    let orientationSupported = false
-    let permissionGranted = false
-    let cleanedUp = false
-
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (cleanedUp) return
-      if (e.beta === null || e.gamma === null) return
-
-      orientationSupported = true
-      tiltActive.current = true
-
-      const rect = containerRef.current?.getBoundingClientRect()
-      if (!rect) return
-
-      const now = performance.now()
-      const cw = rect.width
-      const ch = rect.height
-
-      const normalizedGamma = clamp(e.gamma / 45, -1, 1)
-      const normalizedBeta = clamp((e.beta - 45) / 45, -1, 1)
-
-      const virtualX = ((normalizedGamma + 1) / 2) * cw * tiltSensitivity
-      const virtualY = ((normalizedBeta + 1) / 2) * ch * tiltSensitivity
-
-      let vx = 0
-      let vy = 0
-      if (prevBeta.current !== null && prevGamma.current !== null) {
-        const dt = now - prevTiltTime.current
-        if (dt > 0 && dt < 200) {
-          const gammaRate = (e.gamma - prevGamma.current) / dt
-          const betaRate = (e.beta - prevBeta.current) / dt
-          vx = gammaRate * cw * 0.02 * tiltSensitivity
-          vy = betaRate * ch * 0.02 * tiltSensitivity
-        }
-      }
-      prevBeta.current = e.beta
-      prevGamma.current = e.gamma
-      prevTiltTime.current = now
-
-      smoothVx.current += (vx - smoothVx.current) * 0.3
-      smoothVy.current += (vy - smoothVy.current) * 0.3
-
-      const trail = mouseTrail.current
-      trail.push({
-        x: clamp(virtualX, 0, cw),
-        y: clamp(virtualY, 0, ch),
-        time: now,
-        vx: smoothVx.current,
-        vy: smoothVy.current,
-      })
-
-      const cutoff = now - trailDuration
-      let trimIdx = 0
-      while (trimIdx < trail.length && trail[trimIdx].time < cutoff) trimIdx++
-      if (trimIdx > 0) trail.splice(0, trimIdx)
-      if (trail.length > 50) trail.splice(0, trail.length - 50)
-    }
-
-    const startListening = () => {
-      if (cleanedUp || permissionGranted) return
-      permissionGranted = true
-      window.addEventListener("deviceorientation", handleOrientation)
-    }
-
-    const DOE = DeviceOrientationEvent as any
-    if (typeof DOE.requestPermission === "function") {
-      const requestOnTouch = () => {
-        DOE.requestPermission()
-          .then((state: string) => {
-            if (state === "granted") {
-              startListening()
-            }
-          })
-          .catch(() => {})
-        window.removeEventListener("touchstart", requestOnTouch)
-      }
-      window.addEventListener("touchstart", requestOnTouch, { once: true })
-
-      return () => {
-        cleanedUp = true
-        window.removeEventListener("touchstart", requestOnTouch)
-        window.removeEventListener("deviceorientation", handleOrientation)
-        tiltActive.current = false
-      }
-    } else {
-      startListening()
-
-      const fallbackTimer = setTimeout(() => {
-        if (!orientationSupported) {
-          tiltActive.current = false
-        }
-      }, 1000)
-
-      return () => {
-        cleanedUp = true
-        clearTimeout(fallbackTimer)
-        window.removeEventListener("deviceorientation", handleOrientation)
-        tiltActive.current = false
-      }
-    }
-  }, [interaction, trailDuration, tiltSensitivity])
+  }, [])
 
   // ── Animation loop ────────────────────────────────────────────────────────
 
@@ -371,7 +247,7 @@ export default function GlitchFrame({
       const els = cellEls.current
       const trail = mouseTrail.current
       const now = performance.now()
-      const active = mouseActive.current || tiltActive.current
+      const active = mouseActive.current
       const cellMags = cellMagsRef.current
       const cellDirs = cellDirsRef.current
 
@@ -573,8 +449,11 @@ export default function GlitchFrame({
   return (
     <div
       ref={containerRef}
-      onPointerMove={shouldUsePointer ? handlePointerMove : undefined}
-      onPointerLeave={shouldUsePointer ? handlePointerLeave : undefined}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={deactivatePointer}
+      onPointerUp={deactivatePointer}
+      onPointerCancel={deactivatePointer}
       style={{
         position: "relative",
         overflow: clipOverflow ? "hidden" : "visible",

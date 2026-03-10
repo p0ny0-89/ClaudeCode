@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from "react"
-import GlitchFrame, { type GlitchScope, type GlitchEffect, type GlitchDirectionMode, type GlitchInteraction } from "./GlitchFrame"
+import GlitchFrame, { type GlitchScope, type GlitchEffect, type GlitchDirectionMode } from "./GlitchFrame"
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
@@ -65,7 +65,6 @@ export default function App() {
   const [scope, setScope] = useState<GlitchScope>("line")
   const [effect, setEffect] = useState<GlitchEffect>("random")
   const [directionMode, setDirectionMode] = useState<GlitchDirectionMode>("cursor")
-  const [interaction, setInteraction] = useState<GlitchInteraction>("auto")
   const [angle, setAngle] = useState(0)
   const [blockSize, setBlockSize] = useState(8)
   const [clipOverflow, setClipOverflow] = useState(true)
@@ -73,7 +72,6 @@ export default function App() {
   const [intensity, setIntensity] = useState(60)
   const [trailDuration, setTrailDuration] = useState(300)
   const [smoothing, setSmoothing] = useState(0.12)
-  const [tiltSensitivity, setTiltSensitivity] = useState(1.0)
 
   return (
     <div
@@ -98,8 +96,6 @@ export default function App() {
         intensity={intensity}
         trailDuration={trailDuration}
         smoothing={smoothing}
-        interaction={interaction}
-        tiltSensitivity={tiltSensitivity}
         style={{ width: 600 }}
       >
         {/* Sample children — mixed content */}
@@ -219,34 +215,6 @@ export default function App() {
             <input
               type="range" min={0} max={180} value={angle}
               onChange={(e) => setAngle(+e.target.value)}
-              style={sliderStyle}
-            />
-          </>
-        )}
-
-        <hr style={dividerStyle} />
-
-        {/* ── Interaction ── */}
-        <div style={labelStyle}><span>Interaction</span></div>
-        <select
-          value={interaction}
-          onChange={(e) => setInteraction(e.target.value as GlitchInteraction)}
-          style={selectStyle}
-        >
-          <option value="auto">Auto</option>
-          <option value="pointer">Pointer</option>
-          <option value="tilt">Tilt</option>
-        </select>
-
-        {interaction !== "pointer" && (
-          <>
-            <div style={labelStyle}>
-              <span>Tilt Sensitivity</span>
-              <span style={{ color: "#fff" }}>{tiltSensitivity.toFixed(1)}×</span>
-            </div>
-            <input
-              type="range" min={0.5} max={3.0} step={0.1} value={tiltSensitivity}
-              onChange={(e) => setTiltSensitivity(+e.target.value)}
               style={sliderStyle}
             />
           </>

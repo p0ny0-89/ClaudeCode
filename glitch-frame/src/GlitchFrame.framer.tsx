@@ -8,7 +8,7 @@
  * It will apply the glitch effect to all sibling content in the parent frame.
  * Click the component in the layers panel to access the effect settings.
  *
- * On mobile, the effect responds to phone tilting via the DeviceOrientation API.
+ * On mobile, the effect responds to touch press and drag.
  */
 
 import { useRef, useState, useEffect } from "react"
@@ -183,8 +183,6 @@ interface Props {
   returnDuration?: number
   returnEasing?: "smooth" | "gentle" | "snap" | "bounce"
   parallaxDirection?: "toward" | "away"
-  interaction?: "pointer" | "tilt" | "auto"
-  tiltSensitivity?: number
 }
 
 function GlitchFrame({
@@ -203,8 +201,6 @@ function GlitchFrame({
   returnDuration = 600,
   returnEasing = "smooth",
   parallaxDirection = "away",
-  interaction = "auto",
-  tiltSensitivity = 1.0,
 }: Props) {
   const selfRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -218,7 +214,6 @@ function GlitchFrame({
 
   const mouseTrail = useRef<TrailPoint[]>([])
   const mouseActive = useRef(false)
-  const tiltActive = useRef(false)
   const lastPointerPos = useRef({ x: 0, y: 0 })
   const lastMoveTime = useRef(0)
   const cellDisplacements = useRef<Float64Array>(new Float64Array(0))
@@ -233,9 +228,6 @@ function GlitchFrame({
 
   const smoothVx = useRef(0)
   const smoothVy = useRef(0)
-  const prevBeta = useRef<number | null>(null)
-  const prevGamma = useRef<number | null>(null)
-  const prevTiltTime = useRef(0)
   const suppressObserverRef = useRef(false)
   const trailFadesBuf = useRef<Float64Array>(new Float64Array(64))
 
@@ -557,12 +549,11 @@ function GlitchFrame({
     }
   }, [])
 
-  // ── Phase 3: Pointer handlers on parent ─────────────────────────────────
+  // ── Phase 3: Pointer handlers on parent (works for mouse + touch) ───────
 
   useEffect(() => {
     const parent = parentRef.current
     if (!parent) return
-    if (interaction === "tilt") return
 
     const handlePointerMove = (e: PointerEvent) => {
       mouseActive.current = true
@@ -595,99 +586,32 @@ function GlitchFrame({
       if (trail.length > 50) trail.splice(0, trail.length - 50)
     }
 
-    const handlePointerLeave = () => { mouseActive.current = false }
-
-    parent.addEventListener("pointermove", handlePointerMove)
-    parent.addEventListener("pointerleave", handlePointerLeave)
-    return () => {
-      parent.removeEventListener("pointermove", handlePointerMove)
-      parent.removeEventListener("pointerleave", handlePointerLeave)
-    }
-  }, [trailDuration, interaction])
-
-  // ── Phase 4: DeviceOrientation (tilt) ───────────────────────────────────
-
-  useEffect(() => {
-    if (interaction === "pointer") return
-    const parent = parentRef.current
-    if (!parent) return
-
-    const isMobile = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0
-    if (interaction === "auto" && !isMobile) return
-
-    let orientationSupported = false
-    let permissionGranted = false
-    let cleanedUp = false
-
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (cleanedUp || e.beta === null || e.gamma === null) return
-      orientationSupported = true
-      tiltActive.current = true
-
+    // Activate on initial touch (mobile) — pointerdown fires before pointermove
+    const handlePointerDown = (e: PointerEvent) => {
+      mouseActive.current = true
       const rect = parent.getBoundingClientRect()
-      const now = performance.now()
-      const cw = rect.width, ch = rect.height
-
-      const normalizedGamma = clamp(e.gamma / 45, -1, 1)
-      const normalizedBeta = clamp((e.beta - 45) / 45, -1, 1)
-      const virtualX = ((normalizedGamma + 1) / 2) * cw * tiltSensitivity
-      const virtualY = ((normalizedBeta + 1) / 2) * ch * tiltSensitivity
-
-      let vx = 0, vy = 0
-      if (prevBeta.current !== null && prevGamma.current !== null) {
-        const dt = now - prevTiltTime.current
-        if (dt > 0 && dt < 200) {
-          vx = ((e.gamma - prevGamma.current) / dt) * cw * 0.02 * tiltSensitivity
-          vy = ((e.beta - prevBeta.current) / dt) * ch * 0.02 * tiltSensitivity
-        }
-      }
-      prevBeta.current = e.beta
-      prevGamma.current = e.gamma
-      prevTiltTime.current = now
-
-      smoothVx.current += (vx - smoothVx.current) * 0.3
-      smoothVy.current += (vy - smoothVy.current) * 0.3
-
-      const clampedX = clamp(virtualX, 0, cw)
-      const clampedY = clamp(virtualY, 0, ch)
-      lastPointerPos.current.x = clampedX
-      lastPointerPos.current.y = clampedY
-      lastMoveTime.current = now
-
-      const trail = mouseTrail.current
-      trail.push({
-        x: clampedX, y: clampedY,
-        time: now, vx: smoothVx.current, vy: smoothVy.current,
-      })
-      const cutoff = now - trailDuration
-      let trimIdx = 0
-      while (trimIdx < trail.length && trail[trimIdx].time < cutoff) trimIdx++
-      if (trimIdx > 0) trail.splice(0, trimIdx)
-      if (trail.length > 50) trail.splice(0, trail.length - 50)
+      lastPointerPos.current.x = e.clientX - rect.left
+      lastPointerPos.current.y = e.clientY - rect.top
+      lastMoveTime.current = performance.now()
     }
 
-    const startListening = () => {
-      if (cleanedUp || permissionGranted) return
-      permissionGranted = true
-      window.addEventListener("deviceorientation", handleOrientation)
-    }
+    const deactivate = () => { mouseActive.current = false }
 
-    const DOE = DeviceOrientationEvent as any
-    if (typeof DOE.requestPermission === "function") {
-      const req = () => {
-        DOE.requestPermission().then((s: string) => { if (s === "granted") startListening() }).catch(() => {})
-        window.removeEventListener("touchstart", req)
-      }
-      window.addEventListener("touchstart", req, { once: true })
-      return () => { cleanedUp = true; window.removeEventListener("touchstart", req); window.removeEventListener("deviceorientation", handleOrientation); tiltActive.current = false }
-    } else {
-      startListening()
-      const fb = setTimeout(() => { if (!orientationSupported) tiltActive.current = false }, 1000)
-      return () => { cleanedUp = true; clearTimeout(fb); window.removeEventListener("deviceorientation", handleOrientation); tiltActive.current = false }
+    parent.addEventListener("pointerdown", handlePointerDown)
+    parent.addEventListener("pointermove", handlePointerMove)
+    parent.addEventListener("pointerleave", deactivate)
+    parent.addEventListener("pointerup", deactivate)
+    parent.addEventListener("pointercancel", deactivate)
+    return () => {
+      parent.removeEventListener("pointerdown", handlePointerDown)
+      parent.removeEventListener("pointermove", handlePointerMove)
+      parent.removeEventListener("pointerleave", deactivate)
+      parent.removeEventListener("pointerup", deactivate)
+      parent.removeEventListener("pointercancel", deactivate)
     }
-  }, [interaction, trailDuration, tiltSensitivity])
+  }, [trailDuration])
 
-  // ── Phase 5: Animation loop (transform cells) ──────────────────────────
+  // ── Phase 4: Animation loop (transform cells) ─────────────────────────
 
   useEffect(() => {
     if (cellCount === 0) return
@@ -715,7 +639,7 @@ function GlitchFrame({
       const els = cellEls.current
       const trail = mouseTrail.current
       const now = performance.now()
-      const active = mouseActive.current || tiltActive.current
+      const active = mouseActive.current
       const populated = cellPopulatedRef.current
       const template = templateRef.current
       const maskRects = maskRectsRef.current
@@ -1073,22 +997,6 @@ addPropertyControls(GlitchFrame, {
     step: 1,
     unit: "°",
     hidden: (props: any) => props.directionMode === "cursor" || props.effect === "parallax",
-  },
-  interaction: {
-    type: ControlType.Enum,
-    title: "Interaction",
-    defaultValue: "auto",
-    options: ["pointer", "tilt", "auto"],
-    optionTitles: ["Pointer", "Tilt", "Auto"],
-  },
-  tiltSensitivity: {
-    type: ControlType.Number,
-    title: "Tilt Sensitivity",
-    defaultValue: 1.0,
-    min: 0.5,
-    max: 3.0,
-    step: 0.1,
-    hidden: (props: any) => props.interaction === "pointer",
   },
   parallaxDirection: {
     type: ControlType.Enum,
