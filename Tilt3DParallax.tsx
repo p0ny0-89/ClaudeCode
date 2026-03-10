@@ -14,6 +14,7 @@ type Interaction = "auto" | "cursor"
 type Behavior = "follow" | "repel"
 type ParallaxSource = "tilt" | "cursor"
 type ParallaxDirection = "toward" | "away"
+type ParallaxTracking = "hover" | "page"
 
 interface Props {
     content: React.ReactNode
@@ -26,6 +27,7 @@ interface Props {
     speed: number
     parallax: boolean
     parallaxSource: ParallaxSource
+    parallaxTracking: ParallaxTracking
     parallaxDirection: ParallaxDirection
     parallaxAmount: number
     parallaxSmoothing: number
@@ -70,6 +72,7 @@ export default function Tilt3DParallax(props: Props) {
         speed = 0.5,
         parallax = false,
         parallaxSource = "tilt",
+        parallaxTracking = "hover",
         parallaxDirection = "toward",
         parallaxAmount = 20,
         parallaxSmoothing = 0.5,
@@ -103,6 +106,7 @@ export default function Tilt3DParallax(props: Props) {
         speed,
         parallax,
         parallaxSource,
+        parallaxTracking,
         parallaxDirection,
         parallaxAmount,
         parallaxSmoothing,
@@ -116,6 +120,7 @@ export default function Tilt3DParallax(props: Props) {
         speed,
         parallax,
         parallaxSource,
+        parallaxTracking,
         parallaxDirection,
         parallaxAmount,
         parallaxSmoothing,
@@ -282,11 +287,13 @@ export default function Tilt3DParallax(props: Props) {
             target.current.rx = -ny * cfg.current.tiltLimit * dir
             target.current.ry = nx * cfg.current.tiltLimit * dir
 
-            // Parallax — only set directly when source is "cursor".
+            // Parallax — only set directly when source is "cursor" and
+            // tracking is "hover". When "page", the global listener handles it.
             // When source is "tilt", the tick loop derives it.
             if (
                 cfg.current.parallax &&
-                cfg.current.parallaxSource === "cursor"
+                cfg.current.parallaxSource === "cursor" &&
+                cfg.current.parallaxTracking === "hover"
             ) {
                 const pDir =
                     cfg.current.parallaxDirection === "away" ? -1 : 1
@@ -308,8 +315,12 @@ export default function Tilt3DParallax(props: Props) {
             target.current.rx = 0
             target.current.ry = 0
             target.current.s = 1
-            pTarget.current.tx = 0
-            pTarget.current.ty = 0
+            // Only reset parallax on leave when tracking is "hover".
+            // In "page" mode the global listener keeps driving it.
+            if (cfg.current.parallaxTracking !== "page") {
+                pTarget.current.tx = 0
+                pTarget.current.ty = 0
+            }
         }
         startLoop()
     }, [isCanvas, startLoop])
@@ -336,6 +347,53 @@ export default function Tilt3DParallax(props: Props) {
         pTarget.current = { tx: 0, ty: 0 }
         startLoop()
     }, [interaction, startLoop])
+
+    // ── Page-level Parallax Tracking ─────────────────────
+
+    useEffect(() => {
+        if (isCanvas) return
+        if (
+            !parallax ||
+            parallaxSource !== "cursor" ||
+            parallaxTracking !== "page" ||
+            interaction === "auto"
+        )
+            return
+
+        const onGlobalMove = (e: PointerEvent) => {
+            const el = containerRef.current
+            if (!el) return
+
+            const rect = el.getBoundingClientRect()
+            const nx = clamp(
+                ((e.clientX - rect.left) / rect.width - 0.5) * 2,
+                -1,
+                1
+            )
+            const ny = clamp(
+                ((e.clientY - rect.top) / rect.height - 0.5) * 2,
+                -1,
+                1
+            )
+
+            const pDir =
+                cfg.current.parallaxDirection === "away" ? -1 : 1
+            const pAmt = cfg.current.parallaxAmount
+            pTarget.current.tx = nx * pAmt * pDir
+            pTarget.current.ty = ny * pAmt * pDir
+            startLoop()
+        }
+
+        window.addEventListener("pointermove", onGlobalMove)
+        return () => window.removeEventListener("pointermove", onGlobalMove)
+    }, [
+        parallax,
+        parallaxSource,
+        parallaxTracking,
+        interaction,
+        isCanvas,
+        startLoop,
+    ])
 
     // ── Cleanup ─────────────────────────────────────────
 
@@ -558,6 +616,19 @@ addPropertyControls(Tilt3DParallax, {
         defaultValue: "tilt",
         hidden: (props: any) =>
             !props.parallax || props.interaction === "auto",
+    },
+
+    parallaxTracking: {
+        type: ControlType.Enum,
+        title: "Tracking",
+        options: ["hover", "page"],
+        optionTitles: ["Hover", "Page"],
+        displaySegmentedControl: true,
+        defaultValue: "hover",
+        hidden: (props: any) =>
+            !props.parallax ||
+            props.parallaxSource !== "cursor" ||
+            props.interaction === "auto",
     },
 
     parallaxDirection: {
