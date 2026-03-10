@@ -20,6 +20,7 @@ type HoverParallax = "off" | "cursor" | "auto"
 interface Props {
     content: React.ReactNode
     background: React.ReactNode
+    tilt: boolean
     interaction: Interaction
     behavior: Behavior
     tiltLimit: number
@@ -49,23 +50,25 @@ function clamp(v: number, lo: number, hi: number): number {
 // ─── Component ────────────────────────────────────────────
 
 /**
- * 3D Tilt + Parallax — Enhanced effect wrapper.
+ * DepthMotion — Tilt and parallax effect wrapper.
+ *
+ * Tilt and Parallax are independent effect sections, each with
+ * their own Enabled toggle. Use one, the other, or both together.
  *
  * When Parallax is on, two slots appear: a Background layer and
- * a Content (foreground) layer. The tilt rotates them together
- * as one surface, but each layer translates at a different rate
- * to produce real depth separation.
+ * a Content (foreground) layer. Each layer translates at a
+ * different rate to produce real depth separation.
  *
  * Structure in Framer:
- *   → Connect your image / fill into the Background slot
  *   → Connect your foreground elements into the Content slot
- *   → Turn Parallax on
- *   → The two layers will shift apart as the card tilts
+ *   → Turn Parallax on and connect a Background slot
+ *   → The two layers will shift apart based on the parallax source
  */
-export default function Tilt3DParallax(props: Props) {
+export default function DepthMotion(props: Props) {
     const {
         content,
         background,
+        tilt = true,
         interaction = "cursor",
         behavior = "follow",
         tiltLimit = 20,
@@ -101,6 +104,7 @@ export default function Tilt3DParallax(props: Props) {
 
     // Latest props in a ref so callbacks stay stable
     const cfg = useRef({
+        tilt,
         interaction,
         behavior,
         tiltLimit,
@@ -116,6 +120,7 @@ export default function Tilt3DParallax(props: Props) {
         parallaxSmoothing,
     })
     cfg.current = {
+        tilt,
         interaction,
         behavior,
         tiltLimit,
@@ -140,6 +145,7 @@ export default function Tilt3DParallax(props: Props) {
         if (!el) return
 
         const {
+            tilt: tiltEnabled,
             interaction: mode,
             tiltLimit: limit,
             speed: spd,
@@ -155,8 +161,8 @@ export default function Tilt3DParallax(props: Props) {
         const pc = pCurrent.current
         const pt = pTarget.current
 
-        // Auto: organic Lissajous, paused on hover
-        if (mode === "auto" && !hovering.current) {
+        // Auto tilt: organic Lissajous, paused on hover
+        if (tiltEnabled && mode === "auto" && !hovering.current) {
             const sec = time * 0.001 * spd
             t.rx = Math.sin(sec * 0.6 + 0.3) * limit * AUTO_INTENSITY
             t.ry = Math.cos(sec * 0.4) * limit * AUTO_INTENSITY
@@ -165,8 +171,8 @@ export default function Tilt3DParallax(props: Props) {
 
         // ── Parallax target computation ───────────────────
         if (pEnabled) {
-            if (mode === "auto" && hovering.current) {
-                // Hover state in auto mode — depends on hoverParallax
+            if (tiltEnabled && mode === "auto" && hovering.current) {
+                // Hover state in auto tilt mode — depends on hoverParallax
                 const hpMode = cfg.current.hoverParallax
                 if (hpMode === "off") {
                     // Parallax also pauses
@@ -187,29 +193,43 @@ export default function Tilt3DParallax(props: Props) {
                     pt.ty = -nRx * pAmt * dirMul
                 }
                 // "cursor" — pTarget driven by onPointerMove, skip
-            } else if (mode === "auto" || pSource === "tilt") {
-                // Normal: derive parallax from current tilt target
+            } else if (
+                tiltEnabled &&
+                (mode === "auto" || pSource === "tilt")
+            ) {
+                // Derive parallax from current tilt target
                 const dirMul = pDir === "away" ? -1 : 1
                 const nRy = limit > 0 ? t.ry / limit : 0
                 const nRx = limit > 0 ? t.rx / limit : 0
                 pt.tx = nRy * pAmt * dirMul
                 pt.ty = -nRx * pAmt * dirMul
             }
-            // source "cursor" (non-auto): pTarget set by pointer handlers
+            // Tilt off + source "tilt": no branch fires → parallax stays at 0
+            // Source "cursor": pTarget set by pointer handlers
         }
 
         // ── Lerp tilt ───────────────────────────────────
-        const smooth =
-            hovering.current || mode === "auto"
-                ? ACTIVE_SMOOTHING
-                : RETURN_SMOOTHING
+        if (tiltEnabled) {
+            const smooth =
+                hovering.current || mode === "auto"
+                    ? ACTIVE_SMOOTHING
+                    : RETURN_SMOOTHING
 
-        c.rx = lerp(c.rx, t.rx, smooth)
-        c.ry = lerp(c.ry, t.ry, smooth)
-        c.s = lerp(c.s, t.s, smooth)
+            c.rx = lerp(c.rx, t.rx, smooth)
+            c.ry = lerp(c.ry, t.ry, smooth)
+            c.s = lerp(c.s, t.s, smooth)
 
-        // Tilt applies to the whole surface
-        el.style.transform = `rotateX(${c.rx.toFixed(2)}deg) rotateY(${c.ry.toFixed(2)}deg) scale(${c.s.toFixed(4)})`
+            el.style.transform = `rotateX(${c.rx.toFixed(2)}deg) rotateY(${c.ry.toFixed(2)}deg) scale(${c.s.toFixed(4)})`
+        } else {
+            // Tilt off — clear any stale rotation
+            c.rx = 0
+            c.ry = 0
+            c.s = 1
+            t.rx = 0
+            t.ry = 0
+            t.s = 1
+            el.style.transform = ""
+        }
 
         // ── Lerp parallax (two-layer split) ─────────────
         if (pEnabled) {
@@ -233,21 +253,26 @@ export default function Tilt3DParallax(props: Props) {
 
         // ── Settle check ────────────────────────────────
         const tiltSettled =
-            Math.abs(c.rx - t.rx) < SETTLE_THRESHOLD &&
-            Math.abs(c.ry - t.ry) < SETTLE_THRESHOLD &&
-            Math.abs(c.s - t.s) < SETTLE_THRESHOLD
+            !tiltEnabled ||
+            (Math.abs(c.rx - t.rx) < SETTLE_THRESHOLD &&
+                Math.abs(c.ry - t.ry) < SETTLE_THRESHOLD &&
+                Math.abs(c.s - t.s) < SETTLE_THRESHOLD)
 
         const parallaxSettled =
             !pEnabled ||
             (Math.abs(pc.tx - pt.tx) < SETTLE_THRESHOLD &&
                 Math.abs(pc.ty - pt.ty) < SETTLE_THRESHOLD)
 
-        if (tiltSettled && parallaxSettled && mode !== "auto") {
+        const autoKeepAlive = tiltEnabled && mode === "auto"
+
+        if (tiltSettled && parallaxSettled && !autoKeepAlive) {
             // Snap to exact values
-            c.rx = t.rx
-            c.ry = t.ry
-            c.s = t.s
-            el.style.transform = `rotateX(${c.rx}deg) rotateY(${c.ry}deg) scale(${c.s})`
+            if (tiltEnabled) {
+                c.rx = t.rx
+                c.ry = t.ry
+                c.s = t.s
+                el.style.transform = `rotateX(${c.rx}deg) rotateY(${c.ry}deg) scale(${c.s})`
+            }
 
             if (pEnabled) {
                 pc.tx = pt.tx
@@ -278,12 +303,13 @@ export default function Tilt3DParallax(props: Props) {
 
     const onPointerEnter = useCallback(() => {
         if (isCanvas) return
+        const tiltOn = cfg.current.tilt
         const mode = cfg.current.interaction
         hovering.current = true
 
-        if (mode === "cursor") {
+        if (tiltOn && mode === "cursor") {
             target.current.s = cfg.current.hoverScale
-        } else if (mode === "auto") {
+        } else if (tiltOn && mode === "auto") {
             target.current.rx = 0
             target.current.ry = 0
             target.current.s = 1
@@ -303,14 +329,28 @@ export default function Tilt3DParallax(props: Props) {
     const onPointerMove = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
+            const tiltOn = cfg.current.tilt
             const mode = cfg.current.interaction
-            const hoverCursorParallax =
+
+            // What does this event need to drive?
+            const needsTilt = tiltOn && mode === "cursor"
+            const needsCursorParallax =
+                cfg.current.parallax &&
+                cfg.current.parallaxSource === "cursor" &&
+                cfg.current.parallaxTracking === "hover" &&
+                !(tiltOn && mode === "auto")
+            const needsHoverCursorParallax =
+                tiltOn &&
                 mode === "auto" &&
                 cfg.current.parallax &&
                 cfg.current.hoverParallax === "cursor"
 
-            // Nothing to process unless cursor mode or hover-cursor parallax
-            if (mode !== "cursor" && !hoverCursorParallax) return
+            if (
+                !needsTilt &&
+                !needsCursorParallax &&
+                !needsHoverCursorParallax
+            )
+                return
 
             const el = containerRef.current
             if (!el) return
@@ -327,28 +367,15 @@ export default function Tilt3DParallax(props: Props) {
                 1
             )
 
-            // Tilt — only in cursor interaction mode
-            if (mode === "cursor") {
+            // Tilt rotation — only in cursor tilt mode
+            if (needsTilt) {
                 const dir = cfg.current.behavior === "repel" ? -1 : 1
                 target.current.rx = -ny * cfg.current.tiltLimit * dir
                 target.current.ry = nx * cfg.current.tiltLimit * dir
-
-                // Parallax from cursor (hover tracking mode)
-                if (
-                    cfg.current.parallax &&
-                    cfg.current.parallaxSource === "cursor" &&
-                    cfg.current.parallaxTracking === "hover"
-                ) {
-                    const pDir =
-                        cfg.current.parallaxDirection === "away" ? -1 : 1
-                    const pAmt = cfg.current.parallaxAmount
-                    pTarget.current.tx = nx * pAmt * pDir
-                    pTarget.current.ty = ny * pAmt * pDir
-                }
             }
 
-            // Hover parallax cursor — auto interaction while hovering
-            if (hoverCursorParallax) {
+            // Cursor-source parallax (hover tracking, or hover-cursor in auto)
+            if (needsCursorParallax || needsHoverCursorParallax) {
                 const pDir =
                     cfg.current.parallaxDirection === "away" ? -1 : 1
                 const pAmt = cfg.current.parallaxAmount
@@ -363,26 +390,37 @@ export default function Tilt3DParallax(props: Props) {
 
     const onPointerLeave = useCallback(() => {
         if (isCanvas) return
+        const tiltOn = cfg.current.tilt
+        const mode = cfg.current.interaction
         hovering.current = false
 
-        if (cfg.current.interaction === "cursor") {
+        // Reset tilt to neutral
+        if (tiltOn && mode === "cursor") {
             target.current.rx = 0
             target.current.ry = 0
             target.current.s = 1
-            // Only reset parallax on leave when tracking is "hover".
-            // In "page" mode the global listener keeps driving it.
-            if (cfg.current.parallaxTracking !== "page") {
-                pTarget.current.tx = 0
-                pTarget.current.ty = 0
-            }
         }
+
+        // Reset cursor-source parallax on leave (hover tracking only).
+        // Page tracking keeps going via global listener.
+        // In auto tilt mode, the tick loop resumes tilt-derived parallax.
+        if (
+            cfg.current.parallax &&
+            cfg.current.parallaxSource === "cursor" &&
+            cfg.current.parallaxTracking !== "page" &&
+            !(tiltOn && mode === "auto")
+        ) {
+            pTarget.current.tx = 0
+            pTarget.current.ty = 0
+        }
+
         startLoop()
     }, [isCanvas, startLoop])
 
-    // ── Auto Animation Start ────────────────────────────
+    // ── Auto Tilt Animation Start ─────────────────────────
 
     useEffect(() => {
-        if (interaction !== "auto" || isCanvas) return
+        if (!tilt || interaction !== "auto" || isCanvas) return
         target.current = { rx: 0, ry: 0, s: 1 }
         current.current = { rx: 0, ry: 0, s: 1 }
         pTarget.current = { tx: 0, ty: 0 }
@@ -392,15 +430,15 @@ export default function Tilt3DParallax(props: Props) {
             cancelAnimationFrame(rafId.current)
             loopRunning.current = false
         }
-    }, [interaction, isCanvas, startLoop])
+    }, [tilt, interaction, isCanvas, startLoop])
 
-    // ── Reset on Mode Change ────────────────────────────
+    // ── Reset on Mode / Tilt Change ──────────────────────
 
     useEffect(() => {
         target.current = { rx: 0, ry: 0, s: 1 }
         pTarget.current = { tx: 0, ty: 0 }
         startLoop()
-    }, [interaction, startLoop])
+    }, [tilt, interaction, startLoop])
 
     // ── Page-level Parallax Tracking ─────────────────────
 
@@ -410,7 +448,7 @@ export default function Tilt3DParallax(props: Props) {
             !parallax ||
             parallaxSource !== "cursor" ||
             parallaxTracking !== "page" ||
-            interaction === "auto"
+            (tilt && interaction === "auto")
         )
             return
 
@@ -441,6 +479,7 @@ export default function Tilt3DParallax(props: Props) {
         window.addEventListener("pointermove", onGlobalMove)
         return () => window.removeEventListener("pointermove", onGlobalMove)
     }, [
+        tilt,
         parallax,
         parallaxSource,
         parallaxTracking,
@@ -480,16 +519,18 @@ export default function Tilt3DParallax(props: Props) {
 
     // ── Render ──────────────────────────────────────────
 
+    const containerStyle: React.CSSProperties = {
+        ...style,
+        ...(tilt ? { perspective: `${perspective}px` } : {}),
+        overflow: "visible",
+    }
+
     // When parallax is off, render flat (no layer splitting).
     if (!parallax) {
         return (
             <div
                 ref={containerRef}
-                style={{
-                    ...style,
-                    perspective: `${perspective}px`,
-                    overflow: "visible",
-                }}
+                style={containerStyle}
                 onPointerEnter={onPointerEnter}
                 onPointerMove={onPointerMove}
                 onPointerLeave={onPointerLeave}
@@ -499,7 +540,7 @@ export default function Tilt3DParallax(props: Props) {
                     style={{
                         width: "100%",
                         height: "100%",
-                        willChange: "transform",
+                        willChange: tilt ? "transform" : undefined,
                     }}
                 >
                     {content}
@@ -510,15 +551,11 @@ export default function Tilt3DParallax(props: Props) {
 
     // Parallax on: two-layer structure.
     // Background + foreground get independent translations,
-    // surface gets the shared tilt rotation.
+    // surface gets the shared tilt rotation (when tilt is on).
     return (
         <div
             ref={containerRef}
-            style={{
-                ...style,
-                perspective: `${perspective}px`,
-                overflow: "visible",
-            }}
+            style={containerStyle}
             onPointerEnter={onPointerEnter}
             onPointerMove={onPointerMove}
             onPointerLeave={onPointerLeave}
@@ -530,7 +567,7 @@ export default function Tilt3DParallax(props: Props) {
                     height: "100%",
                     position: "relative",
                     overflow: "hidden",
-                    willChange: "transform",
+                    willChange: tilt ? "transform" : undefined,
                 }}
             >
                 {/* Background layer — shifts opposite to foreground */}
@@ -567,13 +604,21 @@ export default function Tilt3DParallax(props: Props) {
 
 // ─── Framer Property Controls ─────────────────────────────
 
-addPropertyControls(Tilt3DParallax, {
+addPropertyControls(DepthMotion, {
     content: {
         type: ControlType.ComponentInstance,
         title: "Content",
     },
 
-    // ── Interaction ─────────────────────────────────────
+    // ── Tilt ─────────────────────────────────────────────
+
+    tilt: {
+        type: ControlType.Boolean,
+        title: "Tilt",
+        defaultValue: true,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+    },
 
     interaction: {
         type: ControlType.Enum,
@@ -581,9 +626,8 @@ addPropertyControls(Tilt3DParallax, {
         options: ["auto", "cursor"],
         optionTitles: ["Auto", "Cursor"],
         defaultValue: "cursor",
+        hidden: (props: any) => !props.tilt,
     },
-
-    // ── Behavior ────────────────────────────────────────
 
     behavior: {
         type: ControlType.Enum,
@@ -592,10 +636,9 @@ addPropertyControls(Tilt3DParallax, {
         optionTitles: ["Follow", "Repel"],
         displaySegmentedControl: true,
         defaultValue: "follow",
-        hidden: (props: any) => props.interaction === "auto",
+        hidden: (props: any) =>
+            !props.tilt || props.interaction === "auto",
     },
-
-    // ── Speed (Auto only) ───────────────────────────────
 
     speed: {
         type: ControlType.Number,
@@ -604,10 +647,9 @@ addPropertyControls(Tilt3DParallax, {
         min: 0.1,
         max: 2,
         step: 0.1,
-        hidden: (props: any) => props.interaction !== "auto",
+        hidden: (props: any) =>
+            !props.tilt || props.interaction !== "auto",
     },
-
-    // ── Tilt Limit ──────────────────────────────────────
 
     tiltLimit: {
         type: ControlType.Number,
@@ -618,9 +660,8 @@ addPropertyControls(Tilt3DParallax, {
         step: 1,
         unit: "°",
         displayStepper: true,
+        hidden: (props: any) => !props.tilt,
     },
-
-    // ── Scale ───────────────────────────────────────────
 
     scale: {
         type: ControlType.Number,
@@ -630,10 +671,9 @@ addPropertyControls(Tilt3DParallax, {
         max: 2,
         step: 0.05,
         displayStepper: true,
-        hidden: (props: any) => props.interaction === "auto",
+        hidden: (props: any) =>
+            !props.tilt || props.interaction === "auto",
     },
-
-    // ── Perspective ─────────────────────────────────────
 
     perspective: {
         type: ControlType.Number,
@@ -643,6 +683,7 @@ addPropertyControls(Tilt3DParallax, {
         max: 10000,
         step: 100,
         description: "Depth strength",
+        hidden: (props: any) => !props.tilt,
     },
 
     // ── Parallax ────────────────────────────────────────
@@ -668,8 +709,7 @@ addPropertyControls(Tilt3DParallax, {
         optionTitles: ["Tilt", "Cursor"],
         displaySegmentedControl: true,
         defaultValue: "tilt",
-        hidden: (props: any) =>
-            !props.parallax || props.interaction === "auto",
+        hidden: (props: any) => !props.parallax,
     },
 
     hoverParallax: {
@@ -679,7 +719,9 @@ addPropertyControls(Tilt3DParallax, {
         optionTitles: ["Off", "Cursor", "Auto"],
         defaultValue: "off",
         hidden: (props: any) =>
-            !props.parallax || props.interaction !== "auto",
+            !props.parallax ||
+            !props.tilt ||
+            props.interaction !== "auto",
     },
 
     parallaxTracking: {
@@ -690,9 +732,7 @@ addPropertyControls(Tilt3DParallax, {
         displaySegmentedControl: true,
         defaultValue: "hover",
         hidden: (props: any) =>
-            !props.parallax ||
-            props.parallaxSource !== "cursor" ||
-            props.interaction === "auto",
+            !props.parallax || props.parallaxSource !== "cursor",
     },
 
     parallaxDirection: {
