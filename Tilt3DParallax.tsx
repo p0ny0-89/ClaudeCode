@@ -12,7 +12,8 @@ const SETTLE_THRESHOLD = 0.01
 
 type Interaction = "auto" | "cursor"
 type Behavior = "follow" | "repel"
-type ParallaxDirection = "normal" | "reverse"
+type ParallaxSource = "tilt" | "cursor"
+type ParallaxDirection = "toward" | "away"
 
 interface Props {
     content: React.ReactNode
@@ -24,6 +25,7 @@ interface Props {
     perspective: number
     speed: number
     parallax: boolean
+    parallaxSource: ParallaxSource
     parallaxDirection: ParallaxDirection
     parallaxAmount: number
     parallaxSmoothing: number
@@ -67,7 +69,8 @@ export default function Tilt3DParallax(props: Props) {
         perspective = 5000,
         speed = 0.5,
         parallax = false,
-        parallaxDirection = "normal",
+        parallaxSource = "tilt",
+        parallaxDirection = "toward",
         parallaxAmount = 20,
         parallaxSmoothing = 0.5,
         style,
@@ -99,6 +102,7 @@ export default function Tilt3DParallax(props: Props) {
         perspective,
         speed,
         parallax,
+        parallaxSource,
         parallaxDirection,
         parallaxAmount,
         parallaxSmoothing,
@@ -111,6 +115,7 @@ export default function Tilt3DParallax(props: Props) {
         perspective,
         speed,
         parallax,
+        parallaxSource,
         parallaxDirection,
         parallaxAmount,
         parallaxSmoothing,
@@ -129,6 +134,7 @@ export default function Tilt3DParallax(props: Props) {
             tiltLimit: limit,
             speed: spd,
             parallax: pEnabled,
+            parallaxSource: pSource,
             parallaxAmount: pAmt,
             parallaxDirection: pDir,
             parallaxSmoothing: pSmooth,
@@ -145,12 +151,17 @@ export default function Tilt3DParallax(props: Props) {
             t.rx = Math.sin(sec * 0.6 + 0.3) * limit * AUTO_INTENSITY
             t.ry = Math.cos(sec * 0.4) * limit * AUTO_INTENSITY
             t.s = 1
+        }
 
-            if (pEnabled) {
-                const dirMul = pDir === "reverse" ? -1 : 1
-                pt.tx = (t.ry / limit) * pAmt * dirMul
-                pt.ty = (-t.rx / limit) * pAmt * dirMul
-            }
+        // Derive parallax from tilt when source is "tilt", or
+        // always in Auto (no cursor to track). When source is
+        // "cursor", pTarget was already set by onPointerMove.
+        if (pEnabled && (mode === "auto" || pSource === "tilt")) {
+            const dirMul = pDir === "away" ? -1 : 1
+            const nRy = limit > 0 ? t.ry / limit : 0
+            const nRx = limit > 0 ? t.rx / limit : 0
+            pt.tx = nRy * pAmt * dirMul
+            pt.ty = -nRx * pAmt * dirMul
         }
 
         // ── Lerp tilt ───────────────────────────────────
@@ -271,10 +282,14 @@ export default function Tilt3DParallax(props: Props) {
             target.current.rx = -ny * cfg.current.tiltLimit * dir
             target.current.ry = nx * cfg.current.tiltLimit * dir
 
-            // Parallax
-            if (cfg.current.parallax) {
+            // Parallax — only set directly when source is "cursor".
+            // When source is "tilt", the tick loop derives it.
+            if (
+                cfg.current.parallax &&
+                cfg.current.parallaxSource === "cursor"
+            ) {
                 const pDir =
-                    cfg.current.parallaxDirection === "reverse" ? -1 : 1
+                    cfg.current.parallaxDirection === "away" ? -1 : 1
                 const pAmt = cfg.current.parallaxAmount
                 pTarget.current.tx = nx * pAmt * pDir
                 pTarget.current.ty = ny * pAmt * pDir
@@ -534,13 +549,24 @@ addPropertyControls(Tilt3DParallax, {
         hidden: (props: any) => !props.parallax,
     },
 
+    parallaxSource: {
+        type: ControlType.Enum,
+        title: "Source",
+        options: ["tilt", "cursor"],
+        optionTitles: ["Tilt", "Cursor"],
+        displaySegmentedControl: true,
+        defaultValue: "tilt",
+        hidden: (props: any) =>
+            !props.parallax || props.interaction === "auto",
+    },
+
     parallaxDirection: {
         type: ControlType.Enum,
         title: "Direction",
-        options: ["normal", "reverse"],
-        optionTitles: ["Normal", "Reverse"],
+        options: ["toward", "away"],
+        optionTitles: ["Toward", "Away"],
         displaySegmentedControl: true,
-        defaultValue: "normal",
+        defaultValue: "toward",
         hidden: (props: any) => !props.parallax,
     },
 
