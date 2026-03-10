@@ -266,7 +266,6 @@ export default function Tilt3D(props: Props) {
                 style={{
                     width: "100%",
                     height: "100%",
-                    transformStyle: "preserve-3d",
                     willChange: "transform",
                 }}
             >
