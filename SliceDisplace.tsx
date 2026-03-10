@@ -173,6 +173,8 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
     const [isHovered, setIsHovered] = useState(false)
     const [autoActive, setAutoActive] = useState(false)
     const mountedRef = useRef(true)
+    const containerRef = useRef<HTMLDivElement>(null)
+    const [containerSize, setContainerSize] = useState<{ w: number; h: number } | null>(null)
 
     // Stable seed — generated once per component instance so the offset
     // pattern is deterministic but unique per usage on the page.
@@ -274,6 +276,28 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
     }, [])
 
     // -----------------------------------------------------------------------
+    // Measure container dimensions (pixel values for reliable slice layout)
+    // -----------------------------------------------------------------------
+    useEffect(() => {
+        const el = containerRef.current
+        if (!el) return
+        const ro = new ResizeObserver(() => {
+            const { width, height } = el.getBoundingClientRect()
+            setContainerSize((prev) => {
+                if (
+                    prev &&
+                    Math.abs(prev.w - width) < 0.5 &&
+                    Math.abs(prev.h - height) < 0.5
+                )
+                    return prev
+                return { w: width, h: height }
+            })
+        })
+        ro.observe(el)
+        return () => ro.disconnect()
+    }, [])
+
+    // -----------------------------------------------------------------------
     // Activation level (0 → idle, 1 → full effect)
     // -----------------------------------------------------------------------
     let activationLevel = 0
@@ -332,6 +356,7 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
 
     return (
         <div
+            ref={containerRef}
             style={containerStyle}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -349,148 +374,141 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
                 {children}
             </div>
 
-            {/* Sliced effect layers — uses overflow:hidden band divs
-                instead of clip-path for maximum Framer compatibility.
-                Each band is a positioned div at its exact Y (or X)
-                location with the band's height (or width), clipping
-                via overflow:hidden. Inside, a full-container-sized
-                div is shifted so the correct content region shows. */}
-            {Array.from({ length: sliceCount }, (_, i) => {
-                const bandPct = 100 / sliceCount
-                const startPct = i * bandPct
+            {/* Sliced band layers — pixel-based overflow:hidden approach.
+                Each band is a div at its exact pixel position + size,
+                with overflow:hidden to crop. Inside, a div sized to the
+                full container in pixels is shifted with a negative
+                offset so the correct content region shows through.
+                Pixel values ensure children have identical containing
+                block dimensions in every slice — no percentage math
+                that could cause Framer children to rescale. */}
+            {containerSize &&
+                Array.from({ length: sliceCount }, (_, i) => {
+                    const isHoriz = sliceDirection === "horizontal"
+                    const totalLen = isHoriz
+                        ? containerSize.h
+                        : containerSize.w
+                    const bandLen = totalLen / sliceCount
+                    const startPos = i * bandLen
 
-                // Tiny overlap to prevent subpixel seams between bands
-                const overlap = 0.15
-                const adjStart = i > 0 ? startPct - overlap : startPct
-                const adjSize =
-                    i > 0 && i < sliceCount - 1
-                        ? bandPct + overlap * 2
-                        : i === 0
-                          ? bandPct + overlap
-                          : bandPct + overlap
+                    // 1px overlap to prevent subpixel seams
+                    const overlapPx = 1
+                    const adjStart =
+                        i > 0 ? startPos - overlapPx : startPos
+                    const adjLen =
+                        bandLen +
+                        (i > 0 ? overlapPx : 0) +
+                        (i < sliceCount - 1 ? overlapPx : 0)
 
-                // --- Displacement ---
-                const displacement = offsets[i] * activationLevel
-                const scaleVal =
-                    1 + (scaleOnActive - 1) * activationLevel
-                const skewVal = skewOnActive * activationLevel
+                    // --- Displacement ---
+                    const displacement = offsets[i] * activationLevel
+                    const scaleVal =
+                        1 + (scaleOnActive - 1) * activationLevel
+                    const skewVal = skewOnActive * activationLevel
 
-                let transform: string
-                if (sliceDirection === "horizontal") {
-                    transform = `translate3d(${displacement}px, 0, 0)`
-                    if (scaleVal !== 1)
-                        transform += ` scale(${scaleVal})`
-                    if (skewVal !== 0)
-                        transform += ` skewX(${skewVal}deg)`
-                } else {
-                    transform = `translate3d(0, ${displacement}px, 0)`
-                    if (scaleVal !== 1)
-                        transform += ` scale(${scaleVal})`
-                    if (skewVal !== 0)
-                        transform += ` skewY(${skewVal}deg)`
-                }
+                    let transform: string
+                    if (isHoriz) {
+                        transform = `translate3d(${displacement}px, 0, 0)`
+                        if (scaleVal !== 1)
+                            transform += ` scale(${scaleVal})`
+                        if (skewVal !== 0)
+                            transform += ` skewX(${skewVal}deg)`
+                    } else {
+                        transform = `translate3d(0, ${displacement}px, 0)`
+                        if (scaleVal !== 1)
+                            transform += ` scale(${scaleVal})`
+                        if (skewVal !== 0)
+                            transform += ` skewY(${skewVal}deg)`
+                    }
 
-                // --- Subtle per-slice opacity variation ---
-                const opacityDrop =
-                    intensity > 0
-                        ? (Math.abs(offsets[i]) / intensity) *
-                          0.07 *
-                          activationLevel
-                        : 0
-                const opacity = 1 - opacityDrop
+                    // --- Subtle per-slice opacity variation ---
+                    const opacityDrop =
+                        intensity > 0
+                            ? (Math.abs(offsets[i]) / intensity) *
+                              0.07 *
+                              activationLevel
+                            : 0
+                    const opacity = 1 - opacityDrop
 
-                // --- Transition timing ---
-                const delay = stagger * i
-                const easing = isSettling
-                    ? EASE_SETTLE
-                    : EASE_ACTIVATE
-                const dur = isSettling
-                    ? duration * 1.15
-                    : duration
+                    // --- Transition timing ---
+                    const delay = stagger * i
+                    const easing = isSettling
+                        ? EASE_SETTLE
+                        : EASE_ACTIVATE
+                    const dur = isSettling
+                        ? duration * 1.15
+                        : duration
 
-                // OUTER: the band viewport — overflow:hidden crops to
-                // exactly this band's region. Positioned absolutely at
-                // the band's location within the container.
-                const bandStyle: CSSProperties = sliceDirection === "horizontal"
-                    ? {
-                          position: "absolute",
-                          top: `${adjStart}%`,
-                          left: 0,
-                          width: "100%",
-                          height: `${adjSize}%`,
-                          overflow: "hidden",
-                          pointerEvents: disablePointerEventsOnSlices
-                              ? "none"
-                              : "auto",
-                      }
-                    : {
-                          position: "absolute",
-                          top: 0,
-                          left: `${adjStart}%`,
-                          width: `${adjSize}%`,
-                          height: "100%",
-                          overflow: "hidden",
-                          pointerEvents: disablePointerEventsOnSlices
-                              ? "none"
-                              : "auto",
-                      }
+                    // OUTER: band viewport — positioned at exact pixel
+                    // location with overflow:hidden to crop content.
+                    const bandStyle: CSSProperties = isHoriz
+                        ? {
+                              position: "absolute",
+                              top: adjStart,
+                              left: 0,
+                              width: containerSize.w,
+                              height: adjLen,
+                              overflow: "hidden",
+                              pointerEvents:
+                                  disablePointerEventsOnSlices
+                                      ? "none"
+                                      : "auto",
+                          }
+                        : {
+                              position: "absolute",
+                              top: 0,
+                              left: adjStart,
+                              width: adjLen,
+                              height: containerSize.h,
+                              overflow: "hidden",
+                              pointerEvents:
+                                  disablePointerEventsOnSlices
+                                      ? "none"
+                                      : "auto",
+                          }
 
-                // INNER: full-container-sized div shifted so the
-                // correct content region aligns with the band viewport.
-                //
-                // Key math: percentages are relative to the BAND div,
-                // not the container. To get the inner to represent the
-                // full container:
-                //   innerHeight = (100 / adjSize) * 100  % of band
-                // To shift the right region into view:
-                //   innerTop = -(adjStart / adjSize) * 100  % of band
-                //
-                // Example: 8 slices, band 3 starts at 37.5%, band = 12.5%
-                //   innerHeight = 800% of band = container height ✓
-                //   innerTop = -300% of band = -37.5% of container ✓
-                const innerTopPct = -(adjStart / adjSize) * 100
-                const innerHeightPct = (100 / adjSize) * 100
-                const innerLeftPct = -(adjStart / adjSize) * 100
-                const innerWidthPct = (100 / adjSize) * 100
+                    // INNER: exact container dimensions in pixels.
+                    // Shifted with negative offset so the correct
+                    // content band aligns with the outer viewport.
+                    // Children render identically in every slice
+                    // because this div matches the container's
+                    // exact pixel size.
+                    const innerStyle: CSSProperties = isHoriz
+                        ? {
+                              position: "absolute",
+                              top: -adjStart,
+                              left: 0,
+                              width: containerSize.w,
+                              height: containerSize.h,
+                              transform,
+                              opacity,
+                              transition: [
+                                  `transform ${dur}ms ${easing} ${delay}ms`,
+                                  `opacity ${dur}ms ease ${delay}ms`,
+                              ].join(", "),
+                              willChange: "transform",
+                          }
+                        : {
+                              position: "absolute",
+                              top: 0,
+                              left: -adjStart,
+                              width: containerSize.w,
+                              height: containerSize.h,
+                              transform,
+                              opacity,
+                              transition: [
+                                  `transform ${dur}ms ${easing} ${delay}ms`,
+                                  `opacity ${dur}ms ease ${delay}ms`,
+                              ].join(", "),
+                              willChange: "transform",
+                          }
 
-                const innerStyle: CSSProperties = sliceDirection === "horizontal"
-                    ? {
-                          position: "absolute",
-                          top: `${innerTopPct}%`,
-                          left: 0,
-                          width: "100%",
-                          height: `${innerHeightPct}%`,
-                          transform,
-                          opacity,
-                          transition: [
-                              `transform ${dur}ms ${easing} ${delay}ms`,
-                              `opacity ${dur}ms ease ${delay}ms`,
-                          ].join(", "),
-                          willChange: "transform",
-                      }
-                    : {
-                          position: "absolute",
-                          top: 0,
-                          left: `${innerLeftPct}%`,
-                          width: `${innerWidthPct}%`,
-                          height: "100%",
-                          transform,
-                          opacity,
-                          transition: [
-                              `transform ${dur}ms ${easing} ${delay}ms`,
-                              `opacity ${dur}ms ease ${delay}ms`,
-                          ].join(", "),
-                          willChange: "transform",
-                      }
-
-                return (
-                    <div key={i} style={bandStyle}>
-                        <div style={innerStyle}>
-                            {children}
+                    return (
+                        <div key={i} style={bandStyle}>
+                            <div style={innerStyle}>{children}</div>
                         </div>
-                    </div>
-                )
-            })}
+                    )
+                })}
         </div>
     )
 }
