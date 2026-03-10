@@ -16,6 +16,8 @@ type ParallaxSource = "tilt" | "cursor"
 type ParallaxDirection = "toward" | "away"
 type ParallaxTracking = "hover" | "page"
 type HoverParallax = "off" | "cursor" | "auto"
+type BgAlignV = "top" | "center" | "bottom"
+type BgAlignH = "left" | "center" | "right"
 type BlendMode =
     | "normal"
     | "multiply"
@@ -45,6 +47,8 @@ interface Props {
     parallaxDirection: ParallaxDirection
     parallaxAmount: number
     parallaxSmoothing: number
+    bgAlignV: BgAlignV
+    bgAlignH: BgAlignH
     blendMode: BlendMode
     style?: React.CSSProperties
 }
@@ -94,6 +98,8 @@ export default function DepthMotion(props: Props) {
         parallaxDirection = "toward",
         parallaxAmount = 20,
         parallaxSmoothing = 0.5,
+        bgAlignV = "center",
+        bgAlignH = "center",
         blendMode = "normal",
         style,
     } = props
@@ -592,6 +598,19 @@ export default function DepthMotion(props: Props) {
                             position: "absolute",
                             // Oversized so translated edges stay covered
                             inset: `${-parallaxAmount * 0.6}px`,
+                            display: "flex",
+                            alignItems:
+                                bgAlignV === "top"
+                                    ? "flex-start"
+                                    : bgAlignV === "bottom"
+                                      ? "flex-end"
+                                      : "center",
+                            justifyContent:
+                                bgAlignH === "left"
+                                    ? "flex-start"
+                                    : bgAlignH === "right"
+                                      ? "flex-end"
+                                      : "center",
                             willChange: "transform",
                         }}
                     >
@@ -716,6 +735,26 @@ addPropertyControls(DepthMotion, {
     background: {
         type: ControlType.ComponentInstance,
         title: "Background",
+        hidden: (props: any) => !props.parallax,
+    },
+
+    bgAlignV: {
+        type: ControlType.Enum,
+        title: "Vertical",
+        options: ["top", "center", "bottom"],
+        optionTitles: ["Top", "Center", "Bottom"],
+        displaySegmentedControl: true,
+        defaultValue: "center",
+        hidden: (props: any) => !props.parallax,
+    },
+
+    bgAlignH: {
+        type: ControlType.Enum,
+        title: "Horizontal",
+        options: ["left", "center", "right"],
+        optionTitles: ["Left", "Center", "Right"],
+        displaySegmentedControl: true,
+        defaultValue: "center",
         hidden: (props: any) => !props.parallax,
     },
 
