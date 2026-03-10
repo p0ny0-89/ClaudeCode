@@ -8,7 +8,7 @@ import { useHoverGlitch } from "./hooks/useHoverGlitch"
 
 interface AsciiFormatterProps {
   text: string
-  font: "courier" | "consolas" | "firacode" | "jetbrains"
+  font: string
   fontSize: number
   lineHeight: number
   letterSpacing: number
@@ -27,11 +27,79 @@ interface AsciiFormatterProps {
   style?: React.CSSProperties
 }
 
-const FONT_MAP: Record<string, string> = {
-  courier: "'Courier New', Courier, monospace",
-  consolas: "'Consolas', monospace",
-  firacode: "'Fira Code', monospace",
-  jetbrains: "'JetBrains Mono', monospace",
+// ─── Font Definitions ────────────────────────────────────────────────
+// Grouped by category; monospace fonts listed first for ASCII art use.
+// Fonts marked with `google: true` are loaded on-demand via Google Fonts.
+
+interface FontDef {
+  family: string
+  google?: boolean
+  category: "monospace" | "sans-serif" | "serif" | "display"
+}
+
+const FONT_LIST: Record<string, FontDef> = {
+  // ── Monospace ──
+  "courier":       { family: "'Courier New', Courier, monospace", category: "monospace" },
+  "consolas":      { family: "'Consolas', monospace", category: "monospace" },
+  "firacode":      { family: "'Fira Code', monospace", google: true, category: "monospace" },
+  "jetbrains":     { family: "'JetBrains Mono', monospace", google: true, category: "monospace" },
+  "sourcecodepro": { family: "'Source Code Pro', monospace", google: true, category: "monospace" },
+  "ubuntumono":    { family: "'Ubuntu Mono', monospace", google: true, category: "monospace" },
+  "robotomono":    { family: "'Roboto Mono', monospace", google: true, category: "monospace" },
+  "ibmplexmono":   { family: "'IBM Plex Mono', monospace", google: true, category: "monospace" },
+  "spacemono":     { family: "'Space Mono', monospace", google: true, category: "monospace" },
+  "inconsolata":   { family: "'Inconsolata', monospace", google: true, category: "monospace" },
+  // ── Sans-Serif ──
+  "inter":         { family: "'Inter', sans-serif", google: true, category: "sans-serif" },
+  "roboto":        { family: "'Roboto', sans-serif", google: true, category: "sans-serif" },
+  "opensans":      { family: "'Open Sans', sans-serif", google: true, category: "sans-serif" },
+  "lato":          { family: "'Lato', sans-serif", google: true, category: "sans-serif" },
+  "montserrat":    { family: "'Montserrat', sans-serif", google: true, category: "sans-serif" },
+  "poppins":       { family: "'Poppins', sans-serif", google: true, category: "sans-serif" },
+  "nunito":        { family: "'Nunito', sans-serif", google: true, category: "sans-serif" },
+  "raleway":       { family: "'Raleway', sans-serif", google: true, category: "sans-serif" },
+  "arial":         { family: "Arial, Helvetica, sans-serif", category: "sans-serif" },
+  "helvetica":     { family: "Helvetica, Arial, sans-serif", category: "sans-serif" },
+  "verdana":       { family: "Verdana, Geneva, sans-serif", category: "sans-serif" },
+  // ── Serif ──
+  "georgia":       { family: "Georgia, 'Times New Roman', serif", category: "serif" },
+  "timesnewroman": { family: "'Times New Roman', Times, serif", category: "serif" },
+  "playfair":      { family: "'Playfair Display', serif", google: true, category: "serif" },
+  "merriweather":  { family: "'Merriweather', serif", google: true, category: "serif" },
+  "lora":          { family: "'Lora', serif", google: true, category: "serif" },
+  "ptserif":       { family: "'PT Serif', serif", google: true, category: "serif" },
+  // ── Display ──
+  "orbitron":      { family: "'Orbitron', sans-serif", google: true, category: "display" },
+  "pressstart":    { family: "'Press Start 2P', monospace", google: true, category: "display" },
+  "vt323":         { family: "'VT323', monospace", google: true, category: "display" },
+  "silkscreen":    { family: "'Silkscreen', monospace", google: true, category: "display" },
+}
+
+// Backwards-compatible lookup: returns CSS font-family string
+const FONT_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(FONT_LIST).map(([key, def]) => [key, def.family])
+)
+
+// Google Fonts that need to be loaded
+const GOOGLE_FONT_NAMES = Object.values(FONT_LIST)
+  .filter((d) => d.google)
+  .map((d) => {
+    // Extract the primary font name from the family string
+    const match = d.family.match(/^'([^']+)'/)
+    return match ? match[1] : ""
+  })
+  .filter(Boolean)
+
+// Inject Google Fonts stylesheet once
+let googleFontsLoaded = false
+function loadGoogleFonts() {
+  if (googleFontsLoaded || typeof document === "undefined") return
+  googleFontsLoaded = true
+  const families = GOOGLE_FONT_NAMES.map((n) => n.replace(/ /g, "+")).join("&family=")
+  const link = document.createElement("link")
+  link.rel = "stylesheet"
+  link.href = `https://fonts.googleapis.com/css2?family=${families}&display=swap`
+  document.head.appendChild(link)
 }
 
 const DEFAULT_TEXT = `  /\\_/\\
@@ -208,6 +276,9 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
     // Outside Framer — allow animations (dev harness)
   }
 
+  // Load Google Fonts on first render
+  useEffect(() => { loadGoogleFonts() }, [])
+
   // IntersectionObserver: one-shot trigger when ≥10% visible
   useEffect(() => {
     if (trigger !== "inView" || isCanvas) return
@@ -342,8 +413,11 @@ addPropertyControls(AsciiFormatter, {
     type: ControlType.Enum,
     title: "Font",
     defaultValue: "courier",
-    options: ["courier", "consolas", "firacode", "jetbrains"],
-    optionTitles: ["Courier New", "Consolas", "Fira Code", "JetBrains Mono"],
+    options: Object.keys(FONT_LIST),
+    optionTitles: Object.values(FONT_LIST).map((d) => {
+      const match = d.family.match(/^'([^']+)'/)
+      return match ? match[1] : d.family.split(",")[0].trim()
+    }),
   },
   fontSize: {
     type: ControlType.Number,

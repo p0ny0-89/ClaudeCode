@@ -8,7 +8,7 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 interface AsciiFormatterProps {
   text: string
-  font: "courier" | "consolas" | "firacode" | "jetbrains"
+  font: Record<string, any>
   fontSize: number
   lineHeight: number
   letterSpacing: number
@@ -28,13 +28,6 @@ interface AsciiFormatterProps {
 }
 
 // ─── Constants ──────────────────────────────────────────────────────
-
-const FONT_MAP: Record<string, string> = {
-  courier: "'Courier New', Courier, monospace",
-  consolas: "'Consolas', monospace",
-  firacode: "'Fira Code', monospace",
-  jetbrains: "'JetBrains Mono', monospace",
-}
 
 const GLITCH_CHARS = "!@#$%^&*()_+-=[]{}|;:',.<>?/~`0123456789"
 
@@ -320,7 +313,7 @@ function useHoverGlitch(
 
 function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
   const base: React.CSSProperties = {
-    fontFamily: FONT_MAP[props.font],
+    ...(props.font || {}),
     fontSize: props.fontSize,
     lineHeight: props.lineHeight,
     letterSpacing: props.letterSpacing,
@@ -567,7 +560,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
 
 AsciiFormatter.defaultProps = {
   text: DEFAULT_TEXT,
-  font: "courier",
+  font: { fontFamily: "'Courier New', Courier, monospace", fontWeight: 400 },
   fontSize: 14,
   lineHeight: 1,
   letterSpacing: 0,
@@ -596,11 +589,10 @@ addPropertyControls(AsciiFormatter, {
     placeholder: "Paste your ASCII art here...",
   },
   font: {
-    type: ControlType.Enum,
-    title: "Font",
-    defaultValue: "courier",
-    options: ["courier", "consolas", "firacode", "jetbrains"],
-    optionTitles: ["Courier New", "Consolas", "Fira Code", "JetBrains Mono"],
+    //@ts-ignore — ControlType.Font is undocumented but functional
+    type: ControlType.Font,
+    controls: "basic",
+    defaultFontType: "monospace",
   },
   fontSize: {
     type: ControlType.Number,

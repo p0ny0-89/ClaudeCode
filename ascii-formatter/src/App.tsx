@@ -15,7 +15,7 @@ const SAMPLE_SKULLS = ` .     .       .  .   . .   .   . .    +  .
   .      .  . _(googol)        d]  oOo          [b
  .   .:. . . "/ | ]           d]           d ]  Yb`
 
-type FontOption = "courier" | "consolas" | "firacode" | "jetbrains"
+type FontOption = string
 type FillOption = "solid" | "linear" | "radial"
 type EffectOption = "none" | "reveal" | "typing" | "fade" | "glitch"
 type DirectionOption = "left" | "right" | "top" | "bottom"
@@ -149,11 +149,46 @@ export default function App() {
         <div style={sectionTitle}>Typography</div>
 
         <label style={labelStyle}>Font</label>
-        <select value={font} onChange={(e) => setFont(e.target.value as FontOption)} style={inputStyle}>
-          <option value="courier">Courier New</option>
-          <option value="consolas">Consolas</option>
-          <option value="firacode">Fira Code</option>
-          <option value="jetbrains">JetBrains Mono</option>
+        <select value={font} onChange={(e) => setFont(e.target.value)} style={inputStyle}>
+          <optgroup label="Monospace">
+            <option value="courier">Courier New</option>
+            <option value="consolas">Consolas</option>
+            <option value="firacode">Fira Code</option>
+            <option value="jetbrains">JetBrains Mono</option>
+            <option value="sourcecodepro">Source Code Pro</option>
+            <option value="ubuntumono">Ubuntu Mono</option>
+            <option value="robotomono">Roboto Mono</option>
+            <option value="ibmplexmono">IBM Plex Mono</option>
+            <option value="spacemono">Space Mono</option>
+            <option value="inconsolata">Inconsolata</option>
+          </optgroup>
+          <optgroup label="Sans-Serif">
+            <option value="inter">Inter</option>
+            <option value="roboto">Roboto</option>
+            <option value="opensans">Open Sans</option>
+            <option value="lato">Lato</option>
+            <option value="montserrat">Montserrat</option>
+            <option value="poppins">Poppins</option>
+            <option value="nunito">Nunito</option>
+            <option value="raleway">Raleway</option>
+            <option value="arial">Arial</option>
+            <option value="helvetica">Helvetica</option>
+            <option value="verdana">Verdana</option>
+          </optgroup>
+          <optgroup label="Serif">
+            <option value="georgia">Georgia</option>
+            <option value="timesnewroman">Times New Roman</option>
+            <option value="playfair">Playfair Display</option>
+            <option value="merriweather">Merriweather</option>
+            <option value="lora">Lora</option>
+            <option value="ptserif">PT Serif</option>
+          </optgroup>
+          <optgroup label="Display">
+            <option value="orbitron">Orbitron</option>
+            <option value="pressstart">Press Start 2P</option>
+            <option value="vt323">VT323</option>
+            <option value="silkscreen">Silkscreen</option>
+          </optgroup>
         </select>
 
         <label style={{ ...labelStyle, marginTop: 8 }}>Font Size: {fontSize}px</label>
