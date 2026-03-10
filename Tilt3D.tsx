@@ -94,8 +94,9 @@ export default function Tilt3D(props: Props) {
         const c = current.current
         const t = target.current
 
-        // Auto mode: drive target with organic Lissajous motion
-        if (mode === "auto") {
+        // Auto mode: drive target with organic Lissajous motion,
+        // but lerp to neutral when hovered so users can read content.
+        if (mode === "auto" && !hovering.current) {
             const sec = time * 0.001 * spd
             t.rx = Math.sin(sec * 0.6 + 0.3) * limit * AUTO_INTENSITY
             t.ry = Math.cos(sec * 0.4) * limit * AUTO_INTENSITY
@@ -120,6 +121,8 @@ export default function Tilt3D(props: Props) {
             Math.abs(c.ry - t.ry) < SETTLE_THRESHOLD &&
             Math.abs(c.s - t.s) < SETTLE_THRESHOLD
 
+        // Auto always keeps the loop alive so it can resume after hover.
+        // Cursor mode stops the loop once settled.
         if (settled && mode !== "auto") {
             c.rx = t.rx
             c.ry = t.ry
@@ -140,9 +143,18 @@ export default function Tilt3D(props: Props) {
     // ── Pointer Handlers (Cursor mode) ──────────────────
 
     const onPointerEnter = useCallback(() => {
-        if (cfg.current.interaction !== "cursor" || isCanvas) return
+        if (isCanvas) return
+        const mode = cfg.current.interaction
         hovering.current = true
-        target.current.s = cfg.current.hoverScale
+
+        if (mode === "cursor") {
+            target.current.s = cfg.current.hoverScale
+        } else if (mode === "auto") {
+            // Pause: lerp to neutral
+            target.current.rx = 0
+            target.current.ry = 0
+            target.current.s = 1
+        }
         startLoop()
     }, [isCanvas, startLoop])
 
@@ -173,11 +185,16 @@ export default function Tilt3D(props: Props) {
     )
 
     const onPointerLeave = useCallback(() => {
-        if (cfg.current.interaction !== "cursor" || isCanvas) return
+        if (isCanvas) return
         hovering.current = false
-        target.current.rx = 0
-        target.current.ry = 0
-        target.current.s = 1
+
+        if (cfg.current.interaction === "cursor") {
+            target.current.rx = 0
+            target.current.ry = 0
+            target.current.s = 1
+        }
+        // For auto mode the loop is already running and will
+        // resume Lissajous motion now that hovering is false.
         startLoop()
     }, [isCanvas, startLoop])
 
