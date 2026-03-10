@@ -349,34 +349,25 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
                 {children}
             </div>
 
-            {/* Sliced effect layers — every slice is position:absolute
-                so they all share the exact same coordinate system. */}
+            {/* Sliced effect layers — uses overflow:hidden band divs
+                instead of clip-path for maximum Framer compatibility.
+                Each band is a positioned div at its exact Y (or X)
+                location with the band's height (or width), clipping
+                via overflow:hidden. Inside, a full-container-sized
+                div is shifted so the correct content region shows. */}
             {Array.from({ length: sliceCount }, (_, i) => {
-                // --- Clip-path (pure percentages, no calc) ---
                 const bandPct = 100 / sliceCount
                 const startPct = i * bandPct
-                const endPct = (i + 1) * bandPct
 
-                // Tiny overlap to prevent subpixel seams between bands.
-                // First/last outer edges stay flush with the container.
-                const overlap = 0.15 // percentage points
-                const clipTop = Math.max(
-                    0,
-                    startPct - (i > 0 ? overlap : 0)
-                )
-                const clipBottom = Math.max(
-                    0,
-                    100 - endPct - (i < sliceCount - 1 ? overlap : 0)
-                )
-
-                let clipPath: string
-                if (sliceDirection === "horizontal") {
-                    // inset(top right bottom left)
-                    clipPath = `inset(${clipTop}% 0% ${clipBottom}% 0%)`
-                } else {
-                    // Vertical bands: swap axes
-                    clipPath = `inset(0% ${clipBottom}% 0% ${clipTop}%)`
-                }
+                // Tiny overlap to prevent subpixel seams between bands
+                const overlap = 0.15
+                const adjStart = i > 0 ? startPct - overlap : startPct
+                const adjSize =
+                    i > 0 && i < sliceCount - 1
+                        ? bandPct + overlap * 2
+                        : i === 0
+                          ? bandPct + overlap
+                          : bandPct + overlap
 
                 // --- Displacement ---
                 const displacement = offsets[i] * activationLevel
@@ -417,41 +408,84 @@ export default function SliceDisplace(props: SliceDisplaceProps) {
                     ? duration * 1.15
                     : duration
 
-                // OUTER: stationary clip window — stays fixed in place.
-                // Every slice is position:absolute so they all share
-                // the same origin, dimensions, and coordinate system.
-                const clipStyle: CSSProperties = {
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: "100%",
-                    clipPath,
-                    pointerEvents: disablePointerEventsOnSlices
-                        ? "none"
-                        : "auto",
-                }
+                // OUTER: the band viewport — overflow:hidden crops to
+                // exactly this band's region. Positioned absolutely at
+                // the band's location within the container.
+                const bandStyle: CSSProperties = sliceDirection === "horizontal"
+                    ? {
+                          position: "absolute",
+                          top: `${adjStart}%`,
+                          left: 0,
+                          width: "100%",
+                          height: `${adjSize}%`,
+                          overflow: "hidden",
+                          pointerEvents: disablePointerEventsOnSlices
+                              ? "none"
+                              : "auto",
+                      }
+                    : {
+                          position: "absolute",
+                          top: 0,
+                          left: `${adjStart}%`,
+                          width: `${adjSize}%`,
+                          height: "100%",
+                          overflow: "hidden",
+                          pointerEvents: disablePointerEventsOnSlices
+                              ? "none"
+                              : "auto",
+                      }
 
-                // INNER: shifts the content beneath the fixed clip.
-                // width/height 100% ensures children have an identical
-                // containing block in every slice. The transform also
-                // creates a containing block for any absolutely-
-                // positioned Framer children.
-                const contentStyle: CSSProperties = {
-                    width: "100%",
-                    height: "100%",
-                    transform,
-                    opacity,
-                    transition: [
-                        `transform ${dur}ms ${easing} ${delay}ms`,
-                        `opacity ${dur}ms ease ${delay}ms`,
-                    ].join(", "),
-                    willChange: "transform",
-                }
+                // INNER: full-container-sized div shifted so the
+                // correct content region aligns with the band viewport.
+                //
+                // Key math: percentages are relative to the BAND div,
+                // not the container. To get the inner to represent the
+                // full container:
+                //   innerHeight = (100 / adjSize) * 100  % of band
+                // To shift the right region into view:
+                //   innerTop = -(adjStart / adjSize) * 100  % of band
+                //
+                // Example: 8 slices, band 3 starts at 37.5%, band = 12.5%
+                //   innerHeight = 800% of band = container height ✓
+                //   innerTop = -300% of band = -37.5% of container ✓
+                const innerTopPct = -(adjStart / adjSize) * 100
+                const innerHeightPct = (100 / adjSize) * 100
+                const innerLeftPct = -(adjStart / adjSize) * 100
+                const innerWidthPct = (100 / adjSize) * 100
+
+                const innerStyle: CSSProperties = sliceDirection === "horizontal"
+                    ? {
+                          position: "absolute",
+                          top: `${innerTopPct}%`,
+                          left: 0,
+                          width: "100%",
+                          height: `${innerHeightPct}%`,
+                          transform,
+                          opacity,
+                          transition: [
+                              `transform ${dur}ms ${easing} ${delay}ms`,
+                              `opacity ${dur}ms ease ${delay}ms`,
+                          ].join(", "),
+                          willChange: "transform",
+                      }
+                    : {
+                          position: "absolute",
+                          top: 0,
+                          left: `${innerLeftPct}%`,
+                          width: `${innerWidthPct}%`,
+                          height: "100%",
+                          transform,
+                          opacity,
+                          transition: [
+                              `transform ${dur}ms ${easing} ${delay}ms`,
+                              `opacity ${dur}ms ease ${delay}ms`,
+                          ].join(", "),
+                          willChange: "transform",
+                      }
 
                 return (
-                    <div key={i} style={clipStyle}>
-                        <div style={contentStyle}>
+                    <div key={i} style={bandStyle}>
+                        <div style={innerStyle}>
                             {children}
                         </div>
                     </div>
