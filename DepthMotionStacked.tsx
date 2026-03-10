@@ -53,7 +53,10 @@ interface Props {
     mid1: React.ReactNode
     mid2: React.ReactNode
     mid3: React.ReactNode
-    blendMode: BlendMode
+    contentBlend: BlendMode
+    mid1Blend: BlendMode
+    mid2Blend: BlendMode
+    mid3Blend: BlendMode
     style?: React.CSSProperties
 }
 
@@ -106,7 +109,10 @@ export default function DepthMotionStacked(props: Props) {
         mid1,
         mid2,
         mid3,
-        blendMode = "normal",
+        contentBlend = "normal",
+        mid1Blend = "normal",
+        mid2Blend = "normal",
+        mid3Blend = "normal",
         style,
     } = props
 
@@ -620,7 +626,7 @@ export default function DepthMotionStacked(props: Props) {
     }
 
     // Shared style for mid-layer divs
-    const midLayerStyle: React.CSSProperties = {
+    const midLayerBase: React.CSSProperties = {
         position: "absolute",
         inset: `${-parallaxAmount * 0.6}px`,
         display: "flex",
@@ -630,7 +636,8 @@ export default function DepthMotionStacked(props: Props) {
     }
 
     // Parallax on: multi-layer structure.
-    // Background → mid layers → foreground, each at auto-distributed depth.
+    // DOM order = visual stack order (bottom to top):
+    // Background → Layer 1 → Layer 2 → Layer 3 → Content
     return (
         <div
             ref={containerRef}
@@ -645,7 +652,6 @@ export default function DepthMotionStacked(props: Props) {
                     width: "100%",
                     height: "100%",
                     position: "relative",
-                    overflow: "hidden",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                 }}
@@ -680,17 +686,44 @@ export default function DepthMotionStacked(props: Props) {
 
                 {/* Mid layers — auto-distributed depth between bg and fg */}
                 {layers >= 1 && mid1 && (
-                    <div ref={mid1Ref} style={midLayerStyle}>
+                    <div
+                        ref={mid1Ref}
+                        style={{
+                            ...midLayerBase,
+                            mixBlendMode:
+                                mid1Blend !== "normal"
+                                    ? mid1Blend
+                                    : undefined,
+                        }}
+                    >
                         {mid1}
                     </div>
                 )}
                 {layers >= 2 && mid2 && (
-                    <div ref={mid2Ref} style={midLayerStyle}>
+                    <div
+                        ref={mid2Ref}
+                        style={{
+                            ...midLayerBase,
+                            mixBlendMode:
+                                mid2Blend !== "normal"
+                                    ? mid2Blend
+                                    : undefined,
+                        }}
+                    >
                         {mid2}
                     </div>
                 )}
                 {layers >= 3 && mid3 && (
-                    <div ref={mid3Ref} style={midLayerStyle}>
+                    <div
+                        ref={mid3Ref}
+                        style={{
+                            ...midLayerBase,
+                            mixBlendMode:
+                                mid3Blend !== "normal"
+                                    ? mid3Blend
+                                    : undefined,
+                        }}
+                    >
                         {mid3}
                     </div>
                 )}
@@ -704,7 +737,9 @@ export default function DepthMotionStacked(props: Props) {
                         height: "100%",
                         willChange: "transform",
                         mixBlendMode:
-                            blendMode !== "normal" ? blendMode : undefined,
+                            contentBlend !== "normal"
+                                ? contentBlend
+                                : undefined,
                     }}
                 >
                     {content}
@@ -713,6 +748,34 @@ export default function DepthMotionStacked(props: Props) {
         </div>
     )
 }
+
+// ─── Blend Mode Options (shared) ─────────────────────────
+
+const BLEND_OPTIONS = [
+    "normal",
+    "multiply",
+    "screen",
+    "overlay",
+    "soft-light",
+    "hard-light",
+    "difference",
+    "exclusion",
+    "lighten",
+    "darken",
+]
+
+const BLEND_TITLES = [
+    "Normal",
+    "Multiply",
+    "Screen",
+    "Overlay",
+    "Soft Light",
+    "Hard Light",
+    "Difference",
+    "Exclusion",
+    "Lighten",
+    "Darken",
+]
 
 // ─── Framer Property Controls ─────────────────────────────
 
@@ -800,7 +863,6 @@ addPropertyControls(DepthMotionStacked, {
 
     // ── Parallax ────────────────────────────────────────
 
-    // Layer setup
     parallax: {
         type: ControlType.Boolean,
         title: "Parallax",
@@ -809,6 +871,78 @@ addPropertyControls(DepthMotionStacked, {
         disabledTitle: "Off",
     },
 
+    // ── Layer stack (panel reads top → bottom = front → back) ──
+
+    // Content blend (foreground — topmost layer)
+    contentBlend: {
+        type: ControlType.Enum,
+        title: "Content Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax,
+    },
+
+    layers: {
+        type: ControlType.Number,
+        title: "Layers",
+        defaultValue: 0,
+        min: 0,
+        max: 3,
+        step: 1,
+        displayStepper: true,
+        hidden: (props: any) => !props.parallax,
+    },
+
+    // Layer 3 — shallowest mid-layer (closest to content)
+    mid3: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 3",
+        hidden: (props: any) => !props.parallax || props.layers < 3,
+    },
+
+    mid3Blend: {
+        type: ControlType.Enum,
+        title: "Layer 3 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || props.layers < 3,
+    },
+
+    // Layer 2 — middle mid-layer
+    mid2: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 2",
+        hidden: (props: any) => !props.parallax || props.layers < 2,
+    },
+
+    mid2Blend: {
+        type: ControlType.Enum,
+        title: "Layer 2 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || props.layers < 2,
+    },
+
+    // Layer 1 — deepest mid-layer (closest to background)
+    mid1: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 1",
+        hidden: (props: any) => !props.parallax || props.layers < 1,
+    },
+
+    mid1Blend: {
+        type: ControlType.Enum,
+        title: "Layer 1 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || props.layers < 1,
+    },
+
+    // Background — deepest layer
     background: {
         type: ControlType.ComponentInstance,
         title: "Background",
@@ -835,68 +969,8 @@ addPropertyControls(DepthMotionStacked, {
         hidden: (props: any) => !props.parallax,
     },
 
-    layers: {
-        type: ControlType.Number,
-        title: "Layers",
-        defaultValue: 0,
-        min: 0,
-        max: 3,
-        step: 1,
-        displayStepper: true,
-        hidden: (props: any) => !props.parallax,
-    },
+    // ── Motion behavior ─────────────────────────────────
 
-    mid1: {
-        type: ControlType.ComponentInstance,
-        title: "Layer 1",
-        hidden: (props: any) => !props.parallax || props.layers < 1,
-    },
-
-    mid2: {
-        type: ControlType.ComponentInstance,
-        title: "Layer 2",
-        hidden: (props: any) => !props.parallax || props.layers < 2,
-    },
-
-    mid3: {
-        type: ControlType.ComponentInstance,
-        title: "Layer 3",
-        hidden: (props: any) => !props.parallax || props.layers < 3,
-    },
-
-    // Visual compositing
-    blendMode: {
-        type: ControlType.Enum,
-        title: "Blend Mode",
-        options: [
-            "normal",
-            "multiply",
-            "screen",
-            "overlay",
-            "soft-light",
-            "hard-light",
-            "difference",
-            "exclusion",
-            "lighten",
-            "darken",
-        ],
-        optionTitles: [
-            "Normal",
-            "Multiply",
-            "Screen",
-            "Overlay",
-            "Soft Light",
-            "Hard Light",
-            "Difference",
-            "Exclusion",
-            "Lighten",
-            "Darken",
-        ],
-        defaultValue: "normal",
-        hidden: (props: any) => !props.parallax,
-    },
-
-    // Motion behavior
     parallaxSource: {
         type: ControlType.Enum,
         title: "Source",
@@ -940,7 +1014,8 @@ addPropertyControls(DepthMotionStacked, {
         hidden: (props: any) => !props.parallax,
     },
 
-    // Motion tuning
+    // ── Motion tuning ───────────────────────────────────
+
     parallaxAmount: {
         type: ControlType.Number,
         title: "Amount",
