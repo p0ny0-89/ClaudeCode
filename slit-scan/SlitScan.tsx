@@ -2,25 +2,24 @@ import { addPropertyControls, ControlType } from "framer"
 import { useEffect, useRef } from "react"
 
 /**
- * Slit Scan Effect  (v3)
+ * Slit Scan Effect  (v4 — zero external resources)
  *
- * Drop into any Frame to apply an animated slit-scan displacement.
+ * Drop into any Frame to apply animated slit-scan displacement.
  * Invisible — takes no space in layout.
  *
- * How it works
+ * Architecture
  * ────────────
- * An SVG filter with feDisplacementMap is applied to the parent Frame.
- * The displacement map is a tiny SVG image (a stack of coloured <rect>
- * elements), generated as an SVG string → Blob → blob URL and fed to
- * <feImage>.  Using blob URLs instead of data-URIs sidesteps Chrome's
- * CORS restriction on feImage resources.
+ * Chrome blocks ALL external resources in feImage (data URIs, blob
+ * URLs, SVGs — everything).  So v4 builds the displacement map
+ * entirely from SVG filter primitives:
  *
- * R channel → primary displacement  (X for horiz, Y for vert slicing)
- * G channel → cross-axis lens warp  (smooth bump at slice edges)
+ *   feFlood ×N  →  feMerge  →  feGaussianBlur  →  feDisplacementMap
+ *   (one per       (stack        (soften edges      (displace parent
+ *    slice band)    into map)     for lens look)      pixels)
  *
- * The blob URL is regenerated every animation frame with updated rect
- * fills driven by per-slice sine waves, giving each band independent
- * organic motion.
+ * Each feFlood has explicit x/y/width/height covering its slice band
+ * and flood-color encoding the displacement for that band.  Animation
+ * updates flood-color on each feFlood element every frame.
  *
  * The CSS filter is injected via a <style> sheet with !important so
  * that Framer's React reconciliation cannot strip it.
@@ -42,113 +41,30 @@ interface Props {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// DOM helpers
 // ---------------------------------------------------------------------------
 
+function svgEl(tag: string): SVGElement {
+    return document.createElementNS(SVG_NS, tag)
+}
+
 /**
- * Walk up the DOM from `el` to locate the real Framer Frame
- * (skipping internal wrapper divs).
+ * Walk the DOM upward to locate the real Framer Frame.
  */
 function findParentFrame(el: HTMLElement): HTMLElement | null {
-    // Pass 1 — look for a named Framer layer
+    // Pass 1 — named Framer layer
     let cur: HTMLElement | null = el.parentElement
     while (cur && cur !== document.body) {
         if (cur.hasAttribute("data-framer-name")) return cur
         cur = cur.parentElement
     }
-    // Pass 2 — first ancestor with meaningful size
+    // Pass 2 — first ancestor with visual size
     cur = el.parentElement
     while (cur && cur !== document.body) {
-        const { width, height } = cur.getBoundingClientRect()
-        if (width > 1 && height > 1) return cur
+        if (cur.offsetWidth > 1 && cur.offsetHeight > 1) return cur
         cur = cur.parentElement
     }
     return el.parentElement
-}
-
-/**
- * Build an SVG displacement-map image as a plain string.
- *
- * The SVG contains one <rect> per slice body plus <linearGradient>
- * transitions at each slice boundary.  Because it is vector, the
- * browser can rasterise it at whatever resolution feImage needs.
- *
- * @param offsets  Normalised displacement per slice, in [−1, 1].
- */
-function buildMapSVG(
-    sliceCount: number,
-    offsets: number[],
-    direction: "horizontal" | "vertical",
-    edgeDistortion: number
-): string {
-    const isH = direction === "horizontal"
-    // Resolution of the SVG in the slicing axis.
-    // Must be high enough so each slice spans many pixels.
-    const res = sliceCount * 64
-    const w = isH ? 4 : res
-    const h = isH ? res : 4
-    const band = res / sliceCount
-    const edgePx = Math.max(0, Math.round(edgeDistortion * band * 0.4))
-    const lens = Math.round(edgeDistortion * 35)
-
-    let defs = ""
-    let rects = ""
-
-    // Neutral background (zero displacement)
-    rects += `<rect width="${w}" height="${h}" fill="rgb(128,128,128)"/>`
-
-    for (let i = 0; i < sliceCount; i++) {
-        const r = Math.round(128 + (offsets[i] ?? 0) * 127)
-        const y0 = Math.round(i * band)
-        const y1 = Math.round((i + 1) * band)
-        const bStart = y0 + edgePx
-        const bEnd = y1 - edgePx
-
-        // ---- Slice body (uniform colour = uniform displacement) ---------
-        if (bEnd > bStart) {
-            if (isH) {
-                rects += `<rect x="0" y="${bStart}" width="${w}" height="${bEnd - bStart}" fill="rgb(${r},128,128)"/>`
-            } else {
-                rects += `<rect x="${bStart}" y="0" width="${bEnd - bStart}" height="${h}" fill="rgb(${r},128,128)"/>`
-            }
-        }
-
-        // ---- Edge gradient between this slice and the previous one ------
-        if (edgePx > 0 && i > 0) {
-            const prevR = Math.round(128 + (offsets[i - 1] ?? 0) * 127)
-            const midR = Math.round((prevR + r) / 2)
-            const gid = `g${i}`
-
-            // Gradient runs from (y0 − edgePx) to (y0 + edgePx).
-            // Stops encode R (displacement transition) and G (lens bulge).
-            const ey0 = Math.max(0, y0 - edgePx)
-            const ey1 = Math.min(res, y0 + edgePx)
-
-            if (isH) {
-                defs += `<linearGradient id="${gid}" gradientUnits="userSpaceOnUse" x1="0" y1="${ey0}" x2="0" y2="${ey1}">`
-            } else {
-                defs += `<linearGradient id="${gid}" gradientUnits="userSpaceOnUse" x1="${ey0}" y1="0" x2="${ey1}" y2="0">`
-            }
-            // Lens: G deviates from 128 mid-edge, returns to 128 at ends
-            defs += `<stop offset="0"   stop-color="rgb(${prevR},128,128)"/>`
-            defs += `<stop offset="0.3" stop-color="rgb(${Math.round(prevR + (midR - prevR) * 0.5)},${128 - lens},128)"/>`
-            defs += `<stop offset="0.5" stop-color="rgb(${midR},128,128)"/>`
-            defs += `<stop offset="0.7" stop-color="rgb(${Math.round(midR + (r - midR) * 0.5)},${128 + lens},128)"/>`
-            defs += `<stop offset="1"   stop-color="rgb(${r},128,128)"/>`
-            defs += `</linearGradient>`
-
-            if (ey1 > ey0) {
-                if (isH) {
-                    rects += `<rect x="0" y="${ey0}" width="${w}" height="${ey1 - ey0}" fill="url(#${gid})"/>`
-                } else {
-                    rects += `<rect x="${ey0}" y="0" width="${ey1 - ey0}" height="${h}" fill="url(#${gid})"/>`
-                }
-            }
-        }
-    }
-
-    const defsBlock = defs ? `<defs>${defs}</defs>` : ""
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${defsBlock}${rects}</svg>`
 }
 
 // ---------------------------------------------------------------------------
@@ -171,12 +87,13 @@ export default function SlitScanEffect({
         const parent = findParentFrame(el)
         if (!parent) return
 
-        const { width: pW, height: pH } = parent.getBoundingClientRect()
+        let pW = parent.offsetWidth
+        let pH = parent.offsetHeight
         if (pW < 1 || pH < 1) return
 
         const uid = `slit-${Math.random().toString(36).slice(2, 8)}`
-        const filterId = uid
         const attrName = `data-${uid}`
+        const isH = direction === "horizontal"
 
         // Stable random phases per slice
         const phases = Array.from(
@@ -184,20 +101,23 @@ export default function SlitScanEffect({
             () => Math.random() * Math.PI * 2
         )
 
-        // ---- SVG filter skeleton ----------------------------------------
-        const svg = document.createElementNS(SVG_NS, "svg")
+        // ==================================================================
+        // Build SVG filter from primitives only (no feImage)
+        // ==================================================================
+        const svg = svgEl("svg") as SVGSVGElement
         svg.setAttribute("width", "0")
         svg.setAttribute("height", "0")
         svg.style.position = "absolute"
         svg.style.pointerEvents = "none"
 
-        const defs = document.createElementNS(SVG_NS, "defs")
-        const filter = document.createElementNS(SVG_NS, "filter")
-        filter.setAttribute("id", filterId)
+        const defs = svgEl("defs")
+        const filter = svgEl("filter")
+        filter.setAttribute("id", uid)
         filter.setAttribute("color-interpolation-filters", "sRGB")
+        // primitiveUnits defaults to userSpaceOnUse (pixel coords)
 
-        // Filter region — generous so displaced pixels remain visible
-        if (direction === "horizontal") {
+        // Generous filter region so displaced pixels remain visible
+        if (isH) {
             filter.setAttribute("x", "-30%")
             filter.setAttribute("y", "-5%")
             filter.setAttribute("width", "160%")
@@ -209,50 +129,121 @@ export default function SlitScanEffect({
             filter.setAttribute("height", "160%")
         }
 
-        // feImage — holds the displacement map (blob URL updated each frame)
-        const feImg = document.createElementNS(SVG_NS, "feImage")
-        feImg.setAttribute("result", "dispMap")
-        feImg.setAttribute("preserveAspectRatio", "none")
+        // 1️⃣  Background flood — neutral gray covering the full filter region.
+        //     (Without this, un-painted areas would be transparent = R:0 G:0
+        //      → large negative displacement on both axes.)
+        const bgFlood = svgEl("feFlood")
+        bgFlood.setAttribute("flood-color", "rgb(128,128,128)")
+        bgFlood.setAttribute("flood-opacity", "1")
+        bgFlood.setAttribute("result", "bg")
+        // No x/y/w/h → fills the entire filter region by default.
 
-        // feDisplacementMap — applies displacement to parent pixels
-        //   scale = intensity × 2 because offset = scale × (channel − 0.5)
-        const feDisp = document.createElementNS(SVG_NS, "feDisplacementMap")
-        feDisp.setAttribute("in", "SourceGraphic")
-        feDisp.setAttribute("in2", "dispMap")
-        feDisp.setAttribute("scale", String(intensity * 2))
+        // 2️⃣  One feFlood per slice band.
+        //     Each flood has explicit x/y/width/height in pixels and a
+        //     flood-color whose R channel encodes the displacement.
+        const sliceFloods: SVGElement[] = []
+        for (let i = 0; i < sliceCount; i++) {
+            const fl = svgEl("feFlood")
+            fl.setAttribute("flood-color", "rgb(128,128,128)")
+            fl.setAttribute("flood-opacity", "1")
+            fl.setAttribute("result", `s${i}`)
+            sliceFloods.push(fl)
+        }
+        // Set initial positions (will also be called on resize)
+        function layoutSlices() {
+            const bandW = isH ? pW : pW / sliceCount
+            const bandH = isH ? pH / sliceCount : pH
+            for (let i = 0; i < sliceCount; i++) {
+                const fl = sliceFloods[i]
+                if (isH) {
+                    fl.setAttribute("x", "0")
+                    fl.setAttribute("y", String(Math.round(i * bandH)))
+                    fl.setAttribute("width", String(pW))
+                    fl.setAttribute("height", String(Math.round(bandH) + 1)) // +1 avoids sub-pixel gaps
+                } else {
+                    fl.setAttribute("x", String(Math.round(i * bandW)))
+                    fl.setAttribute("y", "0")
+                    fl.setAttribute("width", String(Math.round(bandW) + 1))
+                    fl.setAttribute("height", String(pH))
+                }
+            }
+        }
+        layoutSlices()
 
-        if (direction === "horizontal") {
-            feDisp.setAttribute("xChannelSelector", "R")
-            feDisp.setAttribute("yChannelSelector", "G")
-        } else {
-            feDisp.setAttribute("xChannelSelector", "G")
-            feDisp.setAttribute("yChannelSelector", "R")
+        // 3️⃣  feMerge — composite background + all slices into one image.
+        const merge = svgEl("feMerge")
+        merge.setAttribute("result", "dispMap")
+        const bgNode = svgEl("feMergeNode")
+        bgNode.setAttribute("in", "bg")
+        merge.appendChild(bgNode)
+        for (let i = 0; i < sliceCount; i++) {
+            const mn = svgEl("feMergeNode")
+            mn.setAttribute("in", `s${i}`)
+            merge.appendChild(mn)
         }
 
-        filter.appendChild(feImg)
+        // 4️⃣  feGaussianBlur — soften band edges for lens-like distortion.
+        const blurEl = svgEl("feGaussianBlur")
+        blurEl.setAttribute("in", "dispMap")
+        blurEl.setAttribute("result", "blurMap")
+        function updateBlur() {
+            const bandPx = isH ? pH / sliceCount : pW / sliceCount
+            const blurPx = edgeDistortion * bandPx * 0.25
+            blurEl.setAttribute(
+                "stdDeviation",
+                isH ? `0 ${blurPx.toFixed(1)}` : `${blurPx.toFixed(1)} 0`
+            )
+        }
+        updateBlur()
+
+        // 5️⃣  feDisplacementMap — apply to parent pixels.
+        //     scale = intensity × 2  because offset = scale × (channel − 0.5)
+        //     so max displacement = ± intensity px.
+        const feDisp = svgEl("feDisplacementMap")
+        feDisp.setAttribute("in", "SourceGraphic")
+        feDisp.setAttribute(
+            "in2",
+            edgeDistortion > 0 ? "blurMap" : "dispMap"
+        )
+        feDisp.setAttribute("scale", String(intensity * 2))
+        feDisp.setAttribute(
+            "xChannelSelector",
+            isH ? "R" : "G"
+        )
+        feDisp.setAttribute(
+            "yChannelSelector",
+            isH ? "G" : "R"
+        )
+
+        // Assemble filter chain
+        filter.appendChild(bgFlood)
+        sliceFloods.forEach((fl) => filter.appendChild(fl))
+        filter.appendChild(merge)
+        if (edgeDistortion > 0) filter.appendChild(blurEl)
         filter.appendChild(feDisp)
         defs.appendChild(filter)
         svg.appendChild(defs)
 
-        // Append to <body> so the url(#id) reference is always reachable
+        // Append to <body> so url(#id) is always reachable
         document.body.appendChild(svg)
 
-        // ---- Apply filter via <style> + data-attribute ------------------
-        // Survives Framer's React reconciliation (inline styles don't).
+        // ==================================================================
+        // Apply filter via <style> + data-attribute (Framer-proof)
+        // ==================================================================
         parent.setAttribute(attrName, "")
         const styleEl = document.createElement("style")
-        styleEl.textContent = `[${attrName}] { filter: url(#${filterId}) !important; }`
+        styleEl.textContent = `[${attrName}] { filter: url(#${uid}) !important; }`
         document.head.appendChild(styleEl)
 
-        // ---- Animation state --------------------------------------------
+        // ==================================================================
+        // Animation
+        // ==================================================================
         let animId = 0
         let hoverProgress = trigger === "loop" ? 1 : 0
         let isHovered = false
         let lastTime = performance.now()
         const startTime = performance.now()
-        let prevBlobUrl: string | null = null
 
-        // ---- Frame loop -------------------------------------------------
         function animate() {
             const now = performance.now()
             const dt = Math.min(0.05, (now - lastTime) / 1000)
@@ -271,48 +262,36 @@ export default function SlitScanEffect({
 
             const mult = trigger === "loop" ? 1 : hoverProgress
 
-            // Nothing visible — skip expensive work
+            // Nothing visible — skip
             if (mult < 0.001) {
                 feDisp.setAttribute("scale", "0")
                 animId = requestAnimationFrame(animate)
                 return
             }
 
-            // Per-slice offsets (sine waves with unique phase & frequency)
-            const offsets: number[] = []
+            feDisp.setAttribute("scale", String(intensity * 2))
+
+            // Update each slice's flood colour
             for (let i = 0; i < sliceCount; i++) {
                 const fVar = 0.7 + Math.abs(Math.sin(i * 2.73)) * 0.6
                 const f = (1 / Math.max(0.1, duration)) * fVar
                 const amp =
                     0.4 + Math.abs(Math.cos(i * 1.37 + 0.5)) * 0.6
-                offsets.push(
+                const offset =
                     Math.sin(time * f * Math.PI * 2 + phases[i]) *
-                        amp *
-                        mult
+                    amp *
+                    mult
+                const r = Math.round(128 + offset * 127)
+                sliceFloods[i].setAttribute(
+                    "flood-color",
+                    `rgb(${r},128,128)`
                 )
             }
-
-            // Build displacement map SVG → Blob → blob URL
-            const mapSVG = buildMapSVG(
-                sliceCount,
-                offsets,
-                direction,
-                edgeDistortion
-            )
-            const blob = new Blob([mapSVG], { type: "image/svg+xml" })
-            const url = URL.createObjectURL(blob)
-
-            feImg.setAttribute("href", url)
-            feDisp.setAttribute("scale", String(intensity * 2))
-
-            // Revoke the *previous* URL (the current one is now in use)
-            if (prevBlobUrl) URL.revokeObjectURL(prevBlobUrl)
-            prevBlobUrl = url
 
             animId = requestAnimationFrame(animate)
         }
 
-        // ---- Hover listeners on the real parent -------------------------
+        // Hover listeners
         const onEnter = () => {
             isHovered = true
         }
@@ -324,13 +303,26 @@ export default function SlitScanEffect({
             parent.addEventListener("mouseleave", onLeave)
         }
 
-        // Go
+        // ResizeObserver — keep slice geometry and blur correct
+        const resizeObs = new ResizeObserver(([entry]) => {
+            pW = entry.contentRect.width
+            pH = entry.contentRect.height
+            if (pW > 0 && pH > 0) {
+                layoutSlices()
+                updateBlur()
+            }
+        })
+        resizeObs.observe(parent)
+
+        // Start
         animId = requestAnimationFrame(animate)
 
-        // ---- Cleanup ----------------------------------------------------
+        // ==================================================================
+        // Cleanup
+        // ==================================================================
         return () => {
             cancelAnimationFrame(animId)
-            if (prevBlobUrl) URL.revokeObjectURL(prevBlobUrl)
+            resizeObs.disconnect()
             parent.removeAttribute(attrName)
             styleEl.remove()
             svg.remove()
@@ -339,7 +331,7 @@ export default function SlitScanEffect({
         }
     }, [sliceCount, direction, trigger, edgeDistortion, duration, intensity])
 
-    // Invisible anchor — zero size, no layout impact
+    // Invisible anchor
     return (
         <div
             ref={ref}
@@ -355,7 +347,7 @@ export default function SlitScanEffect({
 }
 
 // ---------------------------------------------------------------------------
-// Property controls (Framer UI)
+// Property controls
 // ---------------------------------------------------------------------------
 
 addPropertyControls(SlitScanEffect, {
