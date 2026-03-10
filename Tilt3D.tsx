@@ -1,5 +1,5 @@
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
-import React, { useRef, useEffect, useCallback, useState } from "react"
+import React, { useRef, useEffect, useCallback } from "react"
 
 // ─── Constants ────────────────────────────────────────────
 
@@ -10,7 +10,7 @@ const SETTLE_THRESHOLD = 0.01
 
 // ─── Types ────────────────────────────────────────────────
 
-type Interaction = "auto" | "cursor" | "deviceTilt"
+type Interaction = "auto" | "cursor"
 type Behavior = "follow" | "repel"
 
 interface Props {
@@ -20,6 +20,7 @@ interface Props {
     tiltLimit: number
     scale: number
     perspective: number
+    speed: number
     style?: React.CSSProperties
 }
 
@@ -39,8 +40,8 @@ function clamp(v: number, lo: number, hi: number): number {
  * 3D Tilt — Effect wrapper component.
  *
  * Connect any content into the "Content" slot and it becomes
- * the surface that tilts in 3D. Supports cursor tracking,
- * device orientation, and a subtle auto-animation mode.
+ * the surface that tilts in 3D. Supports cursor tracking on
+ * desktop and a smooth auto-animation for mobile / tablet.
  */
 export default function Tilt3D(props: Props) {
     const {
@@ -50,6 +51,7 @@ export default function Tilt3D(props: Props) {
         tiltLimit = 20,
         scale: hoverScale = 1.1,
         perspective = 5000,
+        speed = 0.5,
         style,
     } = props
 
@@ -69,6 +71,7 @@ export default function Tilt3D(props: Props) {
         tiltLimit,
         hoverScale,
         perspective,
+        speed,
     })
     cfg.current = {
         interaction,
@@ -76,6 +79,7 @@ export default function Tilt3D(props: Props) {
         tiltLimit,
         hoverScale,
         perspective,
+        speed,
     }
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
@@ -86,13 +90,13 @@ export default function Tilt3D(props: Props) {
         const el = surfaceRef.current
         if (!el) return
 
-        const { interaction: mode, tiltLimit: limit } = cfg.current
+        const { interaction: mode, tiltLimit: limit, speed: spd } = cfg.current
         const c = current.current
         const t = target.current
 
         // Auto mode: drive target with organic Lissajous motion
         if (mode === "auto") {
-            const sec = time * 0.001
+            const sec = time * 0.001 * spd
             t.rx = Math.sin(sec * 0.6 + 0.3) * limit * AUTO_INTENSITY
             t.ry = Math.cos(sec * 0.4) * limit * AUTO_INTENSITY
             t.s = 1
@@ -100,7 +104,7 @@ export default function Tilt3D(props: Props) {
 
         // Lerp current → target
         const smooth =
-            hovering.current || mode === "auto" || mode === "deviceTilt"
+            hovering.current || mode === "auto"
                 ? ACTIVE_SMOOTHING
                 : RETURN_SMOOTHING
 
@@ -177,113 +181,6 @@ export default function Tilt3D(props: Props) {
         startLoop()
     }, [isCanvas, startLoop])
 
-    // ── Device Orientation (Device Tilt mode) ───────────
-
-    type TiltPermission =
-        | "idle"
-        | "prompt"
-        | "requesting"
-        | "granted"
-        | "denied"
-        | "unsupported"
-
-    const [tiltPermission, setTiltPermission] =
-        useState<TiltPermission>("idle")
-
-    // Step 1: Determine permission state when mode activates
-    useEffect(() => {
-        if (interaction !== "deviceTilt" || isCanvas) {
-            setTiltPermission("idle")
-            return
-        }
-
-        if (typeof window.DeviceOrientationEvent === "undefined") {
-            setTiltPermission("unsupported")
-            return
-        }
-
-        const DOE = DeviceOrientationEvent as any
-        if (typeof DOE.requestPermission === "function") {
-            // iOS 13+: needs a user gesture — show tap prompt
-            setTiltPermission("prompt")
-        } else {
-            // Android / other: can attach immediately
-            setTiltPermission("granted")
-        }
-    }, [interaction, isCanvas])
-
-    // Step 2: Attach listener once permission is granted
-    useEffect(() => {
-        if (
-            interaction !== "deviceTilt" ||
-            tiltPermission !== "granted" ||
-            isCanvas
-        )
-            return
-
-        let eventReceived = false
-        let fallbackTimeout: ReturnType<typeof setTimeout>
-
-        const onOrientation = (e: DeviceOrientationEvent) => {
-            // Discard empty events (some browsers fire with all nulls)
-            if (e.alpha === null && e.beta === null && e.gamma === null)
-                return
-
-            if (!eventReceived) {
-                eventReceived = true
-                clearTimeout(fallbackTimeout)
-            }
-
-            const beta = e.beta ?? 0
-            const gamma = e.gamma ?? 0
-            const dir = cfg.current.behavior === "repel" ? -1 : 1
-
-            const nb = clamp((beta - 45) / 45, -1, 1)
-            const ng = clamp(gamma / 45, -1, 1)
-
-            target.current.rx = -nb * cfg.current.tiltLimit * dir
-            target.current.ry = ng * cfg.current.tiltLimit * dir
-            target.current.s = cfg.current.hoverScale
-            startLoop()
-        }
-
-        window.addEventListener("deviceorientation", onOrientation, {
-            passive: true,
-        })
-
-        // If no real events arrive within 3 s the device likely
-        // has no gyroscope (e.g. desktop browser, old phone).
-        fallbackTimeout = setTimeout(() => {
-            if (!eventReceived) setTiltPermission("unsupported")
-        }, 3000)
-
-        return () => {
-            window.removeEventListener("deviceorientation", onOrientation)
-            clearTimeout(fallbackTimeout)
-        }
-    }, [interaction, tiltPermission, isCanvas, startLoop])
-
-    // Step 3: Permission request handler — MUST be called from
-    // a user gesture (tap / click) or iOS Safari will reject it.
-    const requestTiltPermission = useCallback(async () => {
-        const DOE = DeviceOrientationEvent as any
-        if (typeof DOE.requestPermission !== "function") return
-
-        setTiltPermission("requesting")
-        try {
-            const result = await DOE.requestPermission()
-            setTiltPermission(result === "granted" ? "granted" : "denied")
-        } catch {
-            setTiltPermission("denied")
-        }
-    }, [])
-
-    const showTiltOverlay =
-        interaction === "deviceTilt" &&
-        !isCanvas &&
-        tiltPermission !== "granted" &&
-        tiltPermission !== "idle"
-
     // ── Auto Animation Start ────────────────────────────
 
     useEffect(() => {
@@ -358,46 +255,6 @@ export default function Tilt3D(props: Props) {
             >
                 {content}
             </div>
-
-            {showTiltOverlay && (
-                <div
-                    onClick={
-                        tiltPermission === "prompt"
-                            ? requestTiltPermission
-                            : undefined
-                    }
-                    style={{
-                        position: "absolute",
-                        inset: 0,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "rgba(0, 0, 0, 0.45)",
-                        backdropFilter: "blur(6px)",
-                        WebkitBackdropFilter: "blur(6px)",
-                        borderRadius: "inherit",
-                        color: "#fff",
-                        fontSize: 14,
-                        fontWeight: 500,
-                        fontFamily:
-                            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                        cursor:
-                            tiltPermission === "prompt"
-                                ? "pointer"
-                                : "default",
-                        zIndex: 1,
-                        userSelect: "none",
-                        WebkitUserSelect: "none" as any,
-                    }}
-                >
-                    {tiltPermission === "prompt" && "Tap to enable tilt"}
-                    {tiltPermission === "requesting" && "Enabling\u2026"}
-                    {tiltPermission === "denied" &&
-                        "Tilt permission denied"}
-                    {tiltPermission === "unsupported" &&
-                        "Device tilt not available"}
-                </div>
-            )}
         </div>
     )
 }
@@ -415,8 +272,8 @@ addPropertyControls(Tilt3D, {
     interaction: {
         type: ControlType.Enum,
         title: "Interaction",
-        options: ["auto", "cursor", "deviceTilt"],
-        optionTitles: ["Auto", "Cursor", "Device Tilt"],
+        options: ["auto", "cursor"],
+        optionTitles: ["Auto", "Cursor"],
         defaultValue: "cursor",
     },
 
@@ -430,6 +287,18 @@ addPropertyControls(Tilt3D, {
         displaySegmentedControl: true,
         defaultValue: "follow",
         hidden: (props: any) => props.interaction === "auto",
+    },
+
+    // ── Speed (Auto only) ───────────────────────────────
+
+    speed: {
+        type: ControlType.Number,
+        title: "Speed",
+        defaultValue: 0.5,
+        min: 0.1,
+        max: 2,
+        step: 0.1,
+        hidden: (props: any) => props.interaction !== "auto",
     },
 
     // ── Tilt Limit ──────────────────────────────────────
