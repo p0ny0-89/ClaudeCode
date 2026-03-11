@@ -804,9 +804,8 @@ const BLEND_TITLES = [
 
 addPropertyControls(DepthMotionCMS, {
     content: {
-        type: ControlType.File,
+        type: ControlType.Image,
         title: "Content",
-        allowedFileTypes: ALLOWED_MEDIA,
     },
 
     // ── Tilt ─────────────────────────────────────────────
@@ -920,9 +919,8 @@ addPropertyControls(DepthMotionCMS, {
 
     // Layer 3 — shallowest mid-layer (closest to content)
     mid3: {
-        type: ControlType.File,
+        type: ControlType.Image,
         title: "Layer 3",
-        allowedFileTypes: ALLOWED_MEDIA,
         hidden: (props: any) => !props.parallax || props.layers < 3,
     },
 
@@ -937,9 +935,8 @@ addPropertyControls(DepthMotionCMS, {
 
     // Layer 2 — middle mid-layer
     mid2: {
-        type: ControlType.File,
+        type: ControlType.Image,
         title: "Layer 2",
-        allowedFileTypes: ALLOWED_MEDIA,
         hidden: (props: any) => !props.parallax || props.layers < 2,
     },
 
@@ -954,9 +951,8 @@ addPropertyControls(DepthMotionCMS, {
 
     // Layer 1 — deepest mid-layer (closest to background)
     mid1: {
-        type: ControlType.File,
+        type: ControlType.Image,
         title: "Layer 1",
-        allowedFileTypes: ALLOWED_MEDIA,
         hidden: (props: any) => !props.parallax || props.layers < 1,
     },
 
@@ -971,9 +967,8 @@ addPropertyControls(DepthMotionCMS, {
 
     // Background — deepest layer
     background: {
-        type: ControlType.File,
+        type: ControlType.Image,
         title: "Background",
-        allowedFileTypes: ALLOWED_MEDIA,
         hidden: (props: any) => !props.parallax,
     },
 
