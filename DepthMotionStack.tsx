@@ -45,9 +45,18 @@ interface Props {
     parallaxDirection: ParallaxDirection
     parallaxAmount: number
     parallaxSmoothing: number
-    midLayers: React.ReactNode[]
+    layers: number
+    mid1: React.ReactNode
+    mid2: React.ReactNode
+    mid3: React.ReactNode
+    mid4: React.ReactNode
+    mid5: React.ReactNode
     contentBlend: BlendMode
-    midLayerBlend: BlendMode
+    mid1Blend: BlendMode
+    mid2Blend: BlendMode
+    mid3Blend: BlendMode
+    mid4Blend: BlendMode
+    mid5Blend: BlendMode
     style?: React.CSSProperties
 }
 
@@ -66,14 +75,15 @@ function clamp(v: number, lo: number, hi: number): number {
 /**
  * DepthMotionStack — Multi-layer tilt and parallax effect wrapper.
  *
- * Extends DepthMotion with up to 3 additional mid-layers between
+ * Extends DepthMotion with up to 5 additional mid-layers between
  * Background and Content. Each layer auto-distributes across the
  * depth range for a convincing stacked parallax effect.
  *
  * Structure in Framer:
  *   → Connect a frame or component into the Content slot
  *   → Turn Parallax on and connect a Background slot
- *   → Set Layers (1–3) and connect mid-layer slots
+ *   → Set Layers (0–5) and connect mid-layer slots
+ *   → Each layer has its own blend mode control
  *   → All layers shift at auto-calculated depth rates
  */
 export default function DepthMotionStack(props: Props) {
@@ -94,20 +104,29 @@ export default function DepthMotionStack(props: Props) {
         parallaxDirection = "toward",
         parallaxAmount = 20,
         parallaxSmoothing = 0.5,
-        midLayers = [],
+        layers: layerCount = 0,
+        mid1 = null,
+        mid2 = null,
+        mid3 = null,
+        mid4 = null,
+        mid5 = null,
         contentBlend = "normal",
-        midLayerBlend = "normal",
+        mid1Blend = "normal" as BlendMode,
+        mid2Blend = "normal" as BlendMode,
+        mid3Blend = "normal" as BlendMode,
+        mid4Blend = "normal" as BlendMode,
+        mid5Blend = "normal" as BlendMode,
         style,
     } = props
 
-    const layerCount = midLayers.length
+    // Build ordered arrays from individual layer props
+    const midLayersArr = [mid1, mid2, mid3, mid4, mid5].slice(0, layerCount)
+    const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend].slice(0, layerCount)
 
     const containerRef = useRef<HTMLDivElement>(null)
     const surfaceRef = useRef<HTMLDivElement>(null)
     const bgRef = useRef<HTMLDivElement>(null)
-    const midRefs = useRef<(HTMLDivElement | null)[]>([])
-    // Keep ref array in sync with actual layer count
-    midRefs.current.length = layerCount
+    const midRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null])
     const fgRef = useRef<HTMLDivElement>(null)
     const rafId = useRef(0)
     const loopRunning = useRef(false)
@@ -272,13 +291,14 @@ export default function DepthMotionStack(props: Props) {
             }
 
             // Mid layers — auto-distributed between bg and fg
-            midRefs.current.forEach((ref, i) => {
+            for (let i = 0; i < lc; i++) {
+                const ref = midRefs.current[i]
                 if (ref) {
                     const f = -0.5 + (i + 1) / (n - 1)
                     ref.style.transform =
                         `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
                 }
-            })
+            }
 
             // Foreground — always shallowest
             if (fgRef.current) {
@@ -320,13 +340,14 @@ export default function DepthMotionStack(props: Props) {
                     bgRef.current.style.transform =
                         `translate3d(${(-0.5 * pc.tx).toFixed(2)}px, ${(-0.5 * pc.ty).toFixed(2)}px, 0)`
 
-                midRefs.current.forEach((ref, i) => {
+                for (let i = 0; i < lc; i++) {
+                    const ref = midRefs.current[i]
                     if (ref) {
                         const f = -0.5 + (i + 1) / (n - 1)
                         ref.style.transform =
                             `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
                     }
-                })
+                }
 
                 if (fgRef.current)
                     fgRef.current.style.transform =
@@ -645,7 +666,7 @@ export default function DepthMotionStack(props: Props) {
                 )}
 
                 {/* Mid layers — auto-distributed depth between bg and fg */}
-                {midLayers.map((layer, i) =>
+                {midLayersArr.map((layer, i) =>
                     layer ? (
                         <div
                             key={i}
@@ -655,8 +676,8 @@ export default function DepthMotionStack(props: Props) {
                             style={{
                                 ...midLayerBase,
                                 mixBlendMode:
-                                    midLayerBlend !== "normal"
-                                        ? midLayerBlend
+                                    midBlendsArr[i] !== "normal"
+                                        ? midBlendsArr[i]
                                         : undefined,
                             }}
                         >
@@ -819,25 +840,85 @@ addPropertyControls(DepthMotionStack, {
 
     // ── Layer stack ────────────────────────────────────────
 
-    // Mid layers — right-click any layer to delete it
-    midLayers: {
-        type: ControlType.Array,
-        title: "Mid Layers",
-        maxCount: 5,
-        control: {
-            type: ControlType.ComponentInstance,
-        },
+    layers: {
+        type: ControlType.Number,
+        title: "Layers",
+        defaultValue: 0,
+        min: 0,
+        max: 5,
+        step: 1,
+        displayStepper: true,
         hidden: (props: any) => !props.parallax,
     },
 
-    midLayerBlend: {
+    mid1: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 1",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
+    },
+    mid1Blend: {
         type: ControlType.Enum,
-        title: "Mid Layer Blend",
+        title: "Layer 1 Blend",
         options: BLEND_OPTIONS,
         optionTitles: BLEND_TITLES,
         defaultValue: "normal",
-        hidden: (props: any) =>
-            !props.parallax || !props.midLayers?.length,
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
+    },
+
+    mid2: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 2",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
+    },
+    mid2Blend: {
+        type: ControlType.Enum,
+        title: "Layer 2 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
+    },
+
+    mid3: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 3",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
+    },
+    mid3Blend: {
+        type: ControlType.Enum,
+        title: "Layer 3 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
+    },
+
+    mid4: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 4",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
+    },
+    mid4Blend: {
+        type: ControlType.Enum,
+        title: "Layer 4 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
+    },
+
+    mid5: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 5",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
+    },
+    mid5Blend: {
+        type: ControlType.Enum,
+        title: "Layer 5 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
     },
 
     // Background — deepest layer
