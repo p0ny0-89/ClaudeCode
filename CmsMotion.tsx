@@ -465,7 +465,7 @@ export default function CmsMotion(props: Props) {
                     willChange: tilt ? "transform" : undefined,
                 }}
             >
-                {/* Clip div — border radius + overflow hidden contained here */}
+                {/* Clip div — border radius + overflow hidden for background only */}
                 <div
                     style={{
                         position: "absolute",
@@ -478,35 +478,35 @@ export default function CmsMotion(props: Props) {
                     <div style={{ position: "absolute", inset: 0 }}>
                         <Media src={bgSrc} />
                     </div>
+                </div>
 
-                    {/* Overlay — fades in on hover, optionally follows cursor */}
-                    {overlaySrc && (
+                {/* Overlay — outside clip div so it can overflow past card edges */}
+                {overlaySrc && (
+                    <div
+                        style={{
+                            position: "absolute",
+                            inset: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            pointerEvents: "none",
+                        }}
+                    >
                         <div
+                            ref={overlayRef}
                             style={{
-                                position: "absolute",
-                                inset: 0,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                pointerEvents: "none",
+                                width: `${overlaySize}%`,
+                                height: `${overlaySize}%`,
+                                opacity: 0,
+                                willChange: "transform, opacity",
+                                borderRadius: overlayRadius,
+                                overflow: "hidden",
                             }}
                         >
-                            <div
-                                ref={overlayRef}
-                                style={{
-                                    width: `${overlaySize}%`,
-                                    height: `${overlaySize}%`,
-                                    opacity: 0,
-                                    willChange: "transform, opacity",
-                                    borderRadius: overlayRadius,
-                                    overflow: "hidden",
-                                }}
-                            >
-                                <Media src={overlaySrc} />
-                            </div>
+                            <Media src={overlaySrc} />
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
         </div>
     )
