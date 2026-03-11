@@ -36,6 +36,9 @@ interface Props {
     overlayDirection: OverlayDirection
     overlaySmoothing: number
 
+    // Autoplay (viewport-based)
+    autoplay: boolean
+
     // Tilt
     tilt: boolean
     behavior: Behavior
@@ -117,6 +120,7 @@ export default function CmsMotion(props: Props) {
         overlayAmount = 100,
         overlayDirection = "toward",
         overlaySmoothing = 0.5,
+        autoplay = false,
         tilt = true,
         behavior = "follow",
         tiltLimit = 20,
@@ -148,6 +152,9 @@ export default function CmsMotion(props: Props) {
     const overlayOpTarget = useRef(0)
     const overlayOpCurrent = useRef(0)
 
+    // Autoplay viewport tracking
+    const inView = useRef(false)
+
     // Latest props in a ref so callbacks stay stable
     const cfg = useRef({
         tilt,
@@ -160,6 +167,7 @@ export default function CmsMotion(props: Props) {
         overlayDirection,
         overlaySmoothing,
         overlaySize,
+        autoplay,
     })
     cfg.current = {
         tilt,
@@ -172,6 +180,7 @@ export default function CmsMotion(props: Props) {
         overlayDirection,
         overlaySmoothing,
         overlaySize,
+        autoplay,
     }
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
@@ -345,17 +354,22 @@ export default function CmsMotion(props: Props) {
         if (isCanvas) return
         hovering.current = false
 
-        // Fade overlay out
-        overlayOpTarget.current = 0
-
         // Reset tilt
         tiltTarget.current.rx = 0
         tiltTarget.current.ry = 0
         tiltTarget.current.s = 1
 
-        // Reset overlay position
+        // Reset overlay position (cursor no longer tracked)
         overlayPosTarget.current.tx = 0
         overlayPosTarget.current.ty = 0
+
+        // If autoplay is active and card is in view, keep overlay
+        // visible (stationary) instead of fading out
+        if (cfg.current.autoplay && inView.current) {
+            // Overlay stays at opacity 1, centered
+        } else {
+            overlayOpTarget.current = 0
+        }
 
         startLoop()
     }, [isCanvas, startLoop])
@@ -366,6 +380,37 @@ export default function CmsMotion(props: Props) {
         tiltTarget.current = { rx: 0, ry: 0, s: 1 }
         startLoop()
     }, [tilt, startLoop])
+
+    // ── Autoplay — IntersectionObserver ─────────────────
+
+    useEffect(() => {
+        if (!autoplay || isCanvas) return
+
+        const el = containerRef.current
+        if (!el) return
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                inView.current = entry.isIntersecting
+
+                if (entry.isIntersecting && !hovering.current) {
+                    // Card scrolled into view — show overlay (stationary)
+                    overlayOpTarget.current = 1
+                    startLoop()
+                } else if (!entry.isIntersecting) {
+                    // Card left viewport — fade overlay out
+                    overlayOpTarget.current = 0
+                    overlayPosTarget.current.tx = 0
+                    overlayPosTarget.current.ty = 0
+                    startLoop()
+                }
+            },
+            { threshold: 0.5 }
+        )
+
+        observer.observe(el)
+        return () => observer.disconnect()
+    }, [autoplay, isCanvas, startLoop])
 
     // ── Cleanup ──────────────────────────────────────────
 
@@ -542,7 +587,7 @@ addPropertyControls(CmsMotion, {
 
     overlayAmount: {
         type: ControlType.Number,
-        title: "Amount",
+        title: "Distance",
         defaultValue: 100,
         min: 0,
         max: 100,
@@ -569,6 +614,17 @@ addPropertyControls(CmsMotion, {
         min: 0,
         max: 1,
         step: 0.1,
+    },
+
+    // ── Autoplay ──────────────────────────────────────────
+
+    autoplay: {
+        type: ControlType.Boolean,
+        title: "Autoplay",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        description: "Show overlay when card scrolls into view (mobile/tablet friendly)",
     },
 
     // ── Tilt ─────────────────────────────────────────────
