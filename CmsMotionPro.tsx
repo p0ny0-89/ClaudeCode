@@ -18,6 +18,7 @@ type OverlayDirection = "toward" | "away"
 type TransitionType = "instant" | "fade" | "slide" | "push"
 type TransitionDirection = "left" | "right" | "up" | "down"
 type SlideInput = "images" | "videos"
+type ContentFit = "fill" | "fit"
 
 const ALLOWED_VIDEO = ["mp4", "webm"]
 const ALLOWED_MEDIA = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "mp4", "webm"]
@@ -66,6 +67,7 @@ interface Props {
     // ── Overlay ───────────────────────────────────────
     overlaySize: number
     overlayRadius: number
+    contentFit: ContentFit
     overlayMode: OverlayMode
 
     // ── Overlay Motion ────────────────────────────────
@@ -99,15 +101,17 @@ function clamp(v: number, lo: number, hi: number): number {
 /** Renders an <img> or <video> based on the file extension. */
 function Media({
     src,
+    objectFit = "cover",
     style,
 }: {
     src: string
+    objectFit?: "cover" | "contain"
     style?: React.CSSProperties
 }) {
     const base: React.CSSProperties = {
         width: "100%",
         height: "100%",
-        objectFit: "cover",
+        objectFit,
         display: "block",
         ...style,
     }
@@ -289,6 +293,7 @@ export default function CmsMotionPro(props: Props) {
         slide5Vid,
         overlaySize = 80,
         overlayRadius = 0,
+        contentFit = "fill" as ContentFit,
         overlayMode = "cursor",
         overlayAmount = 100,
         overlayDirection = "toward",
@@ -776,7 +781,10 @@ export default function CmsMotionPro(props: Props) {
                             >
                                 {activeSlides.length === 1 ? (
                                     // Single slide — no transitions needed
-                                    <Media src={activeSlides[0]} />
+                                    <Media
+                                        src={activeSlides[0]}
+                                        objectFit={contentFit === "fit" ? "contain" : "cover"}
+                                    />
                                 ) : (
                                     // Multiple slides — CSS transitions
                                     activeSlides.map((src, i) => (
@@ -791,7 +799,10 @@ export default function CmsMotionPro(props: Props) {
                                                 transitionSpeed
                                             )}
                                         >
-                                            <Media src={src} />
+                                            <Media
+                                                src={src}
+                                                objectFit={contentFit === "fit" ? "contain" : "cover"}
+                                            />
                                         </div>
                                     ))
                                 )}
@@ -1097,6 +1108,18 @@ addPropertyControls(CmsMotionPro, {
         step: 1,
         unit: "px",
         displayStepper: true,
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
+    },
+
+    contentFit: {
+        type: ControlType.Enum,
+        title: "Content Fit",
+        options: ["fill", "fit"],
+        optionTitles: ["Fill", "Fit"],
+        displaySegmentedControl: true,
+        defaultValue: "fill",
+        description:
+            "Fill crops to fill the overlay. Fit shows the full image or video without cropping.",
         hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
