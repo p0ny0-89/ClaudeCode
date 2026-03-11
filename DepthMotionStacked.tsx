@@ -29,7 +29,7 @@ type BlendMode =
     | "darken"
 
 interface Props {
-    content: React.ReactNode
+    children: React.ReactNode
     background: React.ReactNode
     tilt: boolean
     interaction: Interaction
@@ -83,7 +83,7 @@ function clamp(v: number, lo: number, hi: number): number {
  */
 export default function DepthMotionStacked(props: Props) {
     const {
-        content,
+        children,
         background,
         tilt = true,
         interaction = "cursor",
@@ -564,7 +564,7 @@ export default function DepthMotionStacked(props: Props) {
 
     // ── Empty State ─────────────────────────────────────
 
-    if (!content) {
+    if (!children) {
         return (
             <div
                 style={{
@@ -582,7 +582,7 @@ export default function DepthMotionStacked(props: Props) {
                     minHeight: 100,
                 }}
             >
-                Connect content →
+                Place content inside →
             </div>
         )
     }
@@ -613,7 +613,7 @@ export default function DepthMotionStacked(props: Props) {
                         willChange: tilt ? "transform" : undefined,
                     }}
                 >
-                    {content}
+                    {children}
                 </div>
             </div>
         )
@@ -726,7 +726,7 @@ export default function DepthMotionStacked(props: Props) {
                                 : undefined,
                     }}
                 >
-                    {content}
+                    {children}
                 </div>
             </div>
         </div>
@@ -764,11 +764,6 @@ const BLEND_TITLES = [
 // ─── Framer Property Controls ─────────────────────────────
 
 addPropertyControls(DepthMotionStacked, {
-    content: {
-        type: ControlType.ComponentInstance,
-        title: "Content",
-    },
-
     // ── Tilt ─────────────────────────────────────────────
 
     tilt: {
