@@ -19,6 +19,7 @@ type TransitionType = "instant" | "fade" | "slide" | "push"
 type TransitionDirection = "left" | "right" | "up" | "down"
 
 const ALLOWED_VIDEO = ["mp4", "webm"]
+const ALLOWED_MEDIA = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "mp4", "webm"]
 
 interface Props {
     // Media (Image + Video fallback for CMS binding flexibility)
@@ -37,18 +38,8 @@ interface Props {
     shadowSpread: number
     shadowColor: string
 
-    // Slides
-    slides: number
-    slide1: string
-    slide1Video: string
-    slide2: string
-    slide2Video: string
-    slide3: string
-    slide3Video: string
-    slide4: string
-    slide4Video: string
-    slide5: string
-    slide5Video: string
+    // Slides (array of media URLs — each accepts both images and videos)
+    slides: string[]
 
     // Overlay
     overlaySize: number
@@ -262,17 +253,7 @@ export default function CmsMotionPro(props: Props) {
         shadowBlur = 20,
         shadowSpread = 0,
         shadowColor = "rgba(0,0,0,0.25)",
-        slides: slideCount = 1,
-        slide1,
-        slide1Video,
-        slide2,
-        slide2Video,
-        slide3,
-        slide3Video,
-        slide4,
-        slide4Video,
-        slide5,
-        slide5Video,
+        slides = [],
         overlaySize = 80,
         overlayRadius = 0,
         overlayMode = "cursor",
@@ -295,16 +276,10 @@ export default function CmsMotionPro(props: Props) {
     // Resolve media: video takes priority over image
     const bgSrc = backgroundVideo || background
 
-    // Build slides array from individual props
-    const allSlides = [
-        slide1Video || slide1,
-        slide2Video || slide2,
-        slide3Video || slide3,
-        slide4Video || slide4,
-        slide5Video || slide5,
-    ]
-    const activeSlides = allSlides.slice(0, slideCount).filter(Boolean) as string[]
-    const hasOverlay = activeSlides.length > 0
+    // Slides array — filter out empty entries
+    const activeSlides = (slides as string[]).filter(Boolean)
+    const slideCount = activeSlides.length
+    const hasOverlay = slideCount > 0
 
     // ── Refs ─────────────────────────────────────────────
 
@@ -336,22 +311,7 @@ export default function CmsMotionPro(props: Props) {
     const overlayActiveRef = useRef(false)
 
     // Latest props in a ref so callbacks stay stable
-    const cfg = useRef({
-        tilt,
-        behavior,
-        tiltLimit,
-        hoverScale,
-        perspective,
-        overlayMode,
-        overlayAmount,
-        overlayDirection,
-        overlaySmoothing,
-        overlaySize,
-        autoplay,
-        slideCount,
-        slideDuration,
-    })
-    cfg.current = {
+    const cfgVal = {
         tilt,
         behavior,
         tiltLimit,
@@ -366,6 +326,8 @@ export default function CmsMotionPro(props: Props) {
         slideCount,
         slideDuration,
     }
+    const cfg = useRef(cfgVal)
+    cfg.current = cfgVal
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
@@ -907,78 +869,13 @@ addPropertyControls(CmsMotionPro, {
     // ── Slides ───────────────────────────────────────────
 
     slides: {
-        type: ControlType.Number,
+        type: ControlType.Array,
         title: "Slides",
-        defaultValue: 1,
-        min: 0,
-        max: 5,
-        step: 1,
-        displayStepper: true,
-    },
-
-    slide1: {
-        type: ControlType.Image,
-        title: "Slide 1 Image",
-        hidden: (props: any) => (props.slides ?? 1) < 1,
-    },
-
-    slide1Video: {
-        type: ControlType.File,
-        title: "Slide 1 Video",
-        allowedFileTypes: ALLOWED_VIDEO,
-        hidden: (props: any) => (props.slides ?? 1) < 1,
-    },
-
-    slide2: {
-        type: ControlType.Image,
-        title: "Slide 2 Image",
-        hidden: (props: any) => (props.slides ?? 1) < 2,
-    },
-
-    slide2Video: {
-        type: ControlType.File,
-        title: "Slide 2 Video",
-        allowedFileTypes: ALLOWED_VIDEO,
-        hidden: (props: any) => (props.slides ?? 1) < 2,
-    },
-
-    slide3: {
-        type: ControlType.Image,
-        title: "Slide 3 Image",
-        hidden: (props: any) => (props.slides ?? 1) < 3,
-    },
-
-    slide3Video: {
-        type: ControlType.File,
-        title: "Slide 3 Video",
-        allowedFileTypes: ALLOWED_VIDEO,
-        hidden: (props: any) => (props.slides ?? 1) < 3,
-    },
-
-    slide4: {
-        type: ControlType.Image,
-        title: "Slide 4 Image",
-        hidden: (props: any) => (props.slides ?? 1) < 4,
-    },
-
-    slide4Video: {
-        type: ControlType.File,
-        title: "Slide 4 Video",
-        allowedFileTypes: ALLOWED_VIDEO,
-        hidden: (props: any) => (props.slides ?? 1) < 4,
-    },
-
-    slide5: {
-        type: ControlType.Image,
-        title: "Slide 5 Image",
-        hidden: (props: any) => (props.slides ?? 1) < 5,
-    },
-
-    slide5Video: {
-        type: ControlType.File,
-        title: "Slide 5 Video",
-        allowedFileTypes: ALLOWED_VIDEO,
-        hidden: (props: any) => (props.slides ?? 1) < 5,
+        maxCount: 5,
+        control: {
+            type: ControlType.File,
+            allowedFileTypes: ALLOWED_MEDIA,
+        },
     },
 
     // ── Overlay ──────────────────────────────────────────
@@ -992,7 +889,7 @@ addPropertyControls(CmsMotionPro, {
         step: 5,
         unit: "%",
         displayStepper: true,
-        hidden: (props: any) => (props.slides ?? 1) < 1,
+        hidden: (props: any) => !(props.slides?.length > 0),
     },
 
     overlayRadius: {
@@ -1004,7 +901,7 @@ addPropertyControls(CmsMotionPro, {
         step: 1,
         unit: "px",
         displayStepper: true,
-        hidden: (props: any) => (props.slides ?? 1) < 1,
+        hidden: (props: any) => !(props.slides?.length > 0),
     },
 
     overlayMode: {
@@ -1014,7 +911,7 @@ addPropertyControls(CmsMotionPro, {
         optionTitles: ["Cursor", "Stationary"],
         displaySegmentedControl: true,
         defaultValue: "cursor",
-        hidden: (props: any) => (props.slides ?? 1) < 1,
+        hidden: (props: any) => !(props.slides?.length > 0),
     },
 
     overlayAmount: {
@@ -1026,7 +923,7 @@ addPropertyControls(CmsMotionPro, {
         step: 5,
         unit: "%",
         hidden: (props: any) =>
-            (props.slides ?? 1) < 1 || props.overlayMode === "stationary",
+            !(props.slides?.length > 0) || props.overlayMode === "stationary",
     },
 
     overlayDirection: {
@@ -1037,7 +934,7 @@ addPropertyControls(CmsMotionPro, {
         displaySegmentedControl: true,
         defaultValue: "toward",
         hidden: (props: any) =>
-            (props.slides ?? 1) < 1 || props.overlayMode === "stationary",
+            !(props.slides?.length > 0) || props.overlayMode === "stationary",
     },
 
     overlaySmoothing: {
@@ -1047,7 +944,7 @@ addPropertyControls(CmsMotionPro, {
         min: 0,
         max: 1,
         step: 0.1,
-        hidden: (props: any) => (props.slides ?? 1) < 1,
+        hidden: (props: any) => !(props.slides?.length > 0),
     },
 
     // ── Slideshow ────────────────────────────────────────
@@ -1058,7 +955,7 @@ addPropertyControls(CmsMotionPro, {
         options: ["instant", "fade", "slide", "push"],
         optionTitles: ["Instant", "Fade", "Slide", "Push"],
         defaultValue: "fade",
-        hidden: (props: any) => (props.slides ?? 1) < 2,
+        hidden: (props: any) => !(props.slides?.length > 1),
     },
 
     transitionDirection: {
@@ -1068,7 +965,7 @@ addPropertyControls(CmsMotionPro, {
         optionTitles: ["Left", "Right", "Up", "Down"],
         defaultValue: "left",
         hidden: (props: any) =>
-            (props.slides ?? 1) < 2 ||
+            !(props.slides?.length > 1) ||
             props.transition === "instant" ||
             props.transition === "fade",
     },
@@ -1081,7 +978,7 @@ addPropertyControls(CmsMotionPro, {
         max: 10,
         step: 0.5,
         unit: "s",
-        hidden: (props: any) => (props.slides ?? 1) < 2,
+        hidden: (props: any) => !(props.slides?.length > 1),
     },
 
     transitionSpeed: {
@@ -1092,7 +989,7 @@ addPropertyControls(CmsMotionPro, {
         max: 2,
         step: 0.1,
         unit: "s",
-        hidden: (props: any) => (props.slides ?? 1) < 2,
+        hidden: (props: any) => !(props.slides?.length > 1),
     },
 
     // ── Autoplay ──────────────────────────────────────────
