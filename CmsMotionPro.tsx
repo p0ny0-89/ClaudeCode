@@ -38,8 +38,13 @@ interface Props {
     shadowSpread: number
     shadowColor: string
 
-    // Slides (array of media URLs — each accepts both images and videos)
-    slides: string[]
+    // Slides (individual CMS-bindable media slots)
+    slideCount: number
+    slide1: string
+    slide2: string
+    slide3: string
+    slide4: string
+    slide5: string
 
     // Overlay
     overlaySize: number
@@ -253,7 +258,12 @@ export default function CmsMotionPro(props: Props) {
         shadowBlur = 20,
         shadowSpread = 0,
         shadowColor = "rgba(0,0,0,0.25)",
-        slides = [],
+        slideCount: slideCountProp = 0,
+        slide1,
+        slide2,
+        slide3,
+        slide4,
+        slide5,
         overlaySize = 80,
         overlayRadius = 0,
         overlayMode = "cursor",
@@ -276,8 +286,9 @@ export default function CmsMotionPro(props: Props) {
     // Resolve media: video takes priority over image
     const bgSrc = backgroundVideo || background
 
-    // Slides array — filter out empty entries
-    const activeSlides = (slides as string[]).filter(Boolean)
+    // Build slides array from individual props, trimmed to stepper count
+    const allSlides = [slide1, slide2, slide3, slide4, slide5]
+    const activeSlides = allSlides.slice(0, slideCountProp).filter(Boolean) as string[]
     const slideCount = activeSlides.length
     const hasOverlay = slideCount > 0
 
@@ -868,14 +879,49 @@ addPropertyControls(CmsMotionPro, {
 
     // ── Slides ───────────────────────────────────────────
 
-    slides: {
-        type: ControlType.Array,
+    slideCount: {
+        type: ControlType.Number,
         title: "Slides",
-        maxCount: 5,
-        control: {
-            type: ControlType.File,
-            allowedFileTypes: ALLOWED_MEDIA,
-        },
+        defaultValue: 0,
+        min: 0,
+        max: 5,
+        step: 1,
+        displayStepper: true,
+    },
+
+    slide1: {
+        type: ControlType.File,
+        title: "Slide 1",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
+    },
+
+    slide2: {
+        type: ControlType.File,
+        title: "Slide 2",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) => (props.slideCount ?? 0) < 2,
+    },
+
+    slide3: {
+        type: ControlType.File,
+        title: "Slide 3",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) => (props.slideCount ?? 0) < 3,
+    },
+
+    slide4: {
+        type: ControlType.File,
+        title: "Slide 4",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) => (props.slideCount ?? 0) < 4,
+    },
+
+    slide5: {
+        type: ControlType.File,
+        title: "Slide 5",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) => (props.slideCount ?? 0) < 5,
     },
 
     // ── Overlay ──────────────────────────────────────────
@@ -889,7 +935,7 @@ addPropertyControls(CmsMotionPro, {
         step: 5,
         unit: "%",
         displayStepper: true,
-        hidden: (props: any) => !(props.slides?.length > 0),
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
     overlayRadius: {
@@ -901,7 +947,7 @@ addPropertyControls(CmsMotionPro, {
         step: 1,
         unit: "px",
         displayStepper: true,
-        hidden: (props: any) => !(props.slides?.length > 0),
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
     overlayMode: {
@@ -911,7 +957,7 @@ addPropertyControls(CmsMotionPro, {
         optionTitles: ["Cursor", "Stationary"],
         displaySegmentedControl: true,
         defaultValue: "cursor",
-        hidden: (props: any) => !(props.slides?.length > 0),
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
     overlayAmount: {
@@ -923,7 +969,7 @@ addPropertyControls(CmsMotionPro, {
         step: 5,
         unit: "%",
         hidden: (props: any) =>
-            !(props.slides?.length > 0) || props.overlayMode === "stationary",
+            (props.slideCount ?? 0) < 1 || props.overlayMode === "stationary",
     },
 
     overlayDirection: {
@@ -934,7 +980,7 @@ addPropertyControls(CmsMotionPro, {
         displaySegmentedControl: true,
         defaultValue: "toward",
         hidden: (props: any) =>
-            !(props.slides?.length > 0) || props.overlayMode === "stationary",
+            (props.slideCount ?? 0) < 1 || props.overlayMode === "stationary",
     },
 
     overlaySmoothing: {
@@ -944,7 +990,7 @@ addPropertyControls(CmsMotionPro, {
         min: 0,
         max: 1,
         step: 0.1,
-        hidden: (props: any) => !(props.slides?.length > 0),
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
     // ── Slideshow ────────────────────────────────────────
@@ -955,7 +1001,7 @@ addPropertyControls(CmsMotionPro, {
         options: ["instant", "fade", "slide", "push"],
         optionTitles: ["Instant", "Fade", "Slide", "Push"],
         defaultValue: "fade",
-        hidden: (props: any) => !(props.slides?.length > 1),
+        hidden: (props: any) => (props.slideCount ?? 0) < 2,
     },
 
     transitionDirection: {
@@ -965,7 +1011,7 @@ addPropertyControls(CmsMotionPro, {
         optionTitles: ["Left", "Right", "Up", "Down"],
         defaultValue: "left",
         hidden: (props: any) =>
-            !(props.slides?.length > 1) ||
+            (props.slideCount ?? 0) < 2 ||
             props.transition === "instant" ||
             props.transition === "fade",
     },
@@ -978,7 +1024,7 @@ addPropertyControls(CmsMotionPro, {
         max: 10,
         step: 0.5,
         unit: "s",
-        hidden: (props: any) => !(props.slides?.length > 1),
+        hidden: (props: any) => (props.slideCount ?? 0) < 2,
     },
 
     transitionSpeed: {
@@ -989,7 +1035,7 @@ addPropertyControls(CmsMotionPro, {
         max: 2,
         step: 0.1,
         unit: "s",
-        hidden: (props: any) => !(props.slides?.length > 1),
+        hidden: (props: any) => (props.slideCount ?? 0) < 2,
     },
 
     // ── Autoplay ──────────────────────────────────────────
