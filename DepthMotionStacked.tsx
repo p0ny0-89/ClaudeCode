@@ -45,14 +45,8 @@ interface Props {
     parallaxDirection: ParallaxDirection
     parallaxAmount: number
     parallaxSmoothing: number
-    layers: number
-    mid1: React.ReactNode
-    mid2: React.ReactNode
-    mid3: React.ReactNode
+    midLayers: React.ReactNode[]
     contentBlend: BlendMode
-    mid1Blend: BlendMode
-    mid2Blend: BlendMode
-    mid3Blend: BlendMode
     style?: React.CSSProperties
 }
 
@@ -99,23 +93,19 @@ export default function DepthMotionStacked(props: Props) {
         parallaxDirection = "toward",
         parallaxAmount = 20,
         parallaxSmoothing = 0.5,
-        layers = 0,
-        mid1,
-        mid2,
-        mid3,
+        midLayers = [],
         contentBlend = "normal",
-        mid1Blend = "normal",
-        mid2Blend = "normal",
-        mid3Blend = "normal",
         style,
     } = props
+
+    const layerCount = midLayers.length
 
     const containerRef = useRef<HTMLDivElement>(null)
     const surfaceRef = useRef<HTMLDivElement>(null)
     const bgRef = useRef<HTMLDivElement>(null)
-    const mid1Ref = useRef<HTMLDivElement>(null)
-    const mid2Ref = useRef<HTMLDivElement>(null)
-    const mid3Ref = useRef<HTMLDivElement>(null)
+    const midRefs = useRef<(HTMLDivElement | null)[]>([])
+    // Keep ref array in sync with actual layer count
+    midRefs.current.length = layerCount
     const fgRef = useRef<HTMLDivElement>(null)
     const rafId = useRef(0)
     const loopRunning = useRef(false)
@@ -146,7 +136,7 @@ export default function DepthMotionStacked(props: Props) {
         parallaxDirection,
         parallaxAmount,
         parallaxSmoothing,
-        layers,
+        layerCount,
     })
     cfg.current = {
         tilt,
@@ -163,7 +153,7 @@ export default function DepthMotionStacked(props: Props) {
         parallaxDirection,
         parallaxAmount,
         parallaxSmoothing,
-        layers,
+        layerCount,
     }
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
@@ -184,7 +174,7 @@ export default function DepthMotionStacked(props: Props) {
             parallaxAmount: pAmt,
             parallaxDirection: pDir,
             parallaxSmoothing: pSmooth,
-            layers: lc,
+            layerCount: lc,
         } = cfg.current
 
         const c = current.current
@@ -280,21 +270,13 @@ export default function DepthMotionStacked(props: Props) {
             }
 
             // Mid layers — auto-distributed between bg and fg
-            if (lc >= 1 && mid1Ref.current) {
-                const f = -0.5 + 1 / (n - 1)
-                mid1Ref.current.style.transform =
-                    `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
-            }
-            if (lc >= 2 && mid2Ref.current) {
-                const f = -0.5 + 2 / (n - 1)
-                mid2Ref.current.style.transform =
-                    `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
-            }
-            if (lc >= 3 && mid3Ref.current) {
-                const f = -0.5 + 3 / (n - 1)
-                mid3Ref.current.style.transform =
-                    `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
-            }
+            midRefs.current.forEach((ref, i) => {
+                if (ref) {
+                    const f = -0.5 + (i + 1) / (n - 1)
+                    ref.style.transform =
+                        `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
+                }
+            })
 
             // Foreground — always shallowest
             if (fgRef.current) {
@@ -336,21 +318,13 @@ export default function DepthMotionStacked(props: Props) {
                     bgRef.current.style.transform =
                         `translate3d(${(-0.5 * pc.tx).toFixed(2)}px, ${(-0.5 * pc.ty).toFixed(2)}px, 0)`
 
-                if (lc >= 1 && mid1Ref.current) {
-                    const f = -0.5 + 1 / (n - 1)
-                    mid1Ref.current.style.transform =
-                        `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
-                }
-                if (lc >= 2 && mid2Ref.current) {
-                    const f = -0.5 + 2 / (n - 1)
-                    mid2Ref.current.style.transform =
-                        `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
-                }
-                if (lc >= 3 && mid3Ref.current) {
-                    const f = -0.5 + 3 / (n - 1)
-                    mid3Ref.current.style.transform =
-                        `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
-                }
+                midRefs.current.forEach((ref, i) => {
+                    if (ref) {
+                        const f = -0.5 + (i + 1) / (n - 1)
+                        ref.style.transform =
+                            `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
+                    }
+                })
 
                 if (fgRef.current)
                     fgRef.current.style.transform =
@@ -669,47 +643,18 @@ export default function DepthMotionStacked(props: Props) {
                 )}
 
                 {/* Mid layers — auto-distributed depth between bg and fg */}
-                {layers >= 1 && mid1 && (
-                    <div
-                        ref={mid1Ref}
-                        style={{
-                            ...midLayerBase,
-                            mixBlendMode:
-                                mid1Blend !== "normal"
-                                    ? mid1Blend
-                                    : undefined,
-                        }}
-                    >
-                        {mid1}
-                    </div>
-                )}
-                {layers >= 2 && mid2 && (
-                    <div
-                        ref={mid2Ref}
-                        style={{
-                            ...midLayerBase,
-                            mixBlendMode:
-                                mid2Blend !== "normal"
-                                    ? mid2Blend
-                                    : undefined,
-                        }}
-                    >
-                        {mid2}
-                    </div>
-                )}
-                {layers >= 3 && mid3 && (
-                    <div
-                        ref={mid3Ref}
-                        style={{
-                            ...midLayerBase,
-                            mixBlendMode:
-                                mid3Blend !== "normal"
-                                    ? mid3Blend
-                                    : undefined,
-                        }}
-                    >
-                        {mid3}
-                    </div>
+                {midLayers.map((layer, i) =>
+                    layer ? (
+                        <div
+                            key={i}
+                            ref={(el) => {
+                                midRefs.current[i] = el
+                            }}
+                            style={midLayerBase}
+                        >
+                            {layer}
+                        </div>
+                    ) : null
                 )}
 
                 {/* Foreground / content layer — shallowest, shifts with motion */}
@@ -867,63 +812,15 @@ addPropertyControls(DepthMotionStacked, {
         hidden: (props: any) => !props.parallax,
     },
 
-    layers: {
-        type: ControlType.Number,
-        title: "Layers",
-        defaultValue: 0,
-        min: 0,
-        max: 3,
-        step: 1,
-        displayStepper: true,
+    // Mid layers — right-click any layer to delete it
+    midLayers: {
+        type: ControlType.Array,
+        title: "Mid Layers",
+        maxCount: 5,
+        control: {
+            type: ControlType.ComponentInstance,
+        },
         hidden: (props: any) => !props.parallax,
-    },
-
-    // Layer 3 — shallowest mid-layer (closest to content)
-    mid3: {
-        type: ControlType.ComponentInstance,
-        title: "Layer 3",
-        hidden: (props: any) => !props.parallax || props.layers < 3,
-    },
-
-    mid3Blend: {
-        type: ControlType.Enum,
-        title: "Layer 3 Blend",
-        options: BLEND_OPTIONS,
-        optionTitles: BLEND_TITLES,
-        defaultValue: "normal",
-        hidden: (props: any) => !props.parallax || props.layers < 3,
-    },
-
-    // Layer 2 — middle mid-layer
-    mid2: {
-        type: ControlType.ComponentInstance,
-        title: "Layer 2",
-        hidden: (props: any) => !props.parallax || props.layers < 2,
-    },
-
-    mid2Blend: {
-        type: ControlType.Enum,
-        title: "Layer 2 Blend",
-        options: BLEND_OPTIONS,
-        optionTitles: BLEND_TITLES,
-        defaultValue: "normal",
-        hidden: (props: any) => !props.parallax || props.layers < 2,
-    },
-
-    // Layer 1 — deepest mid-layer (closest to background)
-    mid1: {
-        type: ControlType.ComponentInstance,
-        title: "Layer 1",
-        hidden: (props: any) => !props.parallax || props.layers < 1,
-    },
-
-    mid1Blend: {
-        type: ControlType.Enum,
-        title: "Layer 1 Blend",
-        options: BLEND_OPTIONS,
-        optionTitles: BLEND_TITLES,
-        defaultValue: "normal",
-        hidden: (props: any) => !props.parallax || props.layers < 1,
     },
 
     // Background — deepest layer
