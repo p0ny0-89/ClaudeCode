@@ -310,15 +310,19 @@ export default function CmsMotionPro(props: Props) {
     const bgSrc = backgroundVideo || background
 
     // ── Build merged slides array ─────────────────────
-    // For each slot up to slideCount, video takes priority.
-    // If no video, fall back to image. Skip empty slots.
+    // Collect ALL available media from both input sets.
+    // Each slot can contribute both a video and an image.
+    // Videos are gathered first, then images — so video
+    // content plays first, followed by image content.
     const imgSlots = [slide1Img, slide2Img, slide3Img, slide4Img, slide5Img]
     const vidSlots = [slide1Vid, slide2Vid, slide3Vid, slide4Vid, slide5Vid]
 
     const activeSlides: string[] = []
     for (let i = 0; i < slideCountProp; i++) {
-        const src = vidSlots[i] || imgSlots[i]
-        if (src) activeSlides.push(src)
+        if (vidSlots[i]) activeSlides.push(vidSlots[i])
+    }
+    for (let i = 0; i < slideCountProp; i++) {
+        if (imgSlots[i]) activeSlides.push(imgSlots[i])
     }
 
     const slideCount = activeSlides.length
