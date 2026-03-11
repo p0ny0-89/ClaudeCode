@@ -359,15 +359,15 @@ export default function CmsMotion(props: Props) {
         tiltTarget.current.ry = 0
         tiltTarget.current.s = 1
 
-        // Reset overlay position (cursor no longer tracked)
-        overlayPosTarget.current.tx = 0
-        overlayPosTarget.current.ty = 0
-
         // If autoplay is active and card is in view, keep overlay
         // visible (stationary) instead of fading out
         if (cfg.current.autoplay && inView.current) {
-            // Overlay stays at opacity 1, centered
+            // Reset position to center but keep visible
+            overlayPosTarget.current.tx = 0
+            overlayPosTarget.current.ty = 0
         } else {
+            // Fade out in place — don't reset position so it
+            // doesn't spring back to center while disappearing
             overlayOpTarget.current = 0
         }
 
