@@ -17,6 +17,7 @@ type OverlayMode = "cursor" | "stationary"
 type OverlayDirection = "toward" | "away"
 type TransitionType = "instant" | "fade" | "slide" | "push"
 type TransitionDirection = "left" | "right" | "up" | "down"
+type SlideType = "image" | "video"
 
 const ALLOWED_VIDEO = ["mp4", "webm"]
 const ALLOWED_MEDIA = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "mp4", "webm"]
@@ -38,13 +39,21 @@ interface Props {
     shadowSpread: number
     shadowColor: string
 
-    // Slides (individual CMS-bindable media slots)
+    // Slides (dual control sets for CMS binding flexibility)
     slideCount: number
+    slideType: SlideType
+    // Image slots (ControlType.Image → binds to CMS Image fields)
     slide1: string
     slide2: string
     slide3: string
     slide4: string
     slide5: string
+    // Video slots (ControlType.File → binds to CMS File/Video fields)
+    slide1Video: string
+    slide2Video: string
+    slide3Video: string
+    slide4Video: string
+    slide5Video: string
 
     // Overlay
     overlaySize: number
@@ -259,11 +268,17 @@ export default function CmsMotionPro(props: Props) {
         shadowSpread = 0,
         shadowColor = "rgba(0,0,0,0.25)",
         slideCount: slideCountProp = 0,
+        slideType = "image" as SlideType,
         slide1,
         slide2,
         slide3,
         slide4,
         slide5,
+        slide1Video,
+        slide2Video,
+        slide3Video,
+        slide4Video,
+        slide5Video,
         overlaySize = 80,
         overlayRadius = 0,
         overlayMode = "cursor",
@@ -286,8 +301,11 @@ export default function CmsMotionPro(props: Props) {
     // Resolve media: video takes priority over image
     const bgSrc = backgroundVideo || background
 
-    // Build slides array from individual props, trimmed to stepper count
-    const allSlides = [slide1, slide2, slide3, slide4, slide5]
+    // Build slides array from the active control set, trimmed to stepper count
+    const allSlides =
+        slideType === "video"
+            ? [slide1Video, slide2Video, slide3Video, slide4Video, slide5Video]
+            : [slide1, slide2, slide3, slide4, slide5]
     const activeSlides = allSlides.slice(0, slideCountProp).filter(Boolean) as string[]
     const slideCount = activeSlides.length
     const hasOverlay = slideCount > 0
@@ -889,39 +907,91 @@ addPropertyControls(CmsMotionPro, {
         displayStepper: true,
     },
 
-    slide1: {
-        type: ControlType.File,
-        title: "Slide 1",
-        allowedFileTypes: ALLOWED_MEDIA,
+    slideType: {
+        type: ControlType.Enum,
+        title: "Slide Type",
+        options: ["image", "video"],
+        optionTitles: ["Images", "Videos"],
+        displaySegmentedControl: true,
+        defaultValue: "image",
         hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
+    // Image slides (ControlType.Image → CMS Image field binding)
+    slide1: {
+        type: ControlType.Image,
+        title: "Slide 1",
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 1 || props.slideType === "video",
+    },
+
     slide2: {
-        type: ControlType.File,
+        type: ControlType.Image,
         title: "Slide 2",
-        allowedFileTypes: ALLOWED_MEDIA,
-        hidden: (props: any) => (props.slideCount ?? 0) < 2,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 2 || props.slideType === "video",
     },
 
     slide3: {
-        type: ControlType.File,
+        type: ControlType.Image,
         title: "Slide 3",
-        allowedFileTypes: ALLOWED_MEDIA,
-        hidden: (props: any) => (props.slideCount ?? 0) < 3,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 3 || props.slideType === "video",
     },
 
     slide4: {
-        type: ControlType.File,
+        type: ControlType.Image,
         title: "Slide 4",
-        allowedFileTypes: ALLOWED_MEDIA,
-        hidden: (props: any) => (props.slideCount ?? 0) < 4,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 4 || props.slideType === "video",
     },
 
     slide5: {
+        type: ControlType.Image,
+        title: "Slide 5",
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 5 || props.slideType === "video",
+    },
+
+    // Video slides (ControlType.File → CMS File/Video field binding)
+    slide1Video: {
+        type: ControlType.File,
+        title: "Slide 1",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 1 || props.slideType !== "video",
+    },
+
+    slide2Video: {
+        type: ControlType.File,
+        title: "Slide 2",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 2 || props.slideType !== "video",
+    },
+
+    slide3Video: {
+        type: ControlType.File,
+        title: "Slide 3",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 3 || props.slideType !== "video",
+    },
+
+    slide4Video: {
+        type: ControlType.File,
+        title: "Slide 4",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 4 || props.slideType !== "video",
+    },
+
+    slide5Video: {
         type: ControlType.File,
         title: "Slide 5",
         allowedFileTypes: ALLOWED_MEDIA,
-        hidden: (props: any) => (props.slideCount ?? 0) < 5,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 5 || props.slideType !== "video",
     },
 
     // ── Overlay ──────────────────────────────────────────
