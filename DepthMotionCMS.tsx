@@ -42,7 +42,7 @@ type BlendMode =
     | "darken"
 
 interface Props {
-    children: React.ReactNode
+    content: string
     background: string
     tilt: boolean
     interaction: Interaction
@@ -116,21 +116,19 @@ function Media({
 /**
  * DepthMotionCMS — CMS-optimised multi-layer tilt and parallax.
  *
- * Designed for use inside CMS collections. Unlike DepthMotionStacked,
- * this variant uses no ComponentInstance slots, so content can be
- * nested via the Framer layers panel (drag layers inside). Background
- * and mid-layers accept image or video files that can be bound
- * directly to CMS media fields.
+ * Designed for use inside CMS collections. Every layer is a file
+ * picker (image or video) that can be bound directly to CMS media
+ * fields. No ComponentInstance slots, no frame connections needed.
  *
  * Structure in Framer:
- *   → Drag your content layers directly into this component
- *   → Turn Parallax on and upload/bind a Background media file
- *   → Set Layers (1–3) and upload/bind mid-layer media files
+ *   → Upload or bind a CMS image/video to the Content slot
+ *   → Turn Parallax on and bind a Background media file
+ *   → Set Layers (1–3) and bind mid-layer media files
  *   → All layers shift at auto-calculated depth rates
  */
 export default function DepthMotionCMS(props: Props) {
     const {
-        children,
+        content,
         background,
         tilt = true,
         interaction = "cursor",
@@ -611,7 +609,7 @@ export default function DepthMotionCMS(props: Props) {
 
     // ── Empty State ─────────────────────────────────────
 
-    if (!children) {
+    if (!content) {
         return (
             <div
                 style={{
@@ -629,7 +627,7 @@ export default function DepthMotionCMS(props: Props) {
                     minHeight: 100,
                 }}
             >
-                Drag content inside →
+                Upload or bind media →
             </div>
         )
     }
@@ -660,7 +658,7 @@ export default function DepthMotionCMS(props: Props) {
                         willChange: tilt ? "transform" : undefined,
                     }}
                 >
-                    {children}
+                    <Media src={content} />
                 </div>
             </div>
         )
@@ -767,7 +765,7 @@ export default function DepthMotionCMS(props: Props) {
                                 : undefined,
                     }}
                 >
-                    {children}
+                    <Media src={content} />
                 </div>
             </div>
         </div>
@@ -805,7 +803,11 @@ const BLEND_TITLES = [
 // ─── Framer Property Controls ─────────────────────────────
 
 addPropertyControls(DepthMotionCMS, {
-    // No "content" slot — content is nested via the layers panel (children)
+    content: {
+        type: ControlType.File,
+        title: "Content",
+        allowedFileTypes: ALLOWED_MEDIA,
+    },
 
     // ── Tilt ─────────────────────────────────────────────
 
