@@ -16,10 +16,14 @@ type Behavior = "follow" | "repel"
 type OverlayMode = "cursor" | "stationary"
 type OverlayDirection = "toward" | "away"
 
+const ALLOWED_VIDEO = ["mp4", "webm"]
+
 interface Props {
-    // Media
+    // Media (Image + Video fallback for CMS binding flexibility)
     background: string
+    backgroundVideo: string
     overlay: string
+    overlayVideo: string
 
     // Border Radius
     backgroundRadius: number
@@ -103,12 +107,14 @@ function Media({
 export default function CmsMotion(props: Props) {
     const {
         background,
+        backgroundVideo,
         overlay,
+        overlayVideo,
         backgroundRadius = 0,
         overlayRadius = 0,
         overlaySize = 80,
         overlayMode = "cursor",
-        overlayAmount = 20,
+        overlayAmount = 100,
         overlayDirection = "toward",
         overlaySmoothing = 0.5,
         tilt = true,
@@ -118,6 +124,10 @@ export default function CmsMotion(props: Props) {
         perspective = 5000,
         style,
     } = props
+
+    // Resolve media: video takes priority over image
+    const bgSrc = backgroundVideo || background
+    const overlaySrc = overlayVideo || overlay
 
     const containerRef = useRef<HTMLDivElement>(null)
     const surfaceRef = useRef<HTMLDivElement>(null)
@@ -149,6 +159,7 @@ export default function CmsMotion(props: Props) {
         overlayAmount,
         overlayDirection,
         overlaySmoothing,
+        overlaySize,
     })
     cfg.current = {
         tilt,
@@ -160,6 +171,7 @@ export default function CmsMotion(props: Props) {
         overlayAmount,
         overlayDirection,
         overlaySmoothing,
+        overlaySize,
     }
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
@@ -311,12 +323,17 @@ export default function CmsMotion(props: Props) {
             }
 
             // Drive overlay cursor tracking
+            // Max offset = half the gap between overlay and card edge
+            // Amount (0–100%) controls how much of that range is used
             if (cfg.current.overlayMode === "cursor") {
                 const oDir =
                     cfg.current.overlayDirection === "away" ? -1 : 1
-                const oAmt = cfg.current.overlayAmount
-                overlayPosTarget.current.tx = nx * oAmt * oDir
-                overlayPosTarget.current.ty = ny * oAmt * oDir
+                const sizeFrac = cfg.current.overlaySize / 100
+                const maxTx = rect.width * (1 - sizeFrac) / 2
+                const maxTy = rect.height * (1 - sizeFrac) / 2
+                const pct = cfg.current.overlayAmount / 100
+                overlayPosTarget.current.tx = nx * maxTx * pct * oDir
+                overlayPosTarget.current.ty = ny * maxTy * pct * oDir
             }
 
             startLoop()
@@ -356,7 +373,7 @@ export default function CmsMotion(props: Props) {
 
     // ── Empty State ──────────────────────────────────────
 
-    if (!background) {
+    if (!bgSrc) {
         return (
             <div
                 style={{
@@ -393,49 +410,58 @@ export default function CmsMotion(props: Props) {
             onPointerMove={onPointerMove}
             onPointerLeave={onPointerLeave}
         >
+            {/* Surface tilts — NO overflow hidden here so 3D isn't flattened */}
             <div
                 ref={surfaceRef}
                 style={{
                     width: "100%",
                     height: "100%",
                     position: "relative",
-                    overflow: "hidden",
-                    borderRadius: backgroundRadius,
                     willChange: tilt ? "transform" : undefined,
                 }}
             >
-                {/* Background — always visible */}
-                <div style={{ position: "absolute", inset: 0 }}>
-                    <Media src={background} />
-                </div>
+                {/* Clip div — border radius + overflow hidden contained here */}
+                <div
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        overflow: "hidden",
+                        borderRadius: backgroundRadius,
+                    }}
+                >
+                    {/* Background — always visible */}
+                    <div style={{ position: "absolute", inset: 0 }}>
+                        <Media src={bgSrc} />
+                    </div>
 
-                {/* Overlay — fades in on hover, optionally follows cursor */}
-                {overlay && (
-                    <div
-                        style={{
-                            position: "absolute",
-                            inset: 0,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            pointerEvents: "none",
-                        }}
-                    >
+                    {/* Overlay — fades in on hover, optionally follows cursor */}
+                    {overlaySrc && (
                         <div
-                            ref={overlayRef}
                             style={{
-                                width: `${overlaySize}%`,
-                                height: `${overlaySize}%`,
-                                opacity: 0,
-                                willChange: "transform, opacity",
-                                borderRadius: overlayRadius,
-                                overflow: "hidden",
+                                position: "absolute",
+                                inset: 0,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                pointerEvents: "none",
                             }}
                         >
-                            <Media src={overlay} />
+                            <div
+                                ref={overlayRef}
+                                style={{
+                                    width: `${overlaySize}%`,
+                                    height: `${overlaySize}%`,
+                                    opacity: 0,
+                                    willChange: "transform, opacity",
+                                    borderRadius: overlayRadius,
+                                    overflow: "hidden",
+                                }}
+                            >
+                                <Media src={overlaySrc} />
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         </div>
     )
@@ -448,12 +474,24 @@ addPropertyControls(CmsMotion, {
 
     background: {
         type: ControlType.Image,
-        title: "Background",
+        title: "BG Image",
+    },
+
+    backgroundVideo: {
+        type: ControlType.File,
+        title: "BG Video",
+        allowedFileTypes: ALLOWED_VIDEO,
     },
 
     overlay: {
         type: ControlType.Image,
-        title: "Overlay",
+        title: "Overlay Image",
+    },
+
+    overlayVideo: {
+        type: ControlType.File,
+        title: "Overlay Video",
+        allowedFileTypes: ALLOWED_VIDEO,
     },
 
     // ── Border Radius ────────────────────────────────────
@@ -505,11 +543,11 @@ addPropertyControls(CmsMotion, {
     overlayAmount: {
         type: ControlType.Number,
         title: "Amount",
-        defaultValue: 20,
-        min: 1,
-        max: 60,
-        step: 1,
-        unit: "px",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 5,
+        unit: "%",
         displayStepper: true,
         hidden: (props: any) => props.overlayMode === "stationary",
     },
