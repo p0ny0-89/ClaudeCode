@@ -63,7 +63,7 @@ function clamp(v: number, lo: number, hi: number): number {
 // ─── Component ────────────────────────────────────────────
 
 /**
- * DepthMotionStacked — Multi-layer tilt and parallax effect wrapper.
+ * DepthMotionStack — Multi-layer tilt and parallax effect wrapper.
  *
  * Extends DepthMotion with up to 3 additional mid-layers between
  * Background and Content. Each layer auto-distributes across the
@@ -75,7 +75,7 @@ function clamp(v: number, lo: number, hi: number): number {
  *   → Set Layers (1–3) and connect mid-layer slots
  *   → All layers shift at auto-calculated depth rates
  */
-export default function DepthMotionStacked(props: Props) {
+export default function DepthMotionStack(props: Props) {
     const {
         content,
         background,
@@ -708,7 +708,7 @@ const BLEND_TITLES = [
 
 // ─── Framer Property Controls ─────────────────────────────
 
-addPropertyControls(DepthMotionStacked, {
+addPropertyControls(DepthMotionStack, {
     content: {
         type: ControlType.ComponentInstance,
         title: "Content",
