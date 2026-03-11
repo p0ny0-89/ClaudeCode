@@ -800,7 +800,149 @@ addPropertyControls(CmsMotionPro, {
         allowedFileTypes: ALLOWED_VIDEO,
     },
 
-    // ── Card Style ───────────────────────────────────────
+    slideType: {
+        type: ControlType.Enum,
+        title: "Slide Type",
+        options: ["image", "video"],
+        optionTitles: ["Images", "Videos"],
+        displaySegmentedControl: true,
+        defaultValue: "image",
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
+    },
+
+    slideCount: {
+        type: ControlType.Number,
+        title: "Slides",
+        defaultValue: 0,
+        min: 0,
+        max: 5,
+        step: 1,
+        displayStepper: true,
+    },
+
+    // Image slides (ControlType.Image → CMS Image field binding)
+    slide1: {
+        type: ControlType.Image,
+        title: "Slide 1",
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 1 || props.slideType === "video",
+    },
+
+    slide2: {
+        type: ControlType.Image,
+        title: "Slide 2",
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 2 || props.slideType === "video",
+    },
+
+    slide3: {
+        type: ControlType.Image,
+        title: "Slide 3",
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 3 || props.slideType === "video",
+    },
+
+    slide4: {
+        type: ControlType.Image,
+        title: "Slide 4",
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 4 || props.slideType === "video",
+    },
+
+    slide5: {
+        type: ControlType.Image,
+        title: "Slide 5",
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 5 || props.slideType === "video",
+    },
+
+    // Video slides (ControlType.File → CMS File/Video field binding)
+    slide1Video: {
+        type: ControlType.File,
+        title: "Slide 1",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 1 || props.slideType !== "video",
+    },
+
+    slide2Video: {
+        type: ControlType.File,
+        title: "Slide 2",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 2 || props.slideType !== "video",
+    },
+
+    slide3Video: {
+        type: ControlType.File,
+        title: "Slide 3",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 3 || props.slideType !== "video",
+    },
+
+    slide4Video: {
+        type: ControlType.File,
+        title: "Slide 4",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 4 || props.slideType !== "video",
+    },
+
+    slide5Video: {
+        type: ControlType.File,
+        title: "Slide 5",
+        allowedFileTypes: ALLOWED_MEDIA,
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 5 || props.slideType !== "video",
+    },
+
+    // ── Slide Behavior ──────────────────────────────────
+
+    transition: {
+        type: ControlType.Enum,
+        title: "Transition",
+        options: ["instant", "fade", "slide", "push"],
+        optionTitles: ["Instant", "Fade", "Slide", "Push"],
+        defaultValue: "fade",
+        hidden: (props: any) => (props.slideCount ?? 0) < 2,
+    },
+
+    transitionDirection: {
+        type: ControlType.Enum,
+        title: "Slide Direction",
+        options: ["left", "right", "up", "down"],
+        optionTitles: ["Left", "Right", "Up", "Down"],
+        defaultValue: "left",
+        hidden: (props: any) =>
+            (props.slideCount ?? 0) < 2 ||
+            props.transition === "instant" ||
+            props.transition === "fade",
+    },
+
+    slideDuration: {
+        type: ControlType.Number,
+        title: "Slide Duration",
+        defaultValue: 2,
+        min: 0.5,
+        max: 10,
+        step: 0.5,
+        unit: "s",
+        hidden: (props: any) => (props.slideCount ?? 0) < 2,
+    },
+
+    transitionSpeed: {
+        type: ControlType.Number,
+        title: "Transition Speed",
+        defaultValue: 0.5,
+        min: 0.1,
+        max: 2,
+        step: 0.1,
+        unit: "s",
+        hidden: (props: any) => (props.slideCount ?? 0) < 2,
+    },
+
+    // ── Card ─────────────────────────────────────────────
 
     backgroundRadius: {
         type: ControlType.Number,
@@ -895,105 +1037,6 @@ addPropertyControls(CmsMotionPro, {
         hidden: (props: any) => !props.shadowEnabled,
     },
 
-    // ── Slides ───────────────────────────────────────────
-
-    slideCount: {
-        type: ControlType.Number,
-        title: "Slides",
-        defaultValue: 0,
-        min: 0,
-        max: 5,
-        step: 1,
-        displayStepper: true,
-    },
-
-    slideType: {
-        type: ControlType.Enum,
-        title: "Slide Type",
-        options: ["image", "video"],
-        optionTitles: ["Images", "Videos"],
-        displaySegmentedControl: true,
-        defaultValue: "image",
-        hidden: (props: any) => (props.slideCount ?? 0) < 1,
-    },
-
-    // Image slides (ControlType.Image → CMS Image field binding)
-    slide1: {
-        type: ControlType.Image,
-        title: "Slide 1",
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 1 || props.slideType === "video",
-    },
-
-    slide2: {
-        type: ControlType.Image,
-        title: "Slide 2",
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 2 || props.slideType === "video",
-    },
-
-    slide3: {
-        type: ControlType.Image,
-        title: "Slide 3",
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 3 || props.slideType === "video",
-    },
-
-    slide4: {
-        type: ControlType.Image,
-        title: "Slide 4",
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 4 || props.slideType === "video",
-    },
-
-    slide5: {
-        type: ControlType.Image,
-        title: "Slide 5",
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 5 || props.slideType === "video",
-    },
-
-    // Video slides (ControlType.File → CMS File/Video field binding)
-    slide1Video: {
-        type: ControlType.File,
-        title: "Slide 1",
-        allowedFileTypes: ALLOWED_MEDIA,
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 1 || props.slideType !== "video",
-    },
-
-    slide2Video: {
-        type: ControlType.File,
-        title: "Slide 2",
-        allowedFileTypes: ALLOWED_MEDIA,
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 2 || props.slideType !== "video",
-    },
-
-    slide3Video: {
-        type: ControlType.File,
-        title: "Slide 3",
-        allowedFileTypes: ALLOWED_MEDIA,
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 3 || props.slideType !== "video",
-    },
-
-    slide4Video: {
-        type: ControlType.File,
-        title: "Slide 4",
-        allowedFileTypes: ALLOWED_MEDIA,
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 4 || props.slideType !== "video",
-    },
-
-    slide5Video: {
-        type: ControlType.File,
-        title: "Slide 5",
-        allowedFileTypes: ALLOWED_MEDIA,
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 5 || props.slideType !== "video",
-    },
-
     // ── Overlay ──────────────────────────────────────────
 
     overlaySize: {
@@ -1027,12 +1070,15 @@ addPropertyControls(CmsMotionPro, {
         optionTitles: ["Cursor", "Stationary"],
         displaySegmentedControl: true,
         defaultValue: "cursor",
+        description: "Cursor follows the pointer. Stationary stays fixed in place.",
         hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
+    // ── Overlay Motion ──────────────────────────────────
+
     overlayAmount: {
         type: ControlType.Number,
-        title: "Distance",
+        title: "Travel",
         defaultValue: 100,
         min: 0,
         max: 150,
@@ -1063,61 +1109,17 @@ addPropertyControls(CmsMotionPro, {
         hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
-    // ── Slideshow ────────────────────────────────────────
-
-    transition: {
-        type: ControlType.Enum,
-        title: "Transition",
-        options: ["instant", "fade", "slide", "push"],
-        optionTitles: ["Instant", "Fade", "Slide", "Push"],
-        defaultValue: "fade",
-        hidden: (props: any) => (props.slideCount ?? 0) < 2,
-    },
-
-    transitionDirection: {
-        type: ControlType.Enum,
-        title: "Slide Direction",
-        options: ["left", "right", "up", "down"],
-        optionTitles: ["Left", "Right", "Up", "Down"],
-        defaultValue: "left",
-        hidden: (props: any) =>
-            (props.slideCount ?? 0) < 2 ||
-            props.transition === "instant" ||
-            props.transition === "fade",
-    },
-
-    slideDuration: {
-        type: ControlType.Number,
-        title: "Slide Duration",
-        defaultValue: 2,
-        min: 0.5,
-        max: 10,
-        step: 0.5,
-        unit: "s",
-        hidden: (props: any) => (props.slideCount ?? 0) < 2,
-    },
-
-    transitionSpeed: {
-        type: ControlType.Number,
-        title: "Transition Speed",
-        defaultValue: 0.5,
-        min: 0.1,
-        max: 2,
-        step: 0.1,
-        unit: "s",
-        hidden: (props: any) => (props.slideCount ?? 0) < 2,
-    },
-
-    // ── Autoplay ──────────────────────────────────────────
+    // ── Reveal on View ──────────────────────────────────
 
     autoplay: {
         type: ControlType.Boolean,
-        title: "Autoplay",
+        title: "Reveal on View",
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
         description:
-            "Show overlay when card scrolls into view (mobile/tablet friendly)",
+            "Shows overlay when the card enters view. Useful on touch devices.",
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
     // ── Tilt ─────────────────────────────────────────────
@@ -1132,11 +1134,12 @@ addPropertyControls(CmsMotionPro, {
 
     behavior: {
         type: ControlType.Enum,
-        title: "Behavior",
+        title: "Tilt Behavior",
         options: ["follow", "repel"],
         optionTitles: ["Follow", "Repel"],
         displaySegmentedControl: true,
         defaultValue: "follow",
+        description: "Follow tilts toward the pointer. Repel tilts away.",
         hidden: (props: any) => !props.tilt,
     },
 
@@ -1170,7 +1173,7 @@ addPropertyControls(CmsMotionPro, {
         min: 100,
         max: 10000,
         step: 100,
-        description: "Depth strength",
+        description: "Higher values flatten the effect",
         hidden: (props: any) => !props.tilt,
     },
 })
