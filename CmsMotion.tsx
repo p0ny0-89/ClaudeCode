@@ -451,9 +451,6 @@ export default function CmsMotion(props: Props) {
                 ...(tilt ? { perspective: `${perspective}px` } : {}),
                 overflow: "visible",
             }}
-            onPointerEnter={onPointerEnter}
-            onPointerMove={onPointerMove}
-            onPointerLeave={onPointerLeave}
         >
             {/* Surface tilts — NO overflow hidden here so 3D isn't flattened */}
             <div
@@ -463,6 +460,7 @@ export default function CmsMotion(props: Props) {
                     height: "100%",
                     position: "relative",
                     willChange: tilt ? "transform" : undefined,
+                    pointerEvents: "none",
                 }}
             >
                 {/* Clip div — border radius + overflow hidden for background only */}
@@ -508,6 +506,20 @@ export default function CmsMotion(props: Props) {
                     </div>
                 )}
             </div>
+
+            {/* Hit-area — flat 2D rect on top, unaffected by 3D tilt.
+                Prevents false pointerleave when cursor moves fast over
+                the perspective-transformed surface. */}
+            <div
+                style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 1,
+                }}
+                onPointerEnter={onPointerEnter}
+                onPointerMove={onPointerMove}
+                onPointerLeave={onPointerLeave}
+            />
         </div>
     )
 }
