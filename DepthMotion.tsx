@@ -29,7 +29,7 @@ type BlendMode =
     | "darken"
 
 interface Props {
-    children: React.ReactNode
+    content: React.ReactNode
     background: React.ReactNode
     tilt: boolean
     interaction: Interaction
@@ -72,13 +72,13 @@ function clamp(v: number, lo: number, hi: number): number {
  * different rate to produce real depth separation.
  *
  * Structure in Framer:
- *   → Connect your foreground elements into the Content slot
+ *   → Connect a frame or component into the Content slot
  *   → Turn Parallax on and connect a Background slot
  *   → The two layers will shift apart based on the parallax source
  */
 export default function DepthMotion(props: Props) {
     const {
-        children,
+        content,
         background,
         tilt = true,
         interaction = "cursor",
@@ -507,7 +507,7 @@ export default function DepthMotion(props: Props) {
 
     // ── Empty State ─────────────────────────────────────
 
-    if (!children) {
+    if (!content) {
         return (
             <div
                 style={{
@@ -525,7 +525,7 @@ export default function DepthMotion(props: Props) {
                     minHeight: 100,
                 }}
             >
-                Place content inside →
+                Select content →
             </div>
         )
     }
@@ -556,7 +556,7 @@ export default function DepthMotion(props: Props) {
                         willChange: tilt ? "transform" : undefined,
                     }}
                 >
-                    {children}
+                    {content}
                 </div>
             </div>
         )
@@ -613,7 +613,7 @@ export default function DepthMotion(props: Props) {
                             blendMode !== "normal" ? blendMode : undefined,
                     }}
                 >
-                    {children}
+                    {content}
                 </div>
             </div>
         </div>
@@ -623,6 +623,11 @@ export default function DepthMotion(props: Props) {
 // ─── Framer Property Controls ─────────────────────────────
 
 addPropertyControls(DepthMotion, {
+    content: {
+        type: ControlType.ComponentInstance,
+        title: "Content",
+    },
+
     // ── Tilt ─────────────────────────────────────────────
 
     tilt: {

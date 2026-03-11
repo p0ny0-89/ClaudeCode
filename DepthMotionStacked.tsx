@@ -29,7 +29,7 @@ type BlendMode =
     | "darken"
 
 interface Props {
-    children: React.ReactNode
+    content: React.ReactNode
     background: React.ReactNode
     tilt: boolean
     interaction: Interaction
@@ -76,14 +76,14 @@ function clamp(v: number, lo: number, hi: number): number {
  * depth range for a convincing stacked parallax effect.
  *
  * Structure in Framer:
- *   → Connect your foreground elements into the Content slot
+ *   → Connect a frame or component into the Content slot
  *   → Turn Parallax on and connect a Background slot
  *   → Set Layers (1–3) and connect mid-layer slots
  *   → All layers shift at auto-calculated depth rates
  */
 export default function DepthMotionStacked(props: Props) {
     const {
-        children,
+        content,
         background,
         tilt = true,
         interaction = "cursor",
@@ -564,7 +564,7 @@ export default function DepthMotionStacked(props: Props) {
 
     // ── Empty State ─────────────────────────────────────
 
-    if (!children) {
+    if (!content) {
         return (
             <div
                 style={{
@@ -582,7 +582,7 @@ export default function DepthMotionStacked(props: Props) {
                     minHeight: 100,
                 }}
             >
-                Place content inside →
+                Select content →
             </div>
         )
     }
@@ -613,7 +613,7 @@ export default function DepthMotionStacked(props: Props) {
                         willChange: tilt ? "transform" : undefined,
                     }}
                 >
-                    {children}
+                    {content}
                 </div>
             </div>
         )
@@ -726,7 +726,7 @@ export default function DepthMotionStacked(props: Props) {
                                 : undefined,
                     }}
                 >
-                    {children}
+                    {content}
                 </div>
             </div>
         </div>
@@ -764,6 +764,11 @@ const BLEND_TITLES = [
 // ─── Framer Property Controls ─────────────────────────────
 
 addPropertyControls(DepthMotionStacked, {
+    content: {
+        type: ControlType.ComponentInstance,
+        title: "Content",
+    },
+
     // ── Tilt ─────────────────────────────────────────────
 
     tilt: {
