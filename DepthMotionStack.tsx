@@ -47,6 +47,7 @@ interface Props {
     parallaxSmoothing: number
     midLayers: React.ReactNode[]
     contentBlend: BlendMode
+    midLayerBlend: BlendMode
     style?: React.CSSProperties
 }
 
@@ -95,6 +96,7 @@ export default function DepthMotionStack(props: Props) {
         parallaxSmoothing = 0.5,
         midLayers = [],
         contentBlend = "normal",
+        midLayerBlend = "normal",
         style,
     } = props
 
@@ -650,7 +652,13 @@ export default function DepthMotionStack(props: Props) {
                             ref={(el) => {
                                 midRefs.current[i] = el
                             }}
-                            style={midLayerBase}
+                            style={{
+                                ...midLayerBase,
+                                mixBlendMode:
+                                    midLayerBlend !== "normal"
+                                        ? midLayerBlend
+                                        : undefined,
+                            }}
                         >
                             {layer}
                         </div>
@@ -712,6 +720,15 @@ addPropertyControls(DepthMotionStack, {
     content: {
         type: ControlType.ComponentInstance,
         title: "Content",
+    },
+
+    contentBlend: {
+        type: ControlType.Enum,
+        title: "Content Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax,
     },
 
     // ── Tilt ─────────────────────────────────────────────
@@ -800,17 +817,7 @@ addPropertyControls(DepthMotionStack, {
         disabledTitle: "Off",
     },
 
-    // ── Layer stack (panel reads top → bottom = front → back) ──
-
-    // Content blend (foreground — topmost layer)
-    contentBlend: {
-        type: ControlType.Enum,
-        title: "Content Blend",
-        options: BLEND_OPTIONS,
-        optionTitles: BLEND_TITLES,
-        defaultValue: "normal",
-        hidden: (props: any) => !props.parallax,
-    },
+    // ── Layer stack ────────────────────────────────────────
 
     // Mid layers — right-click any layer to delete it
     midLayers: {
@@ -821,6 +828,16 @@ addPropertyControls(DepthMotionStack, {
             type: ControlType.ComponentInstance,
         },
         hidden: (props: any) => !props.parallax,
+    },
+
+    midLayerBlend: {
+        type: ControlType.Enum,
+        title: "Mid Layer Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) =>
+            !props.parallax || !props.midLayers?.length,
     },
 
     // Background — deepest layer
