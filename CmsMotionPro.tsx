@@ -637,16 +637,17 @@ export default function CmsMotionPro(props: Props) {
 
     // ── Box Shadow Computation ───────────────────────────
 
-    const shadows: string[] = []
-    if (borderEnabled && borderWidth > 0) {
-        shadows.push(`inset 0 0 0 ${borderWidth}px ${borderColor}`)
-    }
-    if (shadowEnabled) {
-        shadows.push(
-            `${shadowX}px ${shadowY}px ${shadowBlur}px ${shadowSpread}px ${shadowColor}`
-        )
-    }
-    const boxShadow = shadows.length > 0 ? shadows.join(", ") : undefined
+    // Drop shadow on the clip div (outer)
+    const dropShadow =
+        shadowEnabled
+            ? `${shadowX}px ${shadowY}px ${shadowBlur}px ${shadowSpread}px ${shadowColor}`
+            : undefined
+
+    // Border rendered as a separate overlay so it isn't covered by background media
+    const borderShadow =
+        borderEnabled && borderWidth > 0
+            ? `inset 0 0 0 ${borderWidth}px ${borderColor}`
+            : undefined
 
     // ── Empty State ──────────────────────────────────────
 
@@ -702,13 +703,26 @@ export default function CmsMotionPro(props: Props) {
                         inset: 0,
                         overflow: "hidden",
                         borderRadius: backgroundRadius,
-                        boxShadow,
+                        boxShadow: dropShadow,
                     }}
                 >
                     {/* Background — always visible */}
                     <div style={{ position: "absolute", inset: 0 }}>
                         <Media src={bgSrc} />
                     </div>
+
+                    {/* Border stroke — rendered on top of background so it's always visible */}
+                    {borderShadow && (
+                        <div
+                            style={{
+                                position: "absolute",
+                                inset: 0,
+                                borderRadius: backgroundRadius,
+                                boxShadow: borderShadow,
+                                pointerEvents: "none",
+                            }}
+                        />
+                    )}
                 </div>
 
                 {/* Overlay — outside clip div so it can overflow past card edges */}
