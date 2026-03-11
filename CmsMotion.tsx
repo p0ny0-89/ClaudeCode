@@ -590,10 +590,9 @@ addPropertyControls(CmsMotion, {
         title: "Distance",
         defaultValue: 100,
         min: 0,
-        max: 100,
+        max: 150,
         step: 5,
         unit: "%",
-        displayStepper: true,
         hidden: (props: any) => props.overlayMode === "stationary",
     },
 
