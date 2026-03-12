@@ -740,12 +740,12 @@ const BLEND_TITLES = [
 addPropertyControls(DepthMotionStack, {
     content: {
         type: ControlType.ComponentInstance,
-        title: "Content",
+        title: "Foreground",
     },
 
     contentBlend: {
         type: ControlType.Enum,
-        title: "Content Blend",
+        title: "Foreground Blend",
         options: BLEND_OPTIONS,
         optionTitles: BLEND_TITLES,
         defaultValue: "normal",
