@@ -1421,7 +1421,7 @@ addPropertyControls(CmsMotionAmbient, {
         type: ControlType.Number,
         title: "Tilt Limit",
         defaultValue: 20,
-        min: 1,
+        min: 0,
         max: 45,
         step: 1,
         unit: "°",
