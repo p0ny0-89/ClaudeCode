@@ -652,11 +652,19 @@ export default function DepthMotionStack(props: Props) {
 
     // ── Render ──────────────────────────────────────────
 
+    const touchActive = touchDrag && interaction === "cursor"
     const containerStyle: React.CSSProperties = {
         ...style,
         ...(tilt ? { perspective: `${perspective}px` } : {}),
         overflow: "visible",
-        ...(touchDrag && interaction === "cursor" ? { touchAction: "none" } : {}),
+        ...(touchActive
+            ? {
+                  touchAction: "none",
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                  WebkitTouchCallout: "none",
+              } as React.CSSProperties
+            : {}),
     }
 
     // When parallax is off, render flat (no layer splitting).
