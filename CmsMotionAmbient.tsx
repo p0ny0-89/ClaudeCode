@@ -1141,7 +1141,7 @@ addPropertyControls(CmsMotionAmbient, {
         title: "Border Width",
         defaultValue: 2,
         min: 1,
-        max: 10,
+        max: 100,
         step: 1,
         unit: "px",
         displayStepper: true,
