@@ -132,6 +132,10 @@ export default function DepthMotionStack(props: Props) {
     const loopRunning = useRef(false)
     const hovering = useRef(false)
 
+    // Cached bounding rect — avoids getBoundingClientRect() feedback
+    // loop caused by 3D perspective distorting the projected rect
+    const cachedRect = useRef<DOMRect | null>(null)
+
     // Tilt state (applied to the surface)
     const target = useRef({ rx: 0, ry: 0, s: 1 })
     const current = useRef({ rx: 0, ry: 0, s: 1 })
@@ -373,6 +377,8 @@ export default function DepthMotionStack(props: Props) {
         const tiltOn = cfg.current.tilt
         const mode = cfg.current.interaction
         hovering.current = true
+        const el = containerRef.current
+        if (el) cachedRect.current = el.getBoundingClientRect()
 
         if (tiltOn && mode === "cursor") {
             target.current.s = cfg.current.hoverScale
@@ -419,10 +425,8 @@ export default function DepthMotionStack(props: Props) {
             )
                 return
 
-            const el = containerRef.current
-            if (!el) return
-
-            const rect = el.getBoundingClientRect()
+            const rect = cachedRect.current
+            if (!rect) return
             const nx = clamp(
                 ((e.clientX - rect.left) / rect.width - 0.5) * 2,
                 -1,
@@ -460,6 +464,7 @@ export default function DepthMotionStack(props: Props) {
         const tiltOn = cfg.current.tilt
         const mode = cfg.current.interaction
         hovering.current = false
+        cachedRect.current = null
 
         // Reset tilt to neutral
         if (tiltOn && mode === "cursor") {
@@ -520,10 +525,10 @@ export default function DepthMotionStack(props: Props) {
             return
 
         const onGlobalMove = (e: PointerEvent) => {
-            const el = containerRef.current
-            if (!el) return
-
-            const rect = el.getBoundingClientRect()
+            const rect =
+                cachedRect.current ||
+                containerRef.current?.getBoundingClientRect()
+            if (!rect) return
             const nx = clamp(
                 ((e.clientX - rect.left) / rect.width - 0.5) * 2,
                 -1,
