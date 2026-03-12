@@ -20,6 +20,8 @@ type TransitionType = "instant" | "fade" | "slide" | "push"
 type TransitionDirection = "left" | "right" | "up" | "down"
 type SlideInput = "images" | "videos"
 type ContentFit = "fill" | "fit"
+type AlignX = "left" | "center" | "right"
+type AlignY = "top" | "center" | "bottom"
 
 const ALLOWED_VIDEO = ["mp4", "webm"]
 const ALLOWED_MEDIA = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "mp4", "webm"]
@@ -69,6 +71,8 @@ interface Props {
     overlaySize: number
     overlayRadius: number
     contentFit: ContentFit
+    alignX: AlignX
+    alignY: AlignY
     overlayMode: OverlayMode
 
     // ── Overlay Motion ────────────────────────────────
@@ -111,16 +115,19 @@ function clamp(v: number, lo: number, hi: number): number {
 function Media({
     src,
     objectFit = "cover",
+    objectPosition,
     style,
 }: {
     src: string
     objectFit?: "cover" | "contain"
+    objectPosition?: string
     style?: React.CSSProperties
 }) {
     const base: React.CSSProperties = {
         width: "100%",
         height: "100%",
         objectFit,
+        objectPosition,
         display: "block",
         ...style,
     }
@@ -263,6 +270,7 @@ function SlidesContent({
     transitionDirection,
     transitionSpeed,
     objectFit,
+    objectPosition,
     borderRadius,
 }: {
     slides: string[]
@@ -271,6 +279,7 @@ function SlidesContent({
     transitionDirection: TransitionDirection
     transitionSpeed: number
     objectFit: "cover" | "contain"
+    objectPosition?: string
     borderRadius: number
 }) {
     return (
@@ -284,7 +293,7 @@ function SlidesContent({
             }}
         >
             {slides.length === 1 ? (
-                <Media src={slides[0]} objectFit={objectFit} />
+                <Media src={slides[0]} objectFit={objectFit} objectPosition={objectPosition} />
             ) : (
                 slides.map((src, i) => (
                     <div
@@ -298,7 +307,7 @@ function SlidesContent({
                             transitionSpeed
                         )}
                     >
-                        <Media src={src} objectFit={objectFit} />
+                        <Media src={src} objectFit={objectFit} objectPosition={objectPosition} />
                     </div>
                 ))
             )}
@@ -360,6 +369,8 @@ export default function CmsMotionAmbient(props: Props) {
         overlaySize = 80,
         overlayRadius = 0,
         contentFit = "fill" as ContentFit,
+        alignX = "center" as AlignX,
+        alignY = "center" as AlignY,
         overlayMode = "cursor",
         overlayAmount = 100,
         overlayDirection = "toward",
@@ -404,6 +415,7 @@ export default function CmsMotionAmbient(props: Props) {
 
     const slideCount = activeSlides.length
     const hasOverlay = slideCount > 0
+    const mediaPosition = `${alignY} ${alignX}`
 
     // ── Refs ─────────────────────────────────────────────
 
@@ -908,6 +920,7 @@ export default function CmsMotionAmbient(props: Props) {
                                 transitionDirection={transitionDirection}
                                 transitionSpeed={transitionSpeed}
                                 objectFit={overlayObjectFit}
+                                objectPosition={mediaPosition}
                                 borderRadius={overlayRadius}
                             />
                         </div>
@@ -1224,6 +1237,26 @@ addPropertyControls(CmsMotionAmbient, {
         defaultValue: "fill",
         description:
             "Fill crops to fill the overlay. Fit shows the full image or video without cropping.",
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
+    },
+
+    alignX: {
+        type: ControlType.Enum,
+        title: "Align X",
+        options: ["left", "center", "right"],
+        optionTitles: ["Left", "Center", "Right"],
+        displaySegmentedControl: true,
+        defaultValue: "center",
+        hidden: (props: any) => (props.slideCount ?? 0) < 1,
+    },
+
+    alignY: {
+        type: ControlType.Enum,
+        title: "Align Y",
+        options: ["top", "center", "bottom"],
+        optionTitles: ["Top", "Center", "Bottom"],
+        displaySegmentedControl: true,
+        defaultValue: "center",
         hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
