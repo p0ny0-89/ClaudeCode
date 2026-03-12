@@ -217,6 +217,7 @@ export default function DepthMotionStack(props: Props) {
         parallaxAmount,
         parallaxSmoothing,
         layerCount,
+        responsiveScale,
         uniformScale,
     }
 
@@ -242,9 +243,10 @@ export default function DepthMotionStack(props: Props) {
             uniformScale: uScale,
         } = cfg.current
 
-        // Prefix for responsive scaling (applied before tilt)
-        const scalePrefix =
-            uScale !== 1 ? `scale(${uScale}) ` : ""
+        // Prefix for responsive scaling: centre + scale, applied before tilt
+        const scalePrefix = cfg.current.responsiveScale
+            ? `translate(-50%, -50%) scale(${uScale}) `
+            : ""
 
         const c = current.current
         const t = target.current
@@ -715,11 +717,12 @@ export default function DepthMotionStack(props: Props) {
     // ── Render ──────────────────────────────────────────
 
     const touchActive = touchDrag && interaction === "cursor"
-    const isScaled = responsiveScale && uniformScale !== 1
+    const isScaled = responsiveScale
     const containerStyle: React.CSSProperties = {
         ...style,
         ...(tilt ? { perspective: `${perspective}px` } : {}),
         overflow: isScaled ? "hidden" : "visible",
+        ...(isScaled ? { position: "relative" as const } : {}),
         ...(touchActive
             ? ({
                   touchAction: "none",
@@ -732,13 +735,16 @@ export default function DepthMotionStack(props: Props) {
     }
 
     // When responsive scaling is active, the surface renders at the
-    // design size and is uniformly scaled to fit the container.
+    // design size, centered via absolute positioning, and uniformly
+    // scaled to fit. The translate(-50%,-50%) + top/left:50% centres
+    // it, and CSS scale doesn't affect layout so the container clips.
     const scaledSurfaceSize: React.CSSProperties = isScaled
         ? {
+              position: "absolute",
+              top: "50%",
+              left: "50%",
               width: designWidth,
               height: designHeight,
-              transformOrigin: "top left",
-              transform: `scale(${uniformScale})`,
           }
         : { width: "100%", height: "100%" }
 
