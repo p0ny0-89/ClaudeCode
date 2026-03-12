@@ -885,18 +885,6 @@ export default function CmsMotionAmbient(props: Props) {
                         <Media src={bgSrc} />
                     </div>
 
-                    {/* Border stroke — rendered on top of background so it's always visible */}
-                    {borderShadow && (
-                        <div
-                            style={{
-                                position: "absolute",
-                                inset: 0,
-                                borderRadius: backgroundRadius,
-                                boxShadow: borderShadow,
-                                pointerEvents: "none",
-                            }}
-                        />
-                    )}
                 </div>
 
                 {/* ③ Overlay — outside clip div so it can overflow past card edges */}
@@ -932,6 +920,19 @@ export default function CmsMotionAmbient(props: Props) {
                             />
                         </div>
                     </div>
+                )}
+
+                {/* ④ Border stroke — after overlay so it's always on top */}
+                {borderShadow && (
+                    <div
+                        style={{
+                            position: "absolute",
+                            inset: 0,
+                            borderRadius: backgroundRadius,
+                            boxShadow: borderShadow,
+                            pointerEvents: "none",
+                        }}
+                    />
                 )}
             </div>
 
