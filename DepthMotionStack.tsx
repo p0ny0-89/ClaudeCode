@@ -764,20 +764,25 @@ addPropertyControls(DepthMotionStack, {
 
     interaction: {
         type: ControlType.Enum,
-        title: "Interaction",
-        options: ["auto", "cursor"],
-        optionTitles: ["Auto", "Cursor"],
+        title: "Motion Mode",
+        options: ["cursor", "auto"],
+        optionTitles: ["Cursor", "Auto"],
+        displaySegmentedControl: true,
         defaultValue: "cursor",
+        description:
+            "Cursor responds to pointer movement. Auto plays motion automatically and works well on touch devices.",
         hidden: (props: any) => !props.tilt,
     },
 
     behavior: {
         type: ControlType.Enum,
-        title: "Behavior",
+        title: "Cursor Behavior",
         options: ["follow", "repel"],
         optionTitles: ["Follow", "Repel"],
         displaySegmentedControl: true,
         defaultValue: "follow",
+        description:
+            "Follow moves toward the pointer. Repel moves away from it.",
         hidden: (props: any) =>
             !props.tilt || props.interaction === "auto",
     },
@@ -824,7 +829,7 @@ addPropertyControls(DepthMotionStack, {
         min: 100,
         max: 10000,
         step: 100,
-        description: "Depth strength",
+        description: "Lower values increase depth distortion.",
         hidden: (props: any) => !props.tilt,
     },
 
@@ -842,12 +847,14 @@ addPropertyControls(DepthMotionStack, {
 
     layers: {
         type: ControlType.Number,
-        title: "Layers",
+        title: "Mid Layers",
         defaultValue: 0,
         min: 0,
         max: 5,
         step: 1,
         displayStepper: true,
+        description:
+            "Add up to 5 depth layers between background and foreground.",
         hidden: (props: any) => !props.parallax,
     },
 
@@ -930,16 +937,6 @@ addPropertyControls(DepthMotionStack, {
 
     // ── Motion behavior ─────────────────────────────────
 
-    parallaxSource: {
-        type: ControlType.Enum,
-        title: "Source",
-        options: ["tilt", "cursor"],
-        optionTitles: ["Tilt", "Cursor"],
-        displaySegmentedControl: true,
-        defaultValue: "tilt",
-        hidden: (props: any) => !props.parallax,
-    },
-
     hoverParallax: {
         type: ControlType.Enum,
         title: "Hover Parallax",
@@ -977,7 +974,7 @@ addPropertyControls(DepthMotionStack, {
 
     parallaxAmount: {
         type: ControlType.Number,
-        title: "Amount",
+        title: "Parallax Amount",
         defaultValue: 20,
         min: 1,
         max: 60,
