@@ -371,7 +371,7 @@ export default function CmsMotionAmbient(props: Props) {
         ambientEnabled = false,
         ambientBlur = 48,
         ambientSpread = 1.15,
-        ambientIntensity = 0.8,
+        ambientIntensity = 0.25,
         ambientSaturate = 1.5,
         ambientBrightness = 1.2,
         autoplay = false,
@@ -1312,7 +1312,7 @@ addPropertyControls(CmsMotionAmbient, {
     ambientIntensity: {
         type: ControlType.Number,
         title: "Intensity",
-        defaultValue: 0.8,
+        defaultValue: 0.25,
         min: 0,
         max: 1,
         step: 0.05,
