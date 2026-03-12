@@ -659,12 +659,13 @@ export default function DepthMotionStack(props: Props) {
         ...(tilt ? { perspective: `${perspective}px` } : {}),
         overflow: "visible",
         ...(touchActive
-            ? {
+            ? ({
                   touchAction: "none",
                   userSelect: "none",
                   WebkitUserSelect: "none",
                   WebkitTouchCallout: "none",
-              } as React.CSSProperties
+                  WebkitTapHighlightColor: "transparent",
+              } as React.CSSProperties)
             : {}),
     }
 
