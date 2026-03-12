@@ -1,5 +1,5 @@
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
-import React, { useRef, useState, useEffect, useCallback } from "react"
+import React, { useRef, useEffect, useCallback, useId } from "react"
 
 // ─── Constants ────────────────────────────────────────────
 
@@ -58,9 +58,6 @@ interface Props {
     mid3Blend: BlendMode
     mid4Blend: BlendMode
     mid5Blend: BlendMode
-    responsiveScale: boolean
-    designWidth: number
-    designHeight: number
     style?: React.CSSProperties
 }
 
@@ -121,15 +118,16 @@ export default function DepthMotionStack(props: Props) {
         mid3Blend = "normal" as BlendMode,
         mid4Blend = "normal" as BlendMode,
         mid5Blend = "normal" as BlendMode,
-        responsiveScale = false,
-        designWidth = 400,
-        designHeight = 400,
         style,
     } = props
 
     // Build ordered arrays from individual layer props
     const midLayersArr = [mid1, mid2, mid3, mid4, mid5].slice(0, layerCount)
     const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend].slice(0, layerCount)
+
+    // Scoped CSS class to force Framer slot children to fill their layer
+    const scopeId = useId().replace(/:/g, "")
+    const fillClass = `dms-fill-${scopeId}`
 
     const containerRef = useRef<HTMLDivElement>(null)
     const surfaceRef = useRef<HTMLDivElement>(null)
@@ -144,33 +142,6 @@ export default function DepthMotionStack(props: Props) {
     // Cached bounding rect — avoids getBoundingClientRect() feedback
     // loop caused by 3D perspective distorting the projected rect
     const cachedRect = useRef<DOMRect | null>(null)
-
-    // ── Responsive Scale ──────────────────────────────────
-    const [containerSize, setContainerSize] = useState<{
-        w: number
-        h: number
-    } | null>(null)
-
-    useEffect(() => {
-        if (!responsiveScale) return
-        const el = containerRef.current
-        if (!el) return
-        const ro = new ResizeObserver((entries) => {
-            const { width, height } = entries[0].contentRect
-            setContainerSize({ w: width, h: height })
-        })
-        ro.observe(el)
-        return () => ro.disconnect()
-    }, [responsiveScale])
-
-    // Compute uniform scale: fit inside container, preserving aspect ratio
-    const uniformScale =
-        responsiveScale && containerSize && designWidth > 0 && designHeight > 0
-            ? Math.min(
-                  containerSize.w / designWidth,
-                  containerSize.h / designHeight
-              )
-            : 1
 
     // Tilt state (applied to the surface)
     const target = useRef({ rx: 0, ry: 0, s: 1 })
@@ -217,8 +188,6 @@ export default function DepthMotionStack(props: Props) {
         parallaxAmount,
         parallaxSmoothing,
         layerCount,
-        responsiveScale,
-        uniformScale,
     }
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
@@ -240,13 +209,7 @@ export default function DepthMotionStack(props: Props) {
             parallaxDirection: pDir,
             parallaxSmoothing: pSmooth,
             layerCount: lc,
-            uniformScale: uScale,
         } = cfg.current
-
-        // Prefix for responsive scaling: centre + scale, applied before tilt
-        const scalePrefix = cfg.current.responsiveScale
-            ? `translate(-50%, -50%) scale(${uScale}) `
-            : ""
 
         const c = current.current
         const t = target.current
@@ -311,7 +274,7 @@ export default function DepthMotionStack(props: Props) {
             c.ry = lerp(c.ry, t.ry, smooth)
             c.s = lerp(c.s, t.s, smooth)
 
-            el.style.transform = `${scalePrefix}rotateX(${c.rx.toFixed(2)}deg) rotateY(${c.ry.toFixed(2)}deg) scale(${c.s.toFixed(4)})`
+            el.style.transform = `rotateX(${c.rx.toFixed(2)}deg) rotateY(${c.ry.toFixed(2)}deg) scale(${c.s.toFixed(4)})`
         } else {
             // Tilt off — clear any stale rotation
             c.rx = 0
@@ -320,7 +283,7 @@ export default function DepthMotionStack(props: Props) {
             t.rx = 0
             t.ry = 0
             t.s = 1
-            el.style.transform = scalePrefix || ""
+            el.style.transform = ""
         }
 
         // ── Lerp parallax (multi-layer depth split) ──────
@@ -377,7 +340,7 @@ export default function DepthMotionStack(props: Props) {
                 c.rx = t.rx
                 c.ry = t.ry
                 c.s = t.s
-                el.style.transform = `${scalePrefix}rotateX(${c.rx}deg) rotateY(${c.ry}deg) scale(${c.s})`
+                el.style.transform = `rotateX(${c.rx}deg) rotateY(${c.ry}deg) scale(${c.s})`
             }
 
             if (pEnabled) {
@@ -717,12 +680,10 @@ export default function DepthMotionStack(props: Props) {
     // ── Render ──────────────────────────────────────────
 
     const touchActive = touchDrag && interaction === "cursor"
-    const isScaled = responsiveScale
     const containerStyle: React.CSSProperties = {
         ...style,
         ...(tilt ? { perspective: `${perspective}px` } : {}),
-        overflow: isScaled ? "hidden" : "visible",
-        ...(isScaled ? { position: "relative" as const } : {}),
+        overflow: "visible",
         ...(touchActive
             ? ({
                   touchAction: "none",
@@ -734,19 +695,11 @@ export default function DepthMotionStack(props: Props) {
             : {}),
     }
 
-    // When responsive scaling is active, the surface renders at the
-    // design size, centered via absolute positioning, and uniformly
-    // scaled to fit. The translate(-50%,-50%) + top/left:50% centres
-    // it, and CSS scale doesn't affect layout so the container clips.
-    const scaledSurfaceSize: React.CSSProperties = isScaled
-        ? {
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              width: designWidth,
-              height: designHeight,
-          }
-        : { width: "100%", height: "100%" }
+    // CSS rule: force Framer slot children to fill their layer wrapper.
+    // Uses !important to beat Framer's inline width/height on slot elements.
+    const fillStyle = (
+        <style>{`.${fillClass} > * { width: 100% !important; height: 100% !important; }`}</style>
+    )
 
     // When parallax is off, render flat (no layer splitting).
     if (!parallax) {
@@ -761,10 +714,13 @@ export default function DepthMotionStack(props: Props) {
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerUp}
             >
+                {fillStyle}
                 <div
                     ref={surfaceRef}
+                    className={fillClass}
                     style={{
-                        ...scaledSurfaceSize,
+                        width: "100%",
+                        height: "100%",
                         willChange: tilt ? "transform" : undefined,
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
@@ -803,10 +759,12 @@ export default function DepthMotionStack(props: Props) {
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
         >
+            {fillStyle}
             <div
                 ref={surfaceRef}
                 style={{
-                    ...scaledSurfaceSize,
+                    width: "100%",
+                    height: "100%",
                     position: "relative",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
@@ -817,6 +775,7 @@ export default function DepthMotionStack(props: Props) {
                 {background && (
                     <div
                         ref={bgRef}
+                        className={fillClass}
                         style={{
                             position: "absolute",
                             // Oversized so translated edges stay covered
@@ -824,9 +783,6 @@ export default function DepthMotionStack(props: Props) {
                             left: `${-pad}px`,
                             width: `calc(100% + ${pad * 2}px)`,
                             height: `calc(100% + ${pad * 2}px)`,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
                             willChange: "transform",
                         }}
                     >
@@ -842,6 +798,7 @@ export default function DepthMotionStack(props: Props) {
                             ref={(el) => {
                                 midRefs.current[i] = el
                             }}
+                            className={fillClass}
                             style={{
                                 ...midLayerBase,
                                 mixBlendMode:
@@ -858,6 +815,7 @@ export default function DepthMotionStack(props: Props) {
                 {/* Foreground / content layer — shallowest, shifts with motion */}
                 <div
                     ref={fgRef}
+                    className={fillClass}
                     style={{
                         position: "relative",
                         width: "100%",
@@ -1173,39 +1131,5 @@ addPropertyControls(DepthMotionStack, {
         max: 1,
         step: 0.1,
         hidden: (props: any) => !props.parallax,
-    },
-
-    // ── Responsive Scaling ───────────────────────────────
-
-    responsiveScale: {
-        type: ControlType.Boolean,
-        title: "Responsive",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        description:
-            "Uniformly scales all layers to fit the component frame. Set Design Width / Height to match your layer artwork size.",
-    },
-
-    designWidth: {
-        type: ControlType.Number,
-        title: "Design Width",
-        defaultValue: 400,
-        min: 10,
-        max: 4000,
-        step: 1,
-        unit: "px",
-        hidden: (props: any) => !props.responsiveScale,
-    },
-
-    designHeight: {
-        type: ControlType.Number,
-        title: "Design Height",
-        defaultValue: 400,
-        min: 10,
-        max: 4000,
-        step: 1,
-        unit: "px",
-        hidden: (props: any) => !props.responsiveScale,
     },
 })
