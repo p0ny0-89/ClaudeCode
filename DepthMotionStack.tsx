@@ -697,8 +697,16 @@ export default function DepthMotionStack(props: Props) {
 
     // CSS rule: force Framer slot children to fill their layer wrapper.
     // Uses !important to beat Framer's inline width/height on slot elements.
+    // Children are oversized by --dms-pad for parallax coverage, with negative
+    // margin to stay centred. Surface overflow:hidden clips the excess at rest.
     const fillStyle = (
-        <style>{`.${fillClass} > * { width: 100% !important; height: 100% !important; }`}</style>
+        <style>{`
+            .${fillClass} > * {
+                width: calc(100% + var(--dms-pad, 0px) * 2) !important;
+                height: calc(100% + var(--dms-pad, 0px) * 2) !important;
+                margin: calc(var(--dms-pad, 0px) * -1) !important;
+            }
+        `}</style>
     )
 
     // When parallax is off, render flat (no layer splitting).
@@ -735,13 +743,7 @@ export default function DepthMotionStack(props: Props) {
     const pad = parallaxAmount * 0.6
     const midLayerBase: React.CSSProperties = {
         position: "absolute",
-        top: `${-pad}px`,
-        left: `${-pad}px`,
-        width: `calc(100% + ${pad * 2}px)`,
-        height: `calc(100% + ${pad * 2}px)`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+        inset: 0,
         willChange: "transform",
     }
 
@@ -766,10 +768,12 @@ export default function DepthMotionStack(props: Props) {
                     width: "100%",
                     height: "100%",
                     position: "relative",
+                    overflow: "hidden",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
+                    "--dms-pad": `${pad}px`,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
-                }}
+                } as React.CSSProperties}
             >
                 {/* Background layer — deepest, shifts most opposite */}
                 {background && (
@@ -778,11 +782,7 @@ export default function DepthMotionStack(props: Props) {
                         className={fillClass}
                         style={{
                             position: "absolute",
-                            // Oversized so translated edges stay covered
-                            top: `${-pad}px`,
-                            left: `${-pad}px`,
-                            width: `calc(100% + ${pad * 2}px)`,
-                            height: `calc(100% + ${pad * 2}px)`,
+                            inset: 0,
                             willChange: "transform",
                         }}
                     >
@@ -817,9 +817,8 @@ export default function DepthMotionStack(props: Props) {
                     ref={fgRef}
                     className={fillClass}
                     style={{
-                        position: "relative",
-                        width: "100%",
-                        height: "100%",
+                        position: "absolute",
+                        inset: 0,
                         willChange: "transform",
                         mixBlendMode:
                             contentBlend !== "normal"
