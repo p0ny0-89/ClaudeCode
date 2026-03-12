@@ -551,6 +551,21 @@ export default function DepthMotionStack(props: Props) {
         [isCanvas, startLoop]
     )
 
+    // ── Block context menu & text selection during touch drag ──
+    useEffect(() => {
+        const el = containerRef.current
+        if (!el || !touchDrag || interaction !== "cursor") return
+
+        const block = (e: Event) => e.preventDefault()
+        el.addEventListener("contextmenu", block, { passive: false })
+        el.addEventListener("selectstart", block, { passive: false })
+
+        return () => {
+            el.removeEventListener("contextmenu", block)
+            el.removeEventListener("selectstart", block)
+        }
+    }, [touchDrag, interaction])
+
     // ── Auto Tilt Animation Start ─────────────────────────
 
     useEffect(() => {
