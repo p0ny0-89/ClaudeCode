@@ -687,6 +687,7 @@ export default function DepthMotionStack(props: Props) {
                         width: "100%",
                         height: "100%",
                         willChange: tilt ? "transform" : undefined,
+                        ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
                 >
                     {content}
@@ -727,6 +728,7 @@ export default function DepthMotionStack(props: Props) {
                     position: "relative",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
+                    ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
             >
                 {/* Background layer — deepest, shifts most opposite */}
