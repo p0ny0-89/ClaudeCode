@@ -766,7 +766,6 @@ export default function DepthMotionStack(props: Props) {
                     width: "100%",
                     height: "100%",
                     position: "relative",
-                    overflow: "hidden",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
@@ -818,11 +817,9 @@ export default function DepthMotionStack(props: Props) {
                     ref={fgRef}
                     className={fillClass}
                     style={{
-                        position: "absolute",
-                        top: `${-pad}px`,
-                        left: `${-pad}px`,
-                        width: `calc(100% + ${pad * 2}px)`,
-                        height: `calc(100% + ${pad * 2}px)`,
+                        position: "relative",
+                        width: "100%",
+                        height: "100%",
                         willChange: "transform",
                         mixBlendMode:
                             contentBlend !== "normal"
