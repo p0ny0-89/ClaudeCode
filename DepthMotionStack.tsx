@@ -557,10 +557,12 @@ export default function DepthMotionStack(props: Props) {
         if (!el || !touchDrag || interaction !== "cursor") return
 
         const block = (e: Event) => e.preventDefault()
+        el.addEventListener("touchstart", block, { passive: false })
         el.addEventListener("contextmenu", block, { passive: false })
         el.addEventListener("selectstart", block, { passive: false })
 
         return () => {
+            el.removeEventListener("touchstart", block)
             el.removeEventListener("contextmenu", block)
             el.removeEventListener("selectstart", block)
         }
