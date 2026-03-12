@@ -115,25 +115,33 @@ function clamp(v: number, lo: number, hi: number): number {
 function Media({
     src,
     objectFit = "cover",
-    objectPosition,
     borderRadius,
     style,
 }: {
     src: string
-    objectFit?: "cover" | "contain"
-    objectPosition?: string
+    objectFit?: "cover" | "fit"
     borderRadius?: number
     style?: React.CSSProperties
 }) {
-    const base: React.CSSProperties = {
-        width: "100%",
-        height: "100%",
-        objectFit,
-        objectPosition,
-        borderRadius,
-        display: "block",
-        ...style,
-    }
+    const isFit = objectFit === "fit"
+    const base: React.CSSProperties = isFit
+        ? {
+              maxWidth: "100%",
+              maxHeight: "100%",
+              width: "auto",
+              height: "auto",
+              borderRadius,
+              display: "block",
+              ...style,
+          }
+        : {
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              borderRadius,
+              display: "block",
+              ...style,
+          }
 
     if (VIDEO_EXTS.test(src)) {
         return (
@@ -266,6 +274,21 @@ function getSlideStyle(
 // ─── Slides Renderer ─────────────────────────────────────
 // Extracted so both the overlay and glow layer can share it.
 
+/** Map objectPosition keywords to flex alignment values. */
+function positionToFlex(position?: string): {
+    justifyContent: string
+    alignItems: string
+} {
+    if (!position) return { justifyContent: "center", alignItems: "center" }
+    const parts = position.toLowerCase().split(/\s+/)
+    const mapY: Record<string, string> = { top: "flex-start", center: "center", bottom: "flex-end" }
+    const mapX: Record<string, string> = { left: "flex-start", center: "center", right: "flex-end" }
+    return {
+        alignItems: mapY[parts[0]] || "center",
+        justifyContent: mapX[parts[1]] || "center",
+    }
+}
+
 function SlidesContent({
     slides,
     currentSlide,
@@ -281,10 +304,13 @@ function SlidesContent({
     transition: TransitionType
     transitionDirection: TransitionDirection
     transitionSpeed: number
-    objectFit: "cover" | "contain"
+    objectFit: "cover" | "fit"
     objectPosition?: string
     borderRadius: number
 }) {
+    const isFit = objectFit === "fit"
+    const flex = isFit ? positionToFlex(objectPosition) : undefined
+
     return (
         <div
             style={{
@@ -292,27 +318,47 @@ function SlidesContent({
                 width: "100%",
                 height: "100%",
                 overflow: "hidden",
-                borderRadius,
+                borderRadius: isFit ? 0 : borderRadius,
             }}
         >
             {slides.length === 1 ? (
-                <Media src={slides[0]} objectFit={objectFit} objectPosition={objectPosition} borderRadius={borderRadius} />
-            ) : (
-                slides.map((src, i) => (
+                isFit ? (
                     <div
-                        key={i}
-                        style={getSlideStyle(
-                            i,
-                            currentSlide,
-                            slides.length,
-                            transition,
-                            transitionDirection,
-                            transitionSpeed
-                        )}
+                        style={{
+                            width: "100%",
+                            height: "100%",
+                            display: "flex",
+                            ...flex,
+                        }}
                     >
-                        <Media src={src} objectFit={objectFit} objectPosition={objectPosition} borderRadius={borderRadius} />
+                        <Media src={slides[0]} objectFit="fit" borderRadius={borderRadius} />
                     </div>
-                ))
+                ) : (
+                    <Media src={slides[0]} objectFit="cover" borderRadius={borderRadius} />
+                )
+            ) : (
+                slides.map((src, i) => {
+                    const slideStyle = getSlideStyle(
+                        i,
+                        currentSlide,
+                        slides.length,
+                        transition,
+                        transitionDirection,
+                        transitionSpeed
+                    )
+                    return (
+                        <div
+                            key={i}
+                            style={
+                                isFit
+                                    ? { ...slideStyle, display: "flex", ...flex }
+                                    : slideStyle
+                            }
+                        >
+                            <Media src={src} objectFit={objectFit} borderRadius={borderRadius} />
+                        </div>
+                    )
+                })
             )}
         </div>
     )
@@ -822,7 +868,7 @@ export default function CmsMotionAmbient(props: Props) {
 
     // ── Shared slide props ───────────────────────────────
 
-    const overlayObjectFit = contentFit === "fit" ? "contain" as const : "cover" as const
+    const overlayObjectFit = contentFit === "fit" ? "fit" as const : "cover" as const
 
     // ── Render ───────────────────────────────────────────
 
