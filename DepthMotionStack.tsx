@@ -34,6 +34,7 @@ interface Props {
     tilt: boolean
     interaction: Interaction
     behavior: Behavior
+    touchDrag: boolean
     tiltLimit: number
     scale: number
     perspective: number
@@ -93,6 +94,7 @@ export default function DepthMotionStack(props: Props) {
         tilt = true,
         interaction = "cursor",
         behavior = "follow",
+        touchDrag = false,
         tiltLimit = 20,
         scale: hoverScale = 1.1,
         perspective = 5000,
@@ -150,6 +152,7 @@ export default function DepthMotionStack(props: Props) {
         tilt,
         interaction,
         behavior,
+        touchDrag,
         tiltLimit,
         hoverScale,
         perspective,
@@ -167,6 +170,7 @@ export default function DepthMotionStack(props: Props) {
         tilt,
         interaction,
         behavior,
+        touchDrag,
         tiltLimit,
         hoverScale,
         perspective,
@@ -489,6 +493,63 @@ export default function DepthMotionStack(props: Props) {
         startLoop()
     }, [isCanvas, startLoop])
 
+    // ── Touch Drag Handlers ──────────────────────────────
+
+    const onPointerDown = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            if (isCanvas) return
+            if (!cfg.current.touchDrag) return
+            if (cfg.current.interaction !== "cursor") return
+            // Only capture touch pointers — let mouse work via hover as before
+            if (e.pointerType !== "touch") return
+
+            ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+            hovering.current = true
+
+            const el = containerRef.current
+            if (el) cachedRect.current = el.getBoundingClientRect()
+
+            if (cfg.current.tilt) {
+                target.current.s = cfg.current.hoverScale
+            }
+
+            startLoop()
+        },
+        [isCanvas, startLoop]
+    )
+
+    const onPointerUp = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            if (isCanvas) return
+            if (!cfg.current.touchDrag) return
+            if (e.pointerType !== "touch") return
+
+            ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+            hovering.current = false
+            cachedRect.current = null
+
+            // Reset tilt
+            if (cfg.current.tilt && cfg.current.interaction === "cursor") {
+                target.current.rx = 0
+                target.current.ry = 0
+                target.current.s = 1
+            }
+
+            // Reset cursor-source parallax
+            if (
+                cfg.current.parallax &&
+                cfg.current.parallaxSource === "cursor" &&
+                cfg.current.parallaxTracking !== "page"
+            ) {
+                pTarget.current.tx = 0
+                pTarget.current.ty = 0
+            }
+
+            startLoop()
+        },
+        [isCanvas, startLoop]
+    )
+
     // ── Auto Tilt Animation Start ─────────────────────────
 
     useEffect(() => {
@@ -595,6 +656,7 @@ export default function DepthMotionStack(props: Props) {
         ...style,
         ...(tilt ? { perspective: `${perspective}px` } : {}),
         overflow: "visible",
+        ...(touchDrag && interaction === "cursor" ? { touchAction: "none" } : {}),
     }
 
     // When parallax is off, render flat (no layer splitting).
@@ -606,6 +668,9 @@ export default function DepthMotionStack(props: Props) {
                 onPointerEnter={onPointerEnter}
                 onPointerMove={onPointerMove}
                 onPointerLeave={onPointerLeave}
+                onPointerDown={onPointerDown}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
             >
                 <div
                     ref={surfaceRef}
@@ -641,6 +706,9 @@ export default function DepthMotionStack(props: Props) {
             onPointerEnter={onPointerEnter}
             onPointerMove={onPointerMove}
             onPointerLeave={onPointerLeave}
+            onPointerDown={onPointerDown}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
         >
             <div
                 ref={surfaceRef}
@@ -788,6 +856,18 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "follow",
         description:
             "Follow moves toward the pointer. Repel moves away from it.",
+        hidden: (props: any) =>
+            !props.tilt || props.interaction === "auto",
+    },
+
+    touchDrag: {
+        type: ControlType.Boolean,
+        title: "Touch Drag",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        description:
+            "Enables finger drag to control tilt on touch devices. Disables scroll over this component.",
         hidden: (props: any) =>
             !props.tilt || props.interaction === "auto",
     },
