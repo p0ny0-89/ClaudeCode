@@ -116,11 +116,13 @@ function Media({
     src,
     objectFit = "cover",
     objectPosition,
+    borderRadius,
     style,
 }: {
     src: string
     objectFit?: "cover" | "contain"
     objectPosition?: string
+    borderRadius?: number
     style?: React.CSSProperties
 }) {
     const base: React.CSSProperties = {
@@ -128,6 +130,7 @@ function Media({
         height: "100%",
         objectFit,
         objectPosition,
+        borderRadius,
         display: "block",
         ...style,
     }
@@ -293,7 +296,7 @@ function SlidesContent({
             }}
         >
             {slides.length === 1 ? (
-                <Media src={slides[0]} objectFit={objectFit} objectPosition={objectPosition} />
+                <Media src={slides[0]} objectFit={objectFit} objectPosition={objectPosition} borderRadius={borderRadius} />
             ) : (
                 slides.map((src, i) => (
                     <div
@@ -307,7 +310,7 @@ function SlidesContent({
                             transitionSpeed
                         )}
                     >
-                        <Media src={src} objectFit={objectFit} objectPosition={objectPosition} />
+                        <Media src={src} objectFit={objectFit} objectPosition={objectPosition} borderRadius={borderRadius} />
                     </div>
                 ))
             )}
