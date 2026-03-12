@@ -412,6 +412,14 @@ export default function DepthMotionStack(props: Props) {
         startLoop()
     }, [isCanvas, startLoop])
 
+    const cancelHold = useCallback(() => {
+        if (holdTimer.current) {
+            clearTimeout(holdTimer.current)
+            holdTimer.current = null
+        }
+        holdStart.current = null
+    }, [])
+
     const onPointerMove = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
@@ -540,13 +548,6 @@ export default function DepthMotionStack(props: Props) {
         [startLoop]
     )
 
-    const cancelHold = useCallback(() => {
-        if (holdTimer.current) {
-            clearTimeout(holdTimer.current)
-            holdTimer.current = null
-        }
-        holdStart.current = null
-    }, [])
 
     const onPointerDown = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
