@@ -321,7 +321,7 @@ export default function DepthMotionStack(props: Props) {
 
         const autoKeepAlive = tiltEnabled && mode === "auto"
 
-        if (tiltSettled && parallaxSettled && !autoKeepAlive) {
+        if (tiltSettled && parallaxSettled && !autoKeepAlive && !hovering.current) {
             // Snap to exact values
             if (tiltEnabled) {
                 c.rx = t.rx

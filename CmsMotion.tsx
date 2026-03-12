@@ -259,7 +259,7 @@ export default function CmsMotion(props: Props) {
             Math.abs(overlayOpCurrent.current - overlayOpTarget.current) <
             SETTLE_THRESHOLD
 
-        if (tiltSettled && posSettled && opacitySettled) {
+        if (tiltSettled && posSettled && opacitySettled && !hovering.current) {
             // Snap to exact values
             if (cfg.current.tilt && surface) {
                 tc.rx = tt.rx

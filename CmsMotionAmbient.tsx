@@ -582,7 +582,7 @@ export default function CmsMotionAmbient(props: Props) {
             Math.abs(glowOpCurrent.current - (cfg.current.ambientEnabled ? glowTarget : 0)) <
             SETTLE_THRESHOLD
 
-        if (tiltSettled && posSettled && opacitySettled && glowSettled) {
+        if (tiltSettled && posSettled && opacitySettled && glowSettled && !hovering.current) {
             // Snap to exact values
             if (cfg.current.tilt && surface) {
                 tc.rx = tt.rx
