@@ -133,6 +133,7 @@ export default function DepthMotionStack(props: Props) {
     const rafId = useRef(0)
     const loopRunning = useRef(false)
     const hovering = useRef(false)
+    const touchCaptured = useRef(false)
 
     // Cached bounding rect — avoids getBoundingClientRect() feedback
     // loop caused by 3D perspective distorting the projected rect
@@ -465,6 +466,8 @@ export default function DepthMotionStack(props: Props) {
 
     const onPointerLeave = useCallback(() => {
         if (isCanvas) return
+        // Don't reset during active touch drag — finger may leave bounds
+        if (touchCaptured.current) return
         const tiltOn = cfg.current.tilt
         const mode = cfg.current.interaction
         hovering.current = false
@@ -505,6 +508,7 @@ export default function DepthMotionStack(props: Props) {
 
             e.preventDefault()
             ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+            touchCaptured.current = true
             hovering.current = true
 
             const el = containerRef.current
@@ -526,6 +530,7 @@ export default function DepthMotionStack(props: Props) {
             if (e.pointerType !== "touch") return
 
             ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+            touchCaptured.current = false
             hovering.current = false
             cachedRect.current = null
 
