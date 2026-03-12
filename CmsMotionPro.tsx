@@ -1113,7 +1113,7 @@ addPropertyControls(CmsMotionPro, {
 
     contentFit: {
         type: ControlType.Enum,
-        title: "Content Fit",
+        title: "Media Fit",
         options: ["fill", "fit"],
         optionTitles: ["Fill", "Fit"],
         displaySegmentedControl: true,

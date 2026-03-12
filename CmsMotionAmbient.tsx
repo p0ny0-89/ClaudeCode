@@ -934,7 +934,8 @@ export default function CmsMotionAmbient(props: Props) {
 //
 // Ordered by mental setup flow:
 //   1. Media → 2. Slide Behavior → 3. Card → 4. Overlay
-//   → 5. Overlay Motion → 6. Ambient Lighting → 7. Reveal on View → 8. Tilt
+//   → 5. Overlay Behavior → 6. Ambient Lighting
+//   → 7. Touch / Fallback → 8. Tilt
 
 addPropertyControls(CmsMotionAmbient, {
     // ── Media ────────────────────────────────────────────
@@ -1216,7 +1217,7 @@ addPropertyControls(CmsMotionAmbient, {
 
     contentFit: {
         type: ControlType.Enum,
-        title: "Content Fit",
+        title: "Media Fit",
         options: ["fill", "fit"],
         optionTitles: ["Fill", "Fit"],
         displaySegmentedControl: true,
@@ -1225,6 +1226,8 @@ addPropertyControls(CmsMotionAmbient, {
             "Fill crops to fill the overlay. Fit shows the full image or video without cropping.",
         hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
+
+    // ── Overlay Behavior ────────────────────────────────
 
     overlayMode: {
         type: ControlType.Enum,
@@ -1236,8 +1239,6 @@ addPropertyControls(CmsMotionAmbient, {
         description: "Cursor: overlay follows pointer inside the card. Stationary: overlay stays fixed in place.",
         hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
-
-    // ── Overlay Motion ──────────────────────────────────
 
     overlayAmount: {
         type: ControlType.Number,
@@ -1280,6 +1281,8 @@ addPropertyControls(CmsMotionAmbient, {
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
+        description:
+            "Adds a colored glow behind the card based on overlay content.",
         hidden: (props: any) => (props.slideCount ?? 0) < 1,
     },
 
@@ -1339,7 +1342,7 @@ addPropertyControls(CmsMotionAmbient, {
             (props.slideCount ?? 0) < 1 || !props.ambientEnabled,
     },
 
-    // ── Reveal on View ──────────────────────────────────
+    // ── Touch / Fallback ────────────────────────────────
 
     autoplay: {
         type: ControlType.Boolean,
