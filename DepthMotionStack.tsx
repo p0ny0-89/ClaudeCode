@@ -683,7 +683,7 @@ export default function DepthMotionStack(props: Props) {
     const containerStyle: React.CSSProperties = {
         ...style,
         ...(tilt ? { perspective: `${perspective}px` } : {}),
-        overflow: "visible",
+        overflow: "hidden",
         ...(touchActive
             ? ({
                   touchAction: "none",
