@@ -503,6 +503,7 @@ export default function DepthMotionStack(props: Props) {
             // Only capture touch pointers — let mouse work via hover as before
             if (e.pointerType !== "touch") return
 
+            e.preventDefault()
             ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
             hovering.current = true
 
