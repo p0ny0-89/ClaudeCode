@@ -71,16 +71,31 @@ function clamp(v: number, lo: number, hi: number): number {
     return Math.min(Math.max(v, lo), hi)
 }
 
-/** Clone a Framer slot child and force it to fill its parent. */
+/** Wrap a Framer slot child so it always fills its layer. */
 function fillSlot(child: React.ReactNode): React.ReactNode {
-    if (!React.isValidElement(child)) return child
-    return React.cloneElement(child as React.ReactElement<any>, {
-        style: {
-            ...(child.props as any).style,
-            width: "100%",
-            height: "100%",
-        },
-    })
+    if (!child) return child
+    return (
+        <div
+            style={{
+                width: "100%",
+                height: "100%",
+                position: "relative",
+                overflow: "hidden",
+            }}
+        >
+            {React.isValidElement(child)
+                ? React.cloneElement(child as React.ReactElement<any>, {
+                      style: {
+                          ...(child.props as any).style,
+                          width: "100%",
+                          height: "100%",
+                      },
+                      width: "100%",
+                      height: "100%",
+                  })
+                : child}
+        </div>
+    )
 }
 
 // ─── Component ────────────────────────────────────────────
