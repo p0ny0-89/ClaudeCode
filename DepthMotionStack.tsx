@@ -818,9 +818,11 @@ export default function DepthMotionStack(props: Props) {
                     ref={fgRef}
                     className={fillClass}
                     style={{
-                        position: "relative",
-                        width: "100%",
-                        height: "100%",
+                        position: "absolute",
+                        top: `${-pad}px`,
+                        left: `${-pad}px`,
+                        width: `calc(100% + ${pad * 2}px)`,
+                        height: `calc(100% + ${pad * 2}px)`,
                         willChange: "transform",
                         mixBlendMode:
                             contentBlend !== "normal"
