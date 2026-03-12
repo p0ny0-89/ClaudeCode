@@ -155,6 +155,10 @@ export default function CmsMotion(props: Props) {
     // Autoplay viewport tracking
     const inView = useRef(false)
 
+    // Cached bounding rect — avoids getBoundingClientRect() feedback
+    // loop caused by 3D perspective distorting the projected rect
+    const cachedRect = useRef<DOMRect | null>(null)
+
     // Latest props in a ref so callbacks stay stable
     const cfg = useRef({
         tilt,
@@ -294,6 +298,10 @@ export default function CmsMotion(props: Props) {
         if (isCanvas) return
         hovering.current = true
 
+        // Cache rect once at hover start to avoid 3D-projected rect jitter
+        const el = containerRef.current
+        if (el) cachedRect.current = el.getBoundingClientRect()
+
         // Fade overlay in
         overlayOpTarget.current = 1
 
@@ -309,10 +317,8 @@ export default function CmsMotion(props: Props) {
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
 
-            const el = containerRef.current
-            if (!el) return
-
-            const rect = el.getBoundingClientRect()
+            const rect = cachedRect.current
+            if (!rect) return
             const nx = clamp(
                 ((e.clientX - rect.left) / rect.width - 0.5) * 2,
                 -1,
@@ -353,6 +359,7 @@ export default function CmsMotion(props: Props) {
     const onPointerLeave = useCallback(() => {
         if (isCanvas) return
         hovering.current = false
+        cachedRect.current = null
 
         // Reset tilt
         tiltTarget.current.rx = 0
