@@ -762,29 +762,70 @@ export default function DepthMotionStack(props: Props) {
                     width: "100%",
                     height: "100%",
                     position: "relative",
-                    overflow: clipContent ? "hidden" : "visible",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
             >
-                {/* Background layer — deepest, shifts most opposite */}
-                {background && (
-                    <div
-                        ref={bgRef}
-                        className={fillClass}
-                        style={{
-                            position: "absolute",
-                            inset: 0,
-                            willChange: "transform",
-                        }}
-                    >
-                        {background}
-                    </div>
-                )}
+                {/* Background layer — deepest, shifts most opposite.
+                    When clipContent is on, this wrapper also clips all
+                    other layers to the background's visual bounds. */}
+                <div
+                    ref={bgRef}
+                    className={fillClass}
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        overflow: clipContent ? "hidden" : "visible",
+                        willChange: "transform",
+                    }}
+                >
+                    {background}
 
-                {/* Mid layers — auto-distributed depth between bg and fg */}
-                {midLayersArr.map((layer, i) =>
+                    {/* When clipping, mid/fg layers nest inside bg so
+                        overflow:hidden clips to the background bounds */}
+                    {clipContent && midLayersArr.map((layer, i) =>
+                        layer ? (
+                            <div
+                                key={i}
+                                ref={(el) => {
+                                    midRefs.current[i] = el
+                                }}
+                                className={fillClass}
+                                style={{
+                                    ...midLayerBase,
+                                    mixBlendMode:
+                                        midBlendsArr[i] !== "normal"
+                                            ? midBlendsArr[i]
+                                            : undefined,
+                                }}
+                            >
+                                {layer}
+                            </div>
+                        ) : null
+                    )}
+
+                    {clipContent && (
+                        <div
+                            ref={fgRef}
+                            className={fillClass}
+                            style={{
+                                position: "absolute",
+                                inset: 0,
+                                willChange: "transform",
+                                mixBlendMode:
+                                    contentBlend !== "normal"
+                                        ? contentBlend
+                                        : undefined,
+                            }}
+                        >
+                            {content}
+                        </div>
+                    )}
+                </div>
+
+                {/* When NOT clipping, mid/fg layers are siblings (original structure) */}
+                {!clipContent && midLayersArr.map((layer, i) =>
                     layer ? (
                         <div
                             key={i}
@@ -805,23 +846,24 @@ export default function DepthMotionStack(props: Props) {
                     ) : null
                 )}
 
-                {/* Foreground / content layer — shallowest, shifts with motion */}
-                <div
-                    ref={fgRef}
-                    className={fillClass}
-                    style={{
-                        position: "relative",
-                        width: "100%",
-                        height: "100%",
-                        willChange: "transform",
-                        mixBlendMode:
-                            contentBlend !== "normal"
-                                ? contentBlend
-                                : undefined,
-                    }}
-                >
-                    {content}
-                </div>
+                {!clipContent && (
+                    <div
+                        ref={fgRef}
+                        className={fillClass}
+                        style={{
+                            position: "relative",
+                            width: "100%",
+                            height: "100%",
+                            willChange: "transform",
+                            mixBlendMode:
+                                contentBlend !== "normal"
+                                    ? contentBlend
+                                    : undefined,
+                        }}
+                    >
+                        {content}
+                    </div>
+                )}
             </div>
         </div>
     )
