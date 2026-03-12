@@ -140,6 +140,8 @@ export default function DepthMotionStack(props: Props) {
     const loopRunning = useRef(false)
     const hovering = useRef(false)
     const touchCaptured = useRef(false)
+    const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const holdStart = useRef<{ x: number; y: number; pointerId: number; target: HTMLElement } | null>(null)
 
     // Cached bounding rect — avoids getBoundingClientRect() feedback
     // loop caused by 3D perspective distorting the projected rect
@@ -413,6 +415,17 @@ export default function DepthMotionStack(props: Props) {
     const onPointerMove = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
+
+            // Cancel hold if finger moves too far before activation
+            if (holdStart.current && !touchCaptured.current && e.pointerType === "touch") {
+                const dx = e.clientX - holdStart.current.x
+                const dy = e.clientY - holdStart.current.y
+                if (dx * dx + dy * dy > HOLD_SLOP * HOLD_SLOP) {
+                    cancelHold()
+                    return
+                }
+            }
+
             const tiltOn = cfg.current.tilt
             const mode = cfg.current.interaction
 
@@ -467,7 +480,7 @@ export default function DepthMotionStack(props: Props) {
 
             startLoop()
         },
-        [isCanvas, startLoop]
+        [isCanvas, startLoop, cancelHold]
     )
 
     const onPointerLeave = useCallback(() => {
@@ -502,23 +515,21 @@ export default function DepthMotionStack(props: Props) {
         startLoop()
     }, [isCanvas, startLoop])
 
-    // ── Touch Drag Handlers ──────────────────────────────
+    // ── Touch Drag Handlers (hold-to-activate) ─────────────
+    // A brief hold (~300 ms) with minimal movement activates the
+    // effect.  Quick swipes pass through as normal page scrolls.
 
-    const onPointerDown = useCallback(
-        (e: React.PointerEvent<HTMLDivElement>) => {
-            if (isCanvas) return
-            if (!cfg.current.touchDrag) return
-            if (cfg.current.interaction !== "cursor") return
-            // Only capture touch pointers — let mouse work via hover as before
-            if (e.pointerType !== "touch") return
+    const HOLD_DELAY = 300   // ms before activation
+    const HOLD_SLOP  = 10    // px movement tolerance during hold
 
-            e.preventDefault()
-            ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    const activateTouch = useCallback(
+        (pointerId: number, el: HTMLElement) => {
+            el.setPointerCapture(pointerId)
             touchCaptured.current = true
             hovering.current = true
 
-            const el = containerRef.current
-            if (el) cachedRect.current = el.getBoundingClientRect()
+            const container = containerRef.current
+            if (container) cachedRect.current = container.getBoundingClientRect()
 
             if (cfg.current.tilt) {
                 target.current.s = cfg.current.hoverScale
@@ -526,7 +537,39 @@ export default function DepthMotionStack(props: Props) {
 
             startLoop()
         },
-        [isCanvas, startLoop]
+        [startLoop]
+    )
+
+    const cancelHold = useCallback(() => {
+        if (holdTimer.current) {
+            clearTimeout(holdTimer.current)
+            holdTimer.current = null
+        }
+        holdStart.current = null
+    }, [])
+
+    const onPointerDown = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            if (isCanvas) return
+            if (!cfg.current.touchDrag) return
+            if (cfg.current.interaction !== "cursor") return
+            if (e.pointerType !== "touch") return
+
+            // Record start position and begin hold timer
+            holdStart.current = {
+                x: e.clientX,
+                y: e.clientY,
+                pointerId: e.pointerId,
+                target: e.target as HTMLElement,
+            }
+
+            holdTimer.current = setTimeout(() => {
+                const hs = holdStart.current
+                if (hs) activateTouch(hs.pointerId, hs.target)
+                holdTimer.current = null
+            }, HOLD_DELAY)
+        },
+        [isCanvas, activateTouch]
     )
 
     const onPointerUp = useCallback(
@@ -535,47 +578,59 @@ export default function DepthMotionStack(props: Props) {
             if (!cfg.current.touchDrag) return
             if (e.pointerType !== "touch") return
 
-            ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-            touchCaptured.current = false
-            hovering.current = false
-            cachedRect.current = null
+            cancelHold()
 
-            // Reset tilt
-            if (cfg.current.tilt && cfg.current.interaction === "cursor") {
-                target.current.rx = 0
-                target.current.ry = 0
-                target.current.s = 1
+            if (touchCaptured.current) {
+                ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+                touchCaptured.current = false
+                hovering.current = false
+                cachedRect.current = null
+
+                // Reset tilt
+                if (cfg.current.tilt && cfg.current.interaction === "cursor") {
+                    target.current.rx = 0
+                    target.current.ry = 0
+                    target.current.s = 1
+                }
+
+                // Reset cursor-source parallax
+                if (
+                    cfg.current.parallax &&
+                    cfg.current.parallaxSource === "cursor" &&
+                    cfg.current.parallaxTracking !== "page"
+                ) {
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                }
+
+                startLoop()
             }
-
-            // Reset cursor-source parallax
-            if (
-                cfg.current.parallax &&
-                cfg.current.parallaxSource === "cursor" &&
-                cfg.current.parallaxTracking !== "page"
-            ) {
-                pTarget.current.tx = 0
-                pTarget.current.ty = 0
-            }
-
-            startLoop()
         },
-        [isCanvas, startLoop]
+        [isCanvas, startLoop, cancelHold]
     )
 
-    // ── Block context menu & text selection during touch drag ──
+    // ── Block scroll, context menu & selection during active touch drag ──
     useEffect(() => {
         const el = containerRef.current
         if (!el || !touchDrag || interaction !== "cursor") return
 
-        const block = (e: Event) => e.preventDefault()
-        el.addEventListener("touchstart", block, { passive: false })
-        el.addEventListener("contextmenu", block, { passive: false })
-        el.addEventListener("selectstart", block, { passive: false })
+        // Only block touchmove (scroll) when the effect is actually active
+        const blockMove = (e: TouchEvent) => {
+            if (touchCaptured.current) e.preventDefault()
+        }
+        const block = (e: Event) => {
+            if (touchCaptured.current) e.preventDefault()
+        }
+
+        el.addEventListener("touchmove", blockMove, { passive: false })
+        el.addEventListener("contextmenu", block)
+        el.addEventListener("selectstart", block)
 
         return () => {
-            el.removeEventListener("touchstart", block)
+            el.removeEventListener("touchmove", blockMove)
             el.removeEventListener("contextmenu", block)
             el.removeEventListener("selectstart", block)
+            if (holdTimer.current) clearTimeout(holdTimer.current)
         }
     }, [touchDrag, interaction])
 
@@ -688,7 +743,6 @@ export default function DepthMotionStack(props: Props) {
         overflow: "visible",
         ...(touchActive
             ? ({
-                  touchAction: "none",
                   userSelect: "none",
                   WebkitUserSelect: "none",
                   WebkitTouchCallout: "none",
