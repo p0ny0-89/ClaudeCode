@@ -71,6 +71,18 @@ function clamp(v: number, lo: number, hi: number): number {
     return Math.min(Math.max(v, lo), hi)
 }
 
+/** Clone a Framer slot child and force it to fill its parent. */
+function fillSlot(child: React.ReactNode): React.ReactNode {
+    if (!React.isValidElement(child)) return child
+    return React.cloneElement(child as React.ReactElement<any>, {
+        style: {
+            ...(child.props as any).style,
+            width: "100%",
+            height: "100%",
+        },
+    })
+}
+
 // ─── Component ────────────────────────────────────────────
 
 /**
@@ -713,7 +725,7 @@ export default function DepthMotionStack(props: Props) {
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
                 >
-                    {content}
+                    {fillSlot(content)}
                 </div>
             </div>
         )
@@ -775,7 +787,7 @@ export default function DepthMotionStack(props: Props) {
                             willChange: "transform",
                         }}
                     >
-                        {background}
+                        {fillSlot(background)}
                     </div>
                 )}
 
@@ -795,7 +807,7 @@ export default function DepthMotionStack(props: Props) {
                                         : undefined,
                             }}
                         >
-                            {layer}
+                            {fillSlot(layer)}
                         </div>
                     ) : null
                 )}
@@ -814,7 +826,7 @@ export default function DepthMotionStack(props: Props) {
                                 : undefined,
                     }}
                 >
-                    {content}
+                    {fillSlot(content)}
                 </div>
             </div>
         </div>
