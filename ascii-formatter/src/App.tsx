@@ -38,6 +38,7 @@ export default function App() {
   const [effectSpeed, setEffectSpeed] = useState(1)
   const [effectDirection, setEffectDirection] = useState<DirectionOption>("left")
   const [trigger, setTrigger] = useState<TriggerOption>("load")
+  const [fontSizing, setFontSizing] = useState<"fixed" | "auto">("fixed")
   const [hoverGlitch, setHoverGlitch] = useState(false)
   const [textAlign, setTextAlign] = useState<AlignOption>("left")
 
@@ -57,6 +58,7 @@ export default function App() {
     effectSpeed,
     effectDirection,
     trigger,
+    fontSizing,
     hoverGlitch,
     textAlign,
   }
@@ -191,7 +193,13 @@ export default function App() {
           </optgroup>
         </select>
 
-        <label style={{ ...labelStyle, marginTop: 8 }}>Font Size: {fontSize}px</label>
+        <label style={{ ...labelStyle, marginTop: 8 }}>Font Sizing</label>
+        <div style={segmentedContainer}>
+          <button style={segmentBtn(fontSizing === "fixed")} onClick={() => setFontSizing("fixed")}>Fixed</button>
+          <button style={segmentBtn(fontSizing === "auto")} onClick={() => setFontSizing("auto")}>Auto</button>
+        </div>
+
+        <label style={{ ...labelStyle, marginTop: 8 }}>{fontSizing === "auto" ? "Max " : ""}Font Size: {fontSize}px</label>
         <input type="range" min={8} max={72} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} style={{ width: "100%" }} />
 
         <label style={{ ...labelStyle, marginTop: 8 }}>Line Height: {lineHeight}</label>

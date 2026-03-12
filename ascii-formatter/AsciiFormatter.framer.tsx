@@ -22,6 +22,7 @@ interface AsciiFormatterProps {
   effectSpeed: number
   effectDirection: "left" | "right" | "top" | "bottom"
   trigger: "load" | "inView"
+  fontSizing: "fixed" | "auto"
   hoverGlitch: boolean
   textAlign: "left" | "center" | "right"
   style?: React.CSSProperties
@@ -309,6 +310,76 @@ function useHoverGlitch(
   return { overrides, handleMouseMove, handleMouseLeave }
 }
 
+// ─── Auto-Fit Font Size Hook ────────────────────────────────────────
+
+let _measureCanvas: HTMLCanvasElement | null = null
+const REF_SIZE = 16
+
+function getCharWidth(fontFamily: string): number {
+  if (typeof document === "undefined") return REF_SIZE * 0.6
+  if (!_measureCanvas) _measureCanvas = document.createElement("canvas")
+  const ctx = _measureCanvas.getContext("2d")!
+  ctx.font = `${REF_SIZE}px ${fontFamily}`
+  return ctx.measureText("M").width
+}
+
+function useAutoFitFontSize(
+  rootRef: React.RefObject<HTMLDivElement | null>,
+  text: string,
+  fontFamily: string,
+  maxFontSize: number,
+  letterSpacing: number,
+  enabled: boolean
+): number {
+  const [computedSize, setComputedSize] = useState(maxFontSize)
+  const fontFamilyRef = useRef(fontFamily)
+  fontFamilyRef.current = fontFamily
+
+  const longestLineLen = React.useMemo(() => {
+    const lines = text.split("\n")
+    return Math.max(...lines.map((l) => l.length), 1)
+  }, [text])
+
+  const calculate = useCallback(() => {
+    const el = rootRef.current
+    if (!el) return
+    const containerWidth = el.clientWidth
+    if (containerWidth <= 0) return
+
+    const charWidthAtRef = getCharWidth(fontFamilyRef.current)
+    if (charWidthAtRef <= 0) return
+
+    const raw =
+      (containerWidth / longestLineLen - letterSpacing) *
+      (REF_SIZE / charWidthAtRef)
+
+    setComputedSize(Math.max(1, Math.min(raw, maxFontSize)))
+  }, [rootRef, longestLineLen, letterSpacing, maxFontSize])
+
+  useEffect(() => {
+    if (!enabled) {
+      setComputedSize(maxFontSize)
+      return
+    }
+
+    const el = rootRef.current
+    if (!el) return
+
+    calculate()
+
+    const ro = new ResizeObserver(() => calculate())
+    ro.observe(el)
+
+    if (typeof document !== "undefined" && document.fonts) {
+      document.fonts.ready.then(() => calculate())
+    }
+
+    return () => ro.disconnect()
+  }, [enabled, calculate, rootRef, maxFontSize])
+
+  return enabled ? computedSize : maxFontSize
+}
+
 // ─── Style Helper ───────────────────────────────────────────────────
 
 function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
@@ -463,6 +534,17 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
 
   const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
+  // Auto-fit font sizing
+  const fontFamily = props.font?.fontFamily || "'Courier New', Courier, monospace"
+  const autoFontSize = useAutoFitFontSize(
+    rootRef,
+    text,
+    fontFamily,
+    props.fontSize,
+    props.letterSpacing,
+    props.fontSizing === "auto"
+  )
+
   // IntersectionObserver: one-shot trigger when ≥10% visible
   useEffect(() => {
     if (trigger !== "inView" || isCanvas) return
@@ -512,7 +594,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         ? typing.visibleText
         : text
 
-  const textStyle = getTextStyle(props)
+  const textStyle = { ...getTextStyle(props), fontSize: autoFontSize }
 
   const innerEffectStyle: React.CSSProperties = {}
   if (activeEffect === "fade") {
@@ -574,6 +656,7 @@ AsciiFormatter.defaultProps = {
   effectSpeed: 1,
   effectDirection: "left",
   trigger: "load",
+  fontSizing: "fixed",
   hoverGlitch: false,
   textAlign: "left",
 }
@@ -593,6 +676,14 @@ addPropertyControls(AsciiFormatter, {
     type: ControlType.Font,
     controls: "basic",
     defaultFontType: "monospace",
+  },
+  fontSizing: {
+    type: ControlType.Enum,
+    title: "Font Sizing",
+    defaultValue: "fixed",
+    options: ["fixed", "auto"],
+    optionTitles: ["Fixed", "Auto"],
+    displaySegmentedControl: true,
   },
   fontSize: {
     type: ControlType.Number,

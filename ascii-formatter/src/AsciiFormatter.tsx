@@ -5,6 +5,7 @@ import { useTypingEffect } from "./hooks/useTypingEffect"
 import { useRevealEffect } from "./hooks/useRevealEffect"
 import { useGlitchEffect } from "./hooks/useGlitchEffect"
 import { useHoverGlitch } from "./hooks/useHoverGlitch"
+import { useAutoFitFontSize } from "./hooks/useAutoFitFontSize"
 
 interface AsciiFormatterProps {
   text: string
@@ -22,6 +23,7 @@ interface AsciiFormatterProps {
   effectSpeed: number
   effectDirection: "left" | "right" | "top" | "bottom"
   trigger: "load" | "inView"
+  fontSizing: "fixed" | "auto"
   hoverGlitch: boolean
   textAlign: "left" | "center" | "right"
   style?: React.CSSProperties
@@ -279,6 +281,17 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
   // Load Google Fonts on first render
   useEffect(() => { loadGoogleFonts() }, [])
 
+  // Auto-fit font sizing
+  const fontFamily = FONT_MAP[props.font] || "'Courier New', monospace"
+  const autoFontSize = useAutoFitFontSize(
+    rootRef,
+    text,
+    fontFamily,
+    props.fontSize,
+    props.letterSpacing,
+    props.fontSizing === "auto"
+  )
+
   // IntersectionObserver: one-shot trigger when ≥10% visible
   useEffect(() => {
     if (trigger !== "inView" || isCanvas) return
@@ -330,7 +343,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         ? typing.visibleText
         : text
 
-  const textStyle = getTextStyle(props)
+  const textStyle = { ...getTextStyle(props), fontSize: autoFontSize }
 
   const innerEffectStyle: React.CSSProperties = {}
   if (activeEffect === "fade") {
@@ -394,6 +407,7 @@ AsciiFormatter.defaultProps = {
   effectSpeed: 1,
   effectDirection: "left",
   trigger: "load",
+  fontSizing: "fixed",
   hoverGlitch: false,
   textAlign: "left",
 }
@@ -418,6 +432,14 @@ addPropertyControls(AsciiFormatter, {
       const match = d.family.match(/^'([^']+)'/)
       return match ? match[1] : d.family.split(",")[0].trim()
     }),
+  },
+  fontSizing: {
+    type: ControlType.Enum,
+    title: "Font Sizing",
+    defaultValue: "fixed",
+    options: ["fixed", "auto"],
+    optionTitles: ["Fixed", "Auto"],
+    displaySegmentedControl: true,
   },
   fontSize: {
     type: ControlType.Number,
