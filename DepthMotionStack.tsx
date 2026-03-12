@@ -732,16 +732,9 @@ export default function DepthMotionStack(props: Props) {
     }
 
     // Shared style for mid-layer divs
-    const pad = parallaxAmount * 0.6
     const midLayerBase: React.CSSProperties = {
         position: "absolute",
-        top: `${-pad}px`,
-        left: `${-pad}px`,
-        width: `calc(100% + ${pad * 2}px)`,
-        height: `calc(100% + ${pad * 2}px)`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+        inset: 0,
         willChange: "transform",
     }
 
@@ -778,11 +771,7 @@ export default function DepthMotionStack(props: Props) {
                         className={fillClass}
                         style={{
                             position: "absolute",
-                            // Oversized so translated edges stay covered
-                            top: `${-pad}px`,
-                            left: `${-pad}px`,
-                            width: `calc(100% + ${pad * 2}px)`,
-                            height: `calc(100% + ${pad * 2}px)`,
+                            inset: 0,
                             willChange: "transform",
                         }}
                     >
