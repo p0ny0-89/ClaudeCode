@@ -19,6 +19,7 @@ type OverlayDirection = "toward" | "away"
 type TransitionType = "instant" | "fade" | "slide" | "push"
 type TransitionDirection = "left" | "right" | "up" | "down"
 type SlideInput = "images" | "videos"
+type BorderMode = "always" | "on-hover" | "off-hover"
 type ContentFit = "fill" | "fit"
 type AlignX = "left" | "center" | "right"
 type AlignY = "top" | "center" | "bottom"
@@ -58,6 +59,7 @@ interface Props {
     // ── Card ──────────────────────────────────────────
     backgroundRadius: number
     borderEnabled: boolean
+    borderMode: BorderMode
     borderWidth: number
     borderColor: string
     shadowEnabled: boolean
@@ -399,6 +401,7 @@ export default function CmsMotionAmbient(props: Props) {
         backgroundVideo,
         backgroundRadius = 0,
         borderEnabled = false,
+        borderMode = "always" as BorderMode,
         borderWidth = 2,
         borderColor = "rgba(255,255,255,0.3)",
         shadowEnabled = false,
@@ -476,6 +479,7 @@ export default function CmsMotionAmbient(props: Props) {
     const surfaceRef = useRef<HTMLDivElement>(null)
     const overlayRef = useRef<HTMLDivElement>(null)
     const glowRef = useRef<HTMLDivElement>(null)
+    const borderRef = useRef<HTMLDivElement>(null)
     const rafId = useRef(0)
     const loopRunning = useRef(false)
     const hovering = useRef(false)
@@ -525,6 +529,7 @@ export default function CmsMotionAmbient(props: Props) {
         ambientEnabled,
         ambientIntensity,
         muteVideo,
+        borderMode,
     }
     const cfg = useRef(cfgVal)
     cfg.current = cfgVal
@@ -630,6 +635,17 @@ export default function CmsMotionAmbient(props: Props) {
             glowEl.style.opacity = glowOpCurrent.current.toFixed(3)
         }
 
+        // ── Apply border opacity (hover modes) ──────
+        const borderEl = borderRef.current
+        if (borderEl) {
+            const bm = cfg.current.borderMode
+            if (bm === "on-hover") {
+                borderEl.style.opacity = overlayOpCurrent.current.toFixed(3)
+            } else if (bm === "off-hover") {
+                borderEl.style.opacity = (1 - overlayOpCurrent.current).toFixed(3)
+            }
+        }
+
         // ── 5. Settle check ───────────────────────────
         const tc = tiltCurrent.current
         const tt = tiltTarget.current
@@ -672,6 +688,15 @@ export default function CmsMotionAmbient(props: Props) {
             glowOpCurrent.current = cfg.current.ambientEnabled ? glowTarget : 0
             if (glowEl) {
                 glowEl.style.opacity = String(glowOpCurrent.current)
+            }
+
+            if (borderEl) {
+                const bm = cfg.current.borderMode
+                if (bm === "on-hover") {
+                    borderEl.style.opacity = String(overlayOpCurrent.current)
+                } else if (bm === "off-hover") {
+                    borderEl.style.opacity = String(1 - overlayOpCurrent.current)
+                }
             }
 
             loopRunning.current = false
@@ -995,12 +1020,14 @@ export default function CmsMotionAmbient(props: Props) {
                 {/* ④ Border stroke — after overlay so it's always on top */}
                 {borderShadow && (
                     <div
+                        ref={borderRef}
                         style={{
                             position: "absolute",
                             inset: 0,
                             borderRadius: backgroundRadius,
                             boxShadow: borderShadow,
                             pointerEvents: "none",
+                            opacity: borderMode === "on-hover" ? 0 : 1,
                         }}
                     />
                 )}
@@ -1204,6 +1231,16 @@ addPropertyControls(CmsMotionAmbient, {
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
+    },
+
+    borderMode: {
+        type: ControlType.Enum,
+        title: "Border Mode",
+        defaultValue: "always",
+        options: ["always", "on-hover", "off-hover"],
+        optionTitles: ["Always", "On Hover", "Off Hover"],
+        displaySegmentedControl: true,
+        hidden: (props: any) => !props.borderEnabled,
     },
 
     borderWidth: {
