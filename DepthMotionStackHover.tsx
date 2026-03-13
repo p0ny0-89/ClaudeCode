@@ -1039,6 +1039,11 @@ const BLEND_TITLES = [
 
 // ─── Framer Property Controls ─────────────────────────────
 
+DepthMotionStackHover.defaultProps = {
+    width: 400,
+    height: 400,
+}
+
 addPropertyControls(DepthMotionStackHover, {
     content: {
         type: ControlType.ComponentInstance,

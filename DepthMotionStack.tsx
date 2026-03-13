@@ -974,6 +974,11 @@ const BLEND_TITLES = [
 
 // ─── Framer Property Controls ─────────────────────────────
 
+DepthMotionStack.defaultProps = {
+    width: 400,
+    height: 400,
+}
+
 addPropertyControls(DepthMotionStack, {
     content: {
         type: ControlType.ComponentInstance,
