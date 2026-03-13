@@ -88,6 +88,9 @@ interface Props {
     ambientSaturate: number
     ambientBrightness: number
 
+    // ── Video ────────────────────────────────────────
+    muteVideo: boolean
+
     // ── Reveal on View ────────────────────────────────
     autoplay: boolean
 
@@ -116,11 +119,13 @@ function Media({
     src,
     objectFit = "cover",
     borderRadius,
+    muted = true,
     style,
 }: {
     src: string
     objectFit?: "cover" | "fit"
     borderRadius?: number
+    muted?: boolean
     style?: React.CSSProperties
 }) {
     const isFit = objectFit === "fit"
@@ -149,7 +154,7 @@ function Media({
                 src={src}
                 style={base}
                 autoPlay
-                muted
+                muted={muted}
                 loop
                 playsInline
             />
@@ -298,6 +303,7 @@ function SlidesContent({
     objectFit,
     objectPosition,
     borderRadius,
+    muteVideo = true,
 }: {
     slides: string[]
     currentSlide: number
@@ -307,6 +313,7 @@ function SlidesContent({
     objectFit: "cover" | "fit"
     objectPosition?: string
     borderRadius: number
+    muteVideo?: boolean
 }) {
     const isFit = objectFit === "fit"
     const flex = isFit ? positionToFlex(objectPosition) : undefined
@@ -331,10 +338,10 @@ function SlidesContent({
                             ...flex,
                         }}
                     >
-                        <Media src={slides[0]} objectFit="fit" borderRadius={borderRadius} />
+                        <Media src={slides[0]} objectFit="fit" borderRadius={borderRadius} muted={muteVideo} />
                     </div>
                 ) : (
-                    <Media src={slides[0]} objectFit="cover" borderRadius={borderRadius} />
+                    <Media src={slides[0]} objectFit="cover" borderRadius={borderRadius} muted={muteVideo} />
                 )
             ) : (
                 slides.map((src, i) => {
@@ -355,7 +362,7 @@ function SlidesContent({
                                     : slideStyle
                             }
                         >
-                            <Media src={src} objectFit={objectFit} borderRadius={borderRadius} />
+                            <Media src={src} objectFit={objectFit} borderRadius={borderRadius} muted={muteVideo} />
                         </div>
                     )
                 })
@@ -434,6 +441,7 @@ export default function CmsMotionAmbient(props: Props) {
         ambientIntensity = 0.25,
         ambientSaturate = 1.5,
         ambientBrightness = 1.2,
+        muteVideo = true,
         autoplay = false,
         tilt = true,
         behavior = "follow",
@@ -931,7 +939,7 @@ export default function CmsMotionAmbient(props: Props) {
                 >
                     {/* Background — always visible */}
                     <div style={{ position: "absolute", inset: 0 }}>
-                        <Media src={bgSrc} />
+                        <Media src={bgSrc} muted={muteVideo} />
                     </div>
 
                 </div>
@@ -966,6 +974,7 @@ export default function CmsMotionAmbient(props: Props) {
                                 objectFit={overlayObjectFit}
                                 objectPosition={mediaPosition}
                                 borderRadius={overlayRadius}
+                                muteVideo={muteVideo}
                             />
                         </div>
                     </div>
@@ -1430,6 +1439,18 @@ addPropertyControls(CmsMotionAmbient, {
         step: 0.05,
         hidden: (props: any) =>
             (props.slideCount ?? 0) < 1 || !props.ambientEnabled,
+    },
+
+    // ── Video ──────────────────────────────────────────
+
+    muteVideo: {
+        type: ControlType.Boolean,
+        title: "Mute Video",
+        defaultValue: true,
+        enabledTitle: "Muted",
+        disabledTitle: "Unmuted",
+        description:
+            "Mute video audio on playback. Note: most browsers require videos to be muted for autoplay to work without user interaction.",
     },
 
     // ── Touch / Fallback ────────────────────────────────
