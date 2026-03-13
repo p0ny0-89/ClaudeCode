@@ -121,7 +121,7 @@ function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
     width: "100%",
     height: "100%",
     boxSizing: "border-box",
-    color: props.fillType === "solid" ? props.textColor : "transparent",
+    color: props.textColor,
   }
 }
 
