@@ -848,8 +848,8 @@ export default function DepthMotionStackHover(props: Props) {
 
     const fillStyle = (
         <style>{`
-.${fillClass} > * { width: 100% !important; height: 100% !important; }
-.${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; }
+.${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto !important; }
+.${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto !important; }
         `}</style>
     )
 
@@ -890,10 +890,13 @@ export default function DepthMotionStackHover(props: Props) {
     }
 
     // Grid cell style — all layers overlap in the same cell.
+    // pointer-events: none on wrapper so stacked layers don't block each other;
+    // children get pointer-events: auto via CSS class below.
     const gridCell: React.CSSProperties = {
         gridRow: 1,
         gridColumn: 1,
         willChange: "transform",
+        pointerEvents: "none",
     }
 
     return (
