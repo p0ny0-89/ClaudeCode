@@ -667,11 +667,8 @@ export default function DepthMotionStackHover(props: Props) {
                 cachedRect.current = null
             }
         } else if (act === "always") {
-            if (tiltOn && mode === "cursor") {
-                target.current.rx = 0
-                target.current.ry = 0
-                target.current.s = 1
-            }
+            // "Always" mode stays engaged — don't reset tilt or parallax on leave.
+            // Parallax holds at last cursor position; auto-tilt keeps animating.
         }
 
         startLoop()
