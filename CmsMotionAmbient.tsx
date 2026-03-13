@@ -119,13 +119,11 @@ function Media({
     src,
     objectFit = "cover",
     borderRadius,
-    muted = true,
     style,
 }: {
     src: string
     objectFit?: "cover" | "fit"
     borderRadius?: number
-    muted?: boolean
     style?: React.CSSProperties
 }) {
     const isFit = objectFit === "fit"
@@ -154,7 +152,7 @@ function Media({
                 src={src}
                 style={base}
                 autoPlay
-                muted={muted}
+                muted
                 loop
                 playsInline
             />
@@ -303,7 +301,6 @@ function SlidesContent({
     objectFit,
     objectPosition,
     borderRadius,
-    muteVideo = true,
 }: {
     slides: string[]
     currentSlide: number
@@ -313,7 +310,6 @@ function SlidesContent({
     objectFit: "cover" | "fit"
     objectPosition?: string
     borderRadius: number
-    muteVideo?: boolean
 }) {
     const isFit = objectFit === "fit"
     const flex = isFit ? positionToFlex(objectPosition) : undefined
@@ -338,10 +334,10 @@ function SlidesContent({
                             ...flex,
                         }}
                     >
-                        <Media src={slides[0]} objectFit="fit" borderRadius={borderRadius} muted={muteVideo} />
+                        <Media src={slides[0]} objectFit="fit" borderRadius={borderRadius} />
                     </div>
                 ) : (
-                    <Media src={slides[0]} objectFit="cover" borderRadius={borderRadius} muted={muteVideo} />
+                    <Media src={slides[0]} objectFit="cover" borderRadius={borderRadius} />
                 )
             ) : (
                 slides.map((src, i) => {
@@ -362,7 +358,7 @@ function SlidesContent({
                                     : slideStyle
                             }
                         >
-                            <Media src={src} objectFit={objectFit} borderRadius={borderRadius} muted={muteVideo} />
+                            <Media src={src} objectFit={objectFit} borderRadius={borderRadius} />
                         </div>
                     )
                 })
@@ -528,11 +524,24 @@ export default function CmsMotionAmbient(props: Props) {
         slideDuration,
         ambientEnabled,
         ambientIntensity,
+        muteVideo,
     }
     const cfg = useRef(cfgVal)
     cfg.current = cfgVal
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
+
+    // ── Video mute sync ──────────────────────────────────
+    // Mute/unmute overlay videos when the overlay shows/hides.
+    // Videos always start muted (browser autoplay requirement).
+    // We only unmute when overlay is visible and muteVideo is off.
+    const syncVideoMute = useCallback((overlayVisible: boolean) => {
+        const el = overlayRef.current
+        if (!el) return
+        const shouldUnmute = overlayVisible && !cfg.current.muteVideo && !isCanvas
+        const videos = el.querySelectorAll("video")
+        videos.forEach((v) => { v.muted = !shouldUnmute })
+    }, [isCanvas])
 
     // ── Slideshow Timer ──────────────────────────────────
 
@@ -699,9 +708,10 @@ export default function CmsMotionAmbient(props: Props) {
         overlayActiveRef.current = true
         setCurrentSlide(0)
         startSlideTimer()
+        syncVideoMute(true)
 
         startLoop()
-    }, [isCanvas, startLoop, startSlideTimer])
+    }, [isCanvas, startLoop, startSlideTimer, syncVideoMute])
 
     const onPointerMove = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
@@ -765,10 +775,11 @@ export default function CmsMotionAmbient(props: Props) {
             overlayOpTarget.current = 0
             overlayActiveRef.current = false
             stopSlideTimer()
+            syncVideoMute(false)
         }
 
         startLoop()
-    }, [isCanvas, startLoop, stopSlideTimer])
+    }, [isCanvas, startLoop, stopSlideTimer, syncVideoMute])
 
     // ── Reset on Tilt Change ─────────────────────────────
 
@@ -795,6 +806,7 @@ export default function CmsMotionAmbient(props: Props) {
                     overlayActiveRef.current = true
                     setCurrentSlide(0)
                     startSlideTimer()
+                    syncVideoMute(true)
                     startLoop()
                 } else if (!entry.isIntersecting) {
                     // Card left viewport — fade overlay out
@@ -803,6 +815,7 @@ export default function CmsMotionAmbient(props: Props) {
                     overlayPosTarget.current.ty = 0
                     overlayActiveRef.current = false
                     stopSlideTimer()
+                    syncVideoMute(false)
                     startLoop()
                 }
             },
@@ -811,7 +824,7 @@ export default function CmsMotionAmbient(props: Props) {
 
         observer.observe(el)
         return () => observer.disconnect()
-    }, [autoplay, isCanvas, startLoop, startSlideTimer, stopSlideTimer])
+    }, [autoplay, isCanvas, startLoop, startSlideTimer, stopSlideTimer, syncVideoMute])
 
     // ── Restart Timer on Duration / Slide Count Change ───
 
@@ -939,7 +952,7 @@ export default function CmsMotionAmbient(props: Props) {
                 >
                     {/* Background — always visible */}
                     <div style={{ position: "absolute", inset: 0 }}>
-                        <Media src={bgSrc} muted={muteVideo} />
+                        <Media src={bgSrc} />
                     </div>
 
                 </div>
@@ -974,7 +987,6 @@ export default function CmsMotionAmbient(props: Props) {
                                 objectFit={overlayObjectFit}
                                 objectPosition={mediaPosition}
                                 borderRadius={overlayRadius}
-                                muteVideo={muteVideo}
                             />
                         </div>
                     </div>
