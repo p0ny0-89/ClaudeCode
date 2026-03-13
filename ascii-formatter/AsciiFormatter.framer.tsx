@@ -382,8 +382,8 @@ function useAutoFitFontSize(
 
 // ─── Style Helper ───────────────────────────────────────────────────
 
-function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
-  return {
+function getTextStyle(props: AsciiFormatterProps, isCanvas: boolean): React.CSSProperties {
+  const base: React.CSSProperties = {
     ...(props.font || {}),
     fontSize: props.fontSize,
     lineHeight: props.lineHeight,
@@ -392,16 +392,38 @@ function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
     textAlign: props.textAlign,
     margin: 0,
     padding: 0,
-    width: "100%",
-    height: "100%",
     boxSizing: "border-box",
     color: props.textColor,
   }
+
+  if (props.fillType === "solid") {
+    // Solid: full-size <pre> is fine
+    return { ...base, width: "100%", height: "100%" }
+  }
+
+  const gradient =
+    props.fillType === "linear"
+      ? `linear-gradient(${props.gradientAngle}deg, ${props.gradientStart}, ${props.gradientEnd})`
+      : `radial-gradient(circle, ${props.gradientStart}, ${props.gradientEnd})`
+
+  if (isCanvas) {
+    // Canvas: apply gradient directly on the <pre> but do NOT use
+    // width/height 100% so the background only covers text content.
+    return {
+      ...base,
+      background: gradient,
+      backgroundClip: "text",
+      WebkitBackgroundClip: "text",
+      WebkitTextFillColor: "transparent",
+      color: "transparent",
+    }
+  }
+
+  // Preview: full-size <pre>, gradient via inner <span> wrapper
+  return { ...base, width: "100%", height: "100%" }
 }
 
-/** Gradient styles applied to an inner <span> wrapper (preview only).
- *  On canvas we use per-character coloring instead because the Framer
- *  canvas renderer doesn't support background-clip: text. */
+/** Gradient styles for the inner <span> wrapper (preview only). */
 function getGradientStyle(props: AsciiFormatterProps): React.CSSProperties | null {
   if (props.fillType === "solid") return null
 
@@ -417,80 +439,6 @@ function getGradientStyle(props: AsciiFormatterProps): React.CSSProperties | nul
     WebkitTextFillColor: "transparent",
     color: "transparent",
   }
-}
-
-// ─── Per-character gradient (canvas fallback) ────────────────────────
-
-type RGB = [number, number, number]
-
-function hexToRgb(hex: string): RGB {
-  const h = hex.replace(/^#/, "")
-  if (h.length === 3) {
-    return [
-      parseInt(h[0] + h[0], 16),
-      parseInt(h[1] + h[1], 16),
-      parseInt(h[2] + h[2], 16),
-    ]
-  }
-  return [
-    parseInt(h.substring(0, 2), 16),
-    parseInt(h.substring(2, 4), 16),
-    parseInt(h.substring(4, 6), 16),
-  ]
-}
-
-function lerpColor(c1: RGB, c2: RGB, t: number): string {
-  const r = Math.round(c1[0] + (c2[0] - c1[0]) * t)
-  const g = Math.round(c1[1] + (c2[1] - c1[1]) * t)
-  const b = Math.round(c1[2] + (c2[2] - c1[2]) * t)
-  return `rgb(${r},${g},${b})`
-}
-
-/** Renders text with per-character color interpolation so gradients
- *  display correctly on the Framer canvas (which lacks background-clip
- *  support). */
-function renderCanvasGradient(
-  text: string,
-  fillType: "linear" | "radial",
-  startColor: string,
-  endColor: string,
-  angle: number
-): React.ReactNode {
-  const c1 = hexToRgb(startColor)
-  const c2 = hexToRgb(endColor)
-  const lines = text.split("\n")
-  const totalRows = lines.length
-  const totalCols = Math.max(...lines.map((l) => l.length), 1)
-
-  // Linear: direction vector from CSS angle (0° = bottom-to-top, 90° = left-to-right)
-  const rad = ((angle - 90) * Math.PI) / 180
-  const dx = Math.cos(rad)
-  const dy = Math.sin(rad)
-
-  return lines.map((line, row) => (
-    <React.Fragment key={row}>
-      {Array.from(line).map((char, col) => {
-        let t: number
-        if (fillType === "linear") {
-          const nx = totalCols > 1 ? col / (totalCols - 1) : 0.5
-          const ny = totalRows > 1 ? row / (totalRows - 1) : 0.5
-          t = (nx * dx + ny * dy + 1) / 2 // normalise from [-1,1] to [0,1]
-        } else {
-          // Radial: distance from centre
-          const nx = totalCols > 1 ? (col - (totalCols - 1) / 2) / ((totalCols - 1) / 2) : 0
-          const ny = totalRows > 1 ? (row - (totalRows - 1) / 2) / ((totalRows - 1) / 2) : 0
-          t = Math.sqrt(nx * nx + ny * ny)
-        }
-        t = Math.max(0, Math.min(1, t))
-        return (
-          <span key={col} style={{ color: lerpColor(c1, c2, t) }}>
-            {char}
-          </span>
-        )
-      })}
-      {row < lines.length - 1 ? "\n" : null}
-    </React.Fragment>
-  ))
 }
 
 // ─── Reveal Renderer ────────────────────────────────────────────────
@@ -671,9 +619,9 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         ? typing.visibleText
         : text
 
-  const textStyle = { ...getTextStyle(props), fontSize: autoFontSize }
+  const textStyle = { ...getTextStyle(props, isCanvas), fontSize: autoFontSize }
+  // Preview only: gradient via inner <span> (canvas uses gradient on <pre> directly)
   const gradientStyle = isCanvas ? null : getGradientStyle(props)
-  const useCanvasGradient = isCanvas && props.fillType !== "solid"
 
   const innerEffectStyle: React.CSSProperties = {}
   if (activeEffect === "fade") {
@@ -681,16 +629,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
   }
 
   let content: React.ReactNode
-  if (useCanvasGradient) {
-    // Canvas: per-character coloring (background-clip: text unsupported)
-    content = renderCanvasGradient(
-      displayText,
-      props.fillType as "linear" | "radial",
-      props.gradientStart,
-      props.gradientEnd,
-      props.gradientAngle
-    )
-  } else if (activeEffect === "reveal" && !effectCompleted) {
+  if (activeEffect === "reveal" && !effectCompleted) {
     content = renderReveal(text, reveal.progress, effectDirection)
   } else if (activeEffect === "typing" && !effectCompleted) {
     content = (
