@@ -642,15 +642,11 @@ export default function CmsMotionAmbient(props: Props) {
         if (borderEl) {
             const bm = cfg.current.borderMode
             if (bm === "on-hover") {
-                const t = overlayOpCurrent.current
-                const w = (cfg.current.borderWidth * t).toFixed(2)
+                const w = (cfg.current.borderWidth * overlayOpCurrent.current).toFixed(2)
                 borderEl.style.boxShadow = `inset 0 0 0 ${w}px ${cfg.current.borderColor}`
-                borderEl.style.opacity = t.toFixed(3)
             } else if (bm === "off-hover") {
-                const t = 1 - overlayOpCurrent.current
-                const w = (cfg.current.borderWidth * t).toFixed(2)
+                const w = (cfg.current.borderWidth * (1 - overlayOpCurrent.current)).toFixed(2)
                 borderEl.style.boxShadow = `inset 0 0 0 ${w}px ${cfg.current.borderColor}`
-                borderEl.style.opacity = t.toFixed(3)
             }
         }
 
@@ -701,15 +697,11 @@ export default function CmsMotionAmbient(props: Props) {
             if (borderEl) {
                 const bm = cfg.current.borderMode
                 if (bm === "on-hover") {
-                    const t = overlayOpCurrent.current
-                    const w = cfg.current.borderWidth * t
+                    const w = cfg.current.borderWidth * overlayOpCurrent.current
                     borderEl.style.boxShadow = `inset 0 0 0 ${w}px ${cfg.current.borderColor}`
-                    borderEl.style.opacity = String(t)
                 } else if (bm === "off-hover") {
-                    const t = 1 - overlayOpCurrent.current
-                    const w = cfg.current.borderWidth * t
+                    const w = cfg.current.borderWidth * (1 - overlayOpCurrent.current)
                     borderEl.style.boxShadow = `inset 0 0 0 ${w}px ${cfg.current.borderColor}`
-                    borderEl.style.opacity = String(t)
                 }
             }
 
@@ -1043,7 +1035,6 @@ export default function CmsMotionAmbient(props: Props) {
                                 ? `inset 0 0 0 0px ${borderColor}`
                                 : borderShadow,
                             pointerEvents: "none",
-                            opacity: borderMode === "on-hover" ? 0 : 1,
                         }}
                     />
                 )}
