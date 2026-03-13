@@ -353,7 +353,7 @@ function useAutoFitFontSize(
       (containerWidth / longestLineLen - letterSpacing) *
       (REF_SIZE / charWidthAtRef)
 
-    setComputedSize(Math.max(1, Math.min(raw, maxFontSize)))
+    setComputedSize(Math.max(1, Math.min(raw, 500)))
   }, [rootRef, longestLineLen, letterSpacing, maxFontSize])
 
   useEffect(() => {

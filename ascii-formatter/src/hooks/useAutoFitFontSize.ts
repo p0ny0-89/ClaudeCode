@@ -58,7 +58,10 @@ export function useAutoFitFontSize(
       (containerWidth / longestLineLen - letterSpacing) *
       (REF_SIZE / charWidthAtRef)
 
-    const clamped = Math.max(1, Math.min(raw, maxFontSize))
+    // Allow scaling both up and down; only hard-cap at 500px to prevent
+    // absurd sizes.  maxFontSize is NOT used as a ceiling here so the text
+    // can grow beyond the panel's fontSize value when the container is wide.
+    const clamped = Math.max(1, Math.min(raw, 500))
     setComputedSize(clamped)
   }, [rootRef, longestLineLen, letterSpacing, maxFontSize])
 
