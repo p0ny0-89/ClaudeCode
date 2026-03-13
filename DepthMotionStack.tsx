@@ -1042,11 +1042,11 @@ addPropertyControls(DepthMotionStack, {
     touchDrag: {
         type: ControlType.Boolean,
         title: "Touch Drag",
-        defaultValue: false,
+        defaultValue: true,
         enabledTitle: "On",
         disabledTitle: "Off",
         description:
-            "Enables finger drag to control tilt on touch devices. Disables scroll over this component.",
+            "Enables finger drag to control tilt on touch devices.",
         hidden: (props: any) =>
             !props.tilt || props.interaction === "auto",
     },
