@@ -81,13 +81,11 @@ function clamp(v: number, lo: number, hi: number): number {
 
 // ─── Component ────────────────────────────────────────────
 
-/**
- * DepthMotionStack — Multi-layer tilt and parallax effect wrapper.
- *
- * @framerIntrinsicWidth 400
- * @framerIntrinsicHeight 400
- * @framerDisableUnlink
- */
+// @framerSupportedLayoutWidth any-prefer-fixed
+// @framerSupportedLayoutHeight any-prefer-fixed
+// @framerIntrinsicWidth 400
+// @framerIntrinsicHeight 400
+// @framerDisableUnlink
 export default function DepthMotionStack(props: Props) {
     const {
         content,

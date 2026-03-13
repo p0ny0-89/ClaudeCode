@@ -89,14 +89,11 @@ function clamp(v: number, lo: number, hi: number): number {
 
 // ─── Component ────────────────────────────────────────────
 
-/**
- * DepthMotionStackHover — Multi-layer tilt and parallax with
- * hover-reactive per-layer opacity.
- *
- * @framerIntrinsicWidth 400
- * @framerIntrinsicHeight 400
- * @framerDisableUnlink
- */
+// @framerSupportedLayoutWidth any-prefer-fixed
+// @framerSupportedLayoutHeight any-prefer-fixed
+// @framerIntrinsicWidth 400
+// @framerIntrinsicHeight 400
+// @framerDisableUnlink
 export default function DepthMotionStackHover(props: Props) {
     const {
         content,
