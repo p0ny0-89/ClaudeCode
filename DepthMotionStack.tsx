@@ -155,6 +155,7 @@ export default function DepthMotionStack(props: Props) {
     const touchCaptured = useRef(false)
     const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const holdStart = useRef<{ x: number; y: number; pointerId: number; target: HTMLElement } | null>(null)
+    const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // Cached bounding rect — avoids getBoundingClientRect() feedback
     // loop caused by 3D perspective distorting the projected rect
@@ -408,6 +409,13 @@ export default function DepthMotionStack(props: Props) {
 
     const onPointerEnter = useCallback(() => {
         if (isCanvas) return
+
+        // Cancel any pending leave reset
+        if (leaveTimer.current) {
+            clearTimeout(leaveTimer.current)
+            leaveTimer.current = null
+        }
+
         const tiltOn = cfg.current.tilt
         const mode = cfg.current.interaction
         const act = cfg.current.activation
@@ -531,16 +539,13 @@ export default function DepthMotionStack(props: Props) {
         [isCanvas, startLoop, cancelHold]
     )
 
-    const onPointerLeave = useCallback(() => {
-        if (isCanvas) return
-        // Don't reset during active touch drag — finger may leave bounds
-        if (touchCaptured.current) return
+    const doLeave = useCallback(() => {
+        leaveTimer.current = null
         const tiltOn = cfg.current.tilt
         const mode = cfg.current.interaction
         const act = cfg.current.activation
 
         if (act === "hover") {
-            // Standard hover: reset everything
             hovering.current = false
             cachedRect.current = null
 
@@ -560,7 +565,6 @@ export default function DepthMotionStack(props: Props) {
                 pTarget.current.ty = 0
             }
         } else if (act === "click") {
-            // Click mode: always reset tilt on leave (cursor is gone)
             if (tiltOn && mode === "cursor") {
                 target.current.rx = 0
                 target.current.ry = 0
@@ -570,7 +574,6 @@ export default function DepthMotionStack(props: Props) {
                 cachedRect.current = null
             }
         } else if (act === "always") {
-            // Always mode: reset tilt on leave (cursor gone), keep parallax + rect
             if (tiltOn && mode === "cursor") {
                 target.current.rx = 0
                 target.current.ry = 0
@@ -579,7 +582,17 @@ export default function DepthMotionStack(props: Props) {
         }
 
         startLoop()
-    }, [isCanvas, startLoop])
+    }, [startLoop])
+
+    const onPointerLeave = useCallback(() => {
+        if (isCanvas) return
+        if (touchCaptured.current) return
+
+        // Debounce leave to prevent stutter from brief
+        // pointerleave/pointerenter cycles at layer boundaries.
+        if (leaveTimer.current) clearTimeout(leaveTimer.current)
+        leaveTimer.current = setTimeout(doLeave, 50)
+    }, [isCanvas, doLeave])
 
     // ── Touch Drag Handlers (hold-to-activate) ─────────────
     // A brief hold (~300 ms) with minimal movement activates the
@@ -824,7 +837,10 @@ export default function DepthMotionStack(props: Props) {
 
     // ── Cleanup ─────────────────────────────────────────
 
-    useEffect(() => () => cancelAnimationFrame(rafId.current), [])
+    useEffect(() => () => {
+        cancelAnimationFrame(rafId.current)
+        if (leaveTimer.current) clearTimeout(leaveTimer.current)
+    }, [])
 
     // ── Empty State ─────────────────────────────────────
 
