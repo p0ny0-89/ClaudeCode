@@ -762,10 +762,13 @@ export default function DepthMotionStack(props: Props) {
             : {}),
     }
 
-    // CSS rules for slot children:
-    // - fillClass: forces mid/fg slot children to 100% of their wrapper
-    // - bgFillClass: uses min-width/height so the background's intrinsic
-    //   dimensions provide auto-sizing, but it still stretches when resized
+    // When Framer provides explicit dimensions (Fixed / Fill), all slot
+    // children must be 100% to fill responsively. When the component is
+    // in Fit mode (no explicit width), the background's intrinsic
+    // dimensions should flow through to auto-size the component.
+    const isAutoSize = style?.width === undefined || style?.width === "auto"
+    const bgClass = isAutoSize ? bgFillClass : fillClass
+
     const fillStyle = (
         <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; }
@@ -789,7 +792,7 @@ export default function DepthMotionStack(props: Props) {
                 {fillStyle}
                 <div
                     ref={surfaceRef}
-                    className={bgFillClass}
+                    className={bgClass}
                     style={{
                         width: "100%",
                         height: "100%",
@@ -842,12 +845,12 @@ export default function DepthMotionStack(props: Props) {
                 }}
             >
                 {/* Background layer — sizing reference.
-                    Uses bgFillClass (min-width/height) so its slot child's
-                    intrinsic dimensions flow through for auto-sizing, while
-                    still stretching when the component has explicit dims. */}
+                    In Fit mode (auto-size), uses bgFillClass so the slot
+                    child's intrinsic dimensions flow through. In Fixed/Fill
+                    mode, uses fillClass so content fills responsively. */}
                 <div
                     ref={bgRef}
-                    className={bgFillClass}
+                    className={bgClass}
                     style={{
                         ...gridCell,
                         overflow: clipContent ? "hidden" : "visible",

@@ -839,6 +839,13 @@ export default function DepthMotionStackHover(props: Props) {
             : {}),
     }
 
+    // When Framer provides explicit dimensions (Fixed / Fill), all slot
+    // children must be 100% to fill responsively. When the component is
+    // in Fit mode (no explicit width), the background's intrinsic
+    // dimensions should flow through to auto-size the component.
+    const isAutoSize = style?.width === undefined || style?.width === "auto"
+    const bgClass = isAutoSize ? bgFillClass : fillClass
+
     const fillStyle = (
         <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; }
@@ -867,7 +874,7 @@ export default function DepthMotionStackHover(props: Props) {
                 {fillStyle}
                 <div
                     ref={surfaceRef}
-                    className={bgFillClass}
+                    className={bgClass}
                     style={{
                         width: "100%",
                         height: "100%",
@@ -915,7 +922,7 @@ export default function DepthMotionStackHover(props: Props) {
                 {/* Background — sizing reference */}
                 <div
                     ref={bgRef}
-                    className={bgFillClass}
+                    className={bgClass}
                     style={{
                         ...gridCell,
                         overflow: clipContent ? "hidden" : "visible",
