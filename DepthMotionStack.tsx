@@ -84,16 +84,9 @@ function clamp(v: number, lo: number, hi: number): number {
 /**
  * DepthMotionStack — Multi-layer tilt and parallax effect wrapper.
  *
- * Extends DepthMotion with up to 5 additional mid-layers between
- * Background and Content. Each layer auto-distributes across the
- * depth range for a convincing stacked parallax effect.
- *
- * Structure in Framer:
- *   → Connect a frame or component into the Content slot
- *   → Turn Parallax on and connect a Background slot
- *   → Set Layers (0–5) and connect mid-layer slots
- *   → Each layer has its own blend mode control
- *   → All layers shift at auto-calculated depth rates
+ * @framerIntrinsicWidth 400
+ * @framerIntrinsicHeight 400
+ * @framerDisableUnlink
  */
 export default function DepthMotionStack(props: Props) {
     const {
@@ -973,11 +966,6 @@ const BLEND_TITLES = [
 ]
 
 // ─── Framer Property Controls ─────────────────────────────
-
-DepthMotionStack.defaultProps = {
-    width: 400,
-    height: 400,
-}
 
 addPropertyControls(DepthMotionStack, {
     content: {

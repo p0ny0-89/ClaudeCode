@@ -93,9 +93,9 @@ function clamp(v: number, lo: number, hi: number): number {
  * DepthMotionStackHover — Multi-layer tilt and parallax with
  * hover-reactive per-layer opacity.
  *
- * Each layer has an idle and hover opacity. The component smoothly
- * interpolates between them on hover enter/leave, enabling reveal
- * effects where layers appear/disappear on interaction.
+ * @framerIntrinsicWidth 400
+ * @framerIntrinsicHeight 400
+ * @framerDisableUnlink
  */
 export default function DepthMotionStackHover(props: Props) {
     const {
@@ -1038,11 +1038,6 @@ const BLEND_TITLES = [
 ]
 
 // ─── Framer Property Controls ─────────────────────────────
-
-DepthMotionStackHover.defaultProps = {
-    width: 400,
-    height: 400,
-}
 
 addPropertyControls(DepthMotionStackHover, {
     content: {
