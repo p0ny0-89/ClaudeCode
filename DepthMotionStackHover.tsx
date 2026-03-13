@@ -16,6 +16,7 @@ type ParallaxSource = "tilt" | "cursor"
 type ParallaxDirection = "toward" | "away"
 type ParallaxTracking = "hover" | "page"
 type HoverParallax = "off" | "cursor" | "auto"
+type Activation = "hover" | "always" | "click"
 type BlendMode =
     | "normal"
     | "multiply"
@@ -40,6 +41,7 @@ interface Props {
     perspective: number
     speed: number
     parallax: boolean
+    activation: Activation
     parallaxSource: ParallaxSource
     parallaxTracking: ParallaxTracking
     hoverParallax: HoverParallax
@@ -107,6 +109,7 @@ export default function DepthMotionStackHover(props: Props) {
         perspective = 5000,
         speed = 0.5,
         parallax = false,
+        activation = "hover" as Activation,
         parallaxSource = "tilt",
         parallaxTracking = "hover",
         hoverParallax = "off",
@@ -182,6 +185,9 @@ export default function DepthMotionStackHover(props: Props) {
     const hoverOpTarget = useRef(0)
     const hoverOpCurrent = useRef(0)
 
+    // Click-to-activate toggle state
+    const clickActive = useRef(false)
+
     // Latest props in a ref so callbacks stay stable
     const cfg = useRef({
         tilt,
@@ -193,6 +199,7 @@ export default function DepthMotionStackHover(props: Props) {
         perspective,
         speed,
         parallax,
+        activation,
         parallaxSource,
         parallaxTracking,
         hoverParallax,
@@ -226,6 +233,7 @@ export default function DepthMotionStackHover(props: Props) {
         perspective,
         speed,
         parallax,
+        activation,
         parallaxSource,
         parallaxTracking,
         hoverParallax,
@@ -275,8 +283,8 @@ export default function DepthMotionStackHover(props: Props) {
         const pc = pCurrent.current
         const pt = pTarget.current
 
-        // Auto tilt: organic Lissajous, paused on hover
-        if (tiltEnabled && mode === "auto" && !hovering.current) {
+        // Auto tilt: organic Lissajous, paused on hover (except "always" activation)
+        if (tiltEnabled && mode === "auto" && (!hovering.current || cfg.current.activation === "always")) {
             const sec = time * 0.001 * spd
             t.rx = Math.sin(sec * 0.6 + 0.3) * limit * AUTO_INTENSITY
             t.ry = Math.cos(sec * 0.4) * limit * AUTO_INTENSITY
@@ -284,7 +292,8 @@ export default function DepthMotionStackHover(props: Props) {
         }
 
         // ── Parallax target computation ───────────────────
-        if (pEnabled) {
+        // In "always" activation, page-level listener sets pTarget directly — skip tick-based computation.
+        if (pEnabled && cfg.current.activation !== "always") {
             if (tiltEnabled && mode === "auto" && hovering.current) {
                 const hpMode = cfg.current.hoverParallax
                 if (hpMode === "off") {
@@ -489,8 +498,14 @@ export default function DepthMotionStackHover(props: Props) {
         if (isCanvas) return
         const tiltOn = cfg.current.tilt
         const mode = cfg.current.interaction
-        hovering.current = true
-        hoverOpTarget.current = 1
+        const act = cfg.current.activation
+
+        // Only set hover state in "hover" mode (always/click manage their own)
+        if (act === "hover") {
+            hovering.current = true
+            hoverOpTarget.current = 1
+        }
+
         const el = containerRef.current
         if (el) cachedRect.current = el.getBoundingClientRect()
 
@@ -536,17 +551,24 @@ export default function DepthMotionStackHover(props: Props) {
             const tiltOn = cfg.current.tilt
             const mode = cfg.current.interaction
 
+            const act = cfg.current.activation
             const needsTilt = tiltOn && mode === "cursor"
+            // In "always" mode, page-level listener handles parallax — skip hover-area parallax.
+            // In "click" mode, only track when click-activated.
             const needsCursorParallax =
                 cfg.current.parallax &&
                 cfg.current.parallaxSource === "cursor" &&
-                cfg.current.parallaxTracking === "hover" &&
-                !(tiltOn && mode === "auto")
+                act !== "always" &&
+                !(tiltOn && mode === "auto") &&
+                (act === "hover"
+                    ? cfg.current.parallaxTracking === "hover"
+                    : act === "click" && clickActive.current)
             const needsHoverCursorParallax =
                 tiltOn &&
                 mode === "auto" &&
                 cfg.current.parallax &&
-                cfg.current.hoverParallax === "cursor"
+                cfg.current.hoverParallax === "cursor" &&
+                act !== "always"
 
             if (
                 !needsTilt &&
@@ -592,17 +614,23 @@ export default function DepthMotionStackHover(props: Props) {
         if (touchCaptured.current) return
         const tiltOn = cfg.current.tilt
         const mode = cfg.current.interaction
-        hovering.current = false
-        hoverOpTarget.current = 0
+        const act = cfg.current.activation
+
+        // Only reset hover state in "hover" mode (always/click manage their own)
+        if (act === "hover") {
+            hovering.current = false
+            hoverOpTarget.current = 0
+        }
         cachedRect.current = null
 
-        if (tiltOn && mode === "cursor") {
+        if (act === "hover" && tiltOn && mode === "cursor") {
             target.current.rx = 0
             target.current.ry = 0
             target.current.s = 1
         }
 
         if (
+            act === "hover" &&
             cfg.current.parallax &&
             cfg.current.parallaxSource === "cursor" &&
             cfg.current.parallaxTracking !== "page" &&
@@ -612,6 +640,28 @@ export default function DepthMotionStackHover(props: Props) {
             pTarget.current.ty = 0
         }
 
+        startLoop()
+    }, [isCanvas, startLoop])
+
+    // ── Click-to-Activate Handler ────────────────────────
+
+    const onContainerClick = useCallback(() => {
+        if (isCanvas) return
+        if (cfg.current.activation !== "click") return
+
+        clickActive.current = !clickActive.current
+
+        if (clickActive.current) {
+            hovering.current = true
+            hoverOpTarget.current = 1
+            const el = containerRef.current
+            if (el) cachedRect.current = el.getBoundingClientRect()
+        } else {
+            hovering.current = false
+            hoverOpTarget.current = 0
+            pTarget.current.tx = 0
+            pTarget.current.ty = 0
+        }
         startLoop()
     }, [isCanvas, startLoop])
 
@@ -745,10 +795,65 @@ export default function DepthMotionStackHover(props: Props) {
         startLoop()
     }, [tilt, interaction, startLoop])
 
+    // ── Activation Mode: "Always" ────────────────────────
+
+    useEffect(() => {
+        if (isCanvas || activation !== "always") return
+
+        // Immediately activate hover state + opacity
+        hovering.current = true
+        hoverOpTarget.current = 1
+        hoverOpCurrent.current = 1
+
+        // Page-level cursor tracking for parallax
+        const onGlobalMove = (e: PointerEvent) => {
+            const rect =
+                cachedRect.current ||
+                containerRef.current?.getBoundingClientRect()
+            if (!rect) return
+            const nx = clamp(
+                ((e.clientX - rect.left) / rect.width - 0.5) * 2,
+                -1,
+                1
+            )
+            const ny = clamp(
+                ((e.clientY - rect.top) / rect.height - 0.5) * 2,
+                -1,
+                1
+            )
+            const pDir =
+                cfg.current.parallaxDirection === "away" ? -1 : 1
+            const pAmt = cfg.current.parallaxAmount
+            pTarget.current.tx = nx * pAmt * pDir
+            pTarget.current.ty = ny * pAmt * pDir
+            startLoop()
+        }
+
+        window.addEventListener("pointermove", onGlobalMove)
+        startLoop()
+
+        return () => {
+            window.removeEventListener("pointermove", onGlobalMove)
+        }
+    }, [activation, isCanvas, startLoop])
+
+    // ── Activation Mode Reset ────────────────────────────
+
+    useEffect(() => {
+        clickActive.current = false
+        if (activation !== "always") {
+            hovering.current = false
+            hoverOpTarget.current = 0
+        }
+        startLoop()
+    }, [activation, startLoop])
+
     // ── Page-level Parallax Tracking ─────────────────────
 
     useEffect(() => {
         if (isCanvas) return
+        // "Always" mode has its own page-level listener
+        if (activation === "always") return
         if (
             !parallax ||
             parallaxSource !== "cursor" ||
@@ -786,6 +891,7 @@ export default function DepthMotionStackHover(props: Props) {
     }, [
         tilt,
         parallax,
+        activation,
         parallaxSource,
         parallaxTracking,
         interaction,
@@ -853,10 +959,15 @@ export default function DepthMotionStackHover(props: Props) {
         `}</style>
     )
 
-    // Initial opacity values (idle state) — tick loop takes over on interaction
-    const bgInitialOpacity = bgOpacityIdle < 100 ? bgOpacityIdle / 100 : undefined
-    const fgInitialOpacity = contentOpacityIdle < 100 ? contentOpacityIdle / 100 : undefined
-    const midInitialOpacities = [mid1OpacityIdle, mid2OpacityIdle, mid3OpacityIdle, mid4OpacityIdle, mid5OpacityIdle]
+    // Initial opacity values — "always" starts at hover values to prevent flicker
+    const isAlways = activation === "always"
+    const bgInitOp = isAlways ? bgOpacityHover : bgOpacityIdle
+    const fgInitOp = isAlways ? contentOpacityHover : contentOpacityIdle
+    const bgInitialOpacity = bgInitOp < 100 ? bgInitOp / 100 : undefined
+    const fgInitialOpacity = fgInitOp < 100 ? fgInitOp / 100 : undefined
+    const midIdleArr_ = [mid1OpacityIdle, mid2OpacityIdle, mid3OpacityIdle, mid4OpacityIdle, mid5OpacityIdle]
+    const midHoverArr_ = [mid1OpacityHover, mid2OpacityHover, mid3OpacityHover, mid4OpacityHover, mid5OpacityHover]
+    const midInitialOpacities = isAlways ? midHoverArr_ : midIdleArr_
 
     // When parallax is off, render flat (no layer splitting).
     if (!parallax) {
@@ -864,6 +975,7 @@ export default function DepthMotionStackHover(props: Props) {
             <div
                 ref={containerRef}
                 style={containerStyle}
+                onClick={onContainerClick}
                 onPointerEnter={onPointerEnter}
                 onPointerMove={onPointerMove}
                 onPointerLeave={onPointerLeave}
@@ -903,6 +1015,7 @@ export default function DepthMotionStackHover(props: Props) {
         <div
             ref={containerRef}
             style={containerStyle}
+            onClick={onContainerClick}
             onPointerEnter={onPointerEnter}
             onPointerMove={onPointerMove}
             onPointerLeave={onPointerLeave}
@@ -1160,6 +1273,17 @@ addPropertyControls(DepthMotionStackHover, {
         disabledTitle: "Off",
     },
 
+    activation: {
+        type: ControlType.Enum,
+        title: "Activation",
+        options: ["hover", "always", "click"],
+        optionTitles: ["Hover", "Always", "Click"],
+        defaultValue: "hover",
+        description:
+            "Hover activates on mouse enter. Always tracks cursor across the page. Click toggles on/off.",
+        hidden: (props: any) => !props.parallax,
+    },
+
     // ── Layer stack ────────────────────────────────────────
 
     layers: {
@@ -1394,7 +1518,9 @@ addPropertyControls(DepthMotionStackHover, {
         displaySegmentedControl: true,
         defaultValue: "hover",
         hidden: (props: any) =>
-            !props.parallax || props.parallaxSource !== "cursor",
+            !props.parallax ||
+            props.parallaxSource !== "cursor" ||
+            props.activation === "always",
     },
 
     parallaxDirection: {
