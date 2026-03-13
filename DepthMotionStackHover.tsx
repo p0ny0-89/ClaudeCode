@@ -292,7 +292,10 @@ export default function DepthMotionStackHover(props: Props) {
         }
 
         // ── Parallax target computation ───────────────────
-        if (pEnabled) {
+        // Click mode: skip tilt-derived parallax when inactive
+        const act = cfg.current.activation
+        const clickGate = act !== "click" || clickActive.current
+        if (pEnabled && clickGate) {
             if (tiltEnabled && mode === "auto" && hovering.current) {
                 const hpMode = cfg.current.hoverParallax
                 if (hpMode === "off") {
@@ -499,7 +502,12 @@ export default function DepthMotionStackHover(props: Props) {
         const mode = cfg.current.interaction
         const act = cfg.current.activation
 
-        // Only set hover state in "hover" mode (always/click manage their own)
+        // Is the effect currently engaged?
+        const isActive =
+            act === "hover" ||
+            act === "always" ||
+            (act === "click" && clickActive.current)
+
         if (act === "hover") {
             hovering.current = true
             hoverOpTarget.current = 1
@@ -508,18 +516,21 @@ export default function DepthMotionStackHover(props: Props) {
         const el = containerRef.current
         if (el) cachedRect.current = el.getBoundingClientRect()
 
-        if (tiltOn && mode === "cursor") {
-            target.current.s = cfg.current.hoverScale
-        } else if (tiltOn && mode === "auto") {
-            target.current.rx = 0
-            target.current.ry = 0
-            target.current.s = 1
-            if (
-                !cfg.current.parallax ||
-                cfg.current.hoverParallax === "off"
-            ) {
-                pTarget.current.tx = 0
-                pTarget.current.ty = 0
+        // Only apply tilt/scale when the effect is active
+        if (isActive) {
+            if (tiltOn && mode === "cursor") {
+                target.current.s = cfg.current.hoverScale
+            } else if (tiltOn && mode === "auto") {
+                target.current.rx = 0
+                target.current.ry = 0
+                target.current.s = 1
+                if (
+                    !cfg.current.parallax ||
+                    cfg.current.hoverParallax === "off"
+                ) {
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                }
             }
         }
         startLoop()
@@ -551,7 +562,11 @@ export default function DepthMotionStackHover(props: Props) {
             const mode = cfg.current.interaction
 
             const act = cfg.current.activation
-            const needsTilt = tiltOn && mode === "cursor"
+            // Click mode gates all hover-triggered behavior behind clickActive
+            const needsTilt =
+                tiltOn &&
+                mode === "cursor" &&
+                (act !== "click" || clickActive.current)
             // "always": parallax tracks cursor inside the element (no page-level).
             // "click": only track when click-activated.
             // "hover": only when parallaxTracking === "hover".
@@ -635,11 +650,24 @@ export default function DepthMotionStackHover(props: Props) {
                 pTarget.current.tx = 0
                 pTarget.current.ty = 0
             }
-        } else if (act === "click" && !clickActive.current) {
-            // Click mode inactive: reset like hover
-            cachedRect.current = null
+        } else if (act === "click") {
+            // Click mode: always reset tilt on leave (cursor is gone)
+            if (tiltOn && mode === "cursor") {
+                target.current.rx = 0
+                target.current.ry = 0
+                target.current.s = 1
+            }
+            if (!clickActive.current) {
+                cachedRect.current = null
+            }
+        } else if (act === "always") {
+            // Always mode: reset tilt on leave (cursor gone), keep parallax + rect
+            if (tiltOn && mode === "cursor") {
+                target.current.rx = 0
+                target.current.ry = 0
+                target.current.s = 1
+            }
         }
-        // "always" and click-active: keep parallax at last position, keep rect cached
 
         startLoop()
     }, [isCanvas, startLoop])

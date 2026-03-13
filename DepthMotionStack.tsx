@@ -247,8 +247,10 @@ export default function DepthMotionStack(props: Props) {
         }
 
         // ── Parallax target computation ───────────────────
-        // In "always" activation, page-level listener sets pTarget directly — skip tick-based computation.
-        if (pEnabled) {
+        // Click mode: skip tilt-derived parallax when inactive
+        const act = cfg.current.activation
+        const clickGate = act !== "click" || clickActive.current
+        if (pEnabled && clickGate) {
             if (tiltEnabled && mode === "auto" && hovering.current) {
                 // Hover state in auto tilt mode — depends on hoverParallax
                 const hpMode = cfg.current.hoverParallax
@@ -410,7 +412,12 @@ export default function DepthMotionStack(props: Props) {
         const mode = cfg.current.interaction
         const act = cfg.current.activation
 
-        // Only set hover state in "hover" mode (always/click manage their own)
+        // Is the effect currently engaged?
+        const isActive =
+            act === "hover" ||
+            act === "always" ||
+            (act === "click" && clickActive.current)
+
         if (act === "hover") {
             hovering.current = true
         }
@@ -418,20 +425,21 @@ export default function DepthMotionStack(props: Props) {
         const el = containerRef.current
         if (el) cachedRect.current = el.getBoundingClientRect()
 
-        if (tiltOn && mode === "cursor") {
-            target.current.s = cfg.current.hoverScale
-        } else if (tiltOn && mode === "auto") {
-            target.current.rx = 0
-            target.current.ry = 0
-            target.current.s = 1
-            // Only kill parallax when hover parallax is off.
-            // "cursor" and "auto" keep parallax alive during hover.
-            if (
-                !cfg.current.parallax ||
-                cfg.current.hoverParallax === "off"
-            ) {
-                pTarget.current.tx = 0
-                pTarget.current.ty = 0
+        // Only apply tilt/scale when the effect is active
+        if (isActive) {
+            if (tiltOn && mode === "cursor") {
+                target.current.s = cfg.current.hoverScale
+            } else if (tiltOn && mode === "auto") {
+                target.current.rx = 0
+                target.current.ry = 0
+                target.current.s = 1
+                if (
+                    !cfg.current.parallax ||
+                    cfg.current.hoverParallax === "off"
+                ) {
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                }
             }
         }
         startLoop()
@@ -464,7 +472,11 @@ export default function DepthMotionStack(props: Props) {
             const act = cfg.current.activation
 
             // What does this event need to drive?
-            const needsTilt = tiltOn && mode === "cursor"
+            // Click mode gates all hover-triggered behavior behind clickActive
+            const needsTilt =
+                tiltOn &&
+                mode === "cursor" &&
+                (act !== "click" || clickActive.current)
             const needsCursorParallax =
                 cfg.current.parallax &&
                 cfg.current.parallaxSource === "cursor" &&
@@ -547,10 +559,24 @@ export default function DepthMotionStack(props: Props) {
                 pTarget.current.tx = 0
                 pTarget.current.ty = 0
             }
-        } else if (act === "click" && !clickActive.current) {
-            cachedRect.current = null
+        } else if (act === "click") {
+            // Click mode: always reset tilt on leave (cursor is gone)
+            if (tiltOn && mode === "cursor") {
+                target.current.rx = 0
+                target.current.ry = 0
+                target.current.s = 1
+            }
+            if (!clickActive.current) {
+                cachedRect.current = null
+            }
+        } else if (act === "always") {
+            // Always mode: reset tilt on leave (cursor gone), keep parallax + rect
+            if (tiltOn && mode === "cursor") {
+                target.current.rx = 0
+                target.current.ry = 0
+                target.current.s = 1
+            }
         }
-        // "always" and click-active: keep parallax at last position
 
         startLoop()
     }, [isCanvas, startLoop])
