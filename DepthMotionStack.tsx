@@ -59,6 +59,13 @@ interface Props {
     mid3Blend: BlendMode
     mid4Blend: BlendMode
     mid5Blend: BlendMode
+    contentOpacity: number
+    mid1Opacity: number
+    mid2Opacity: number
+    mid3Opacity: number
+    mid4Opacity: number
+    mid5Opacity: number
+    bgOpacity: number
     style?: React.CSSProperties
 }
 
@@ -120,12 +127,20 @@ export default function DepthMotionStack(props: Props) {
         mid3Blend = "normal" as BlendMode,
         mid4Blend = "normal" as BlendMode,
         mid5Blend = "normal" as BlendMode,
+        contentOpacity = 100,
+        mid1Opacity = 100,
+        mid2Opacity = 100,
+        mid3Opacity = 100,
+        mid4Opacity = 100,
+        mid5Opacity = 100,
+        bgOpacity = 100,
         style,
     } = props
 
     // Build ordered arrays from individual layer props
     const midLayersArr = [mid1, mid2, mid3, mid4, mid5].slice(0, layerCount)
     const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend].slice(0, layerCount)
+    const midOpacitiesArr = [mid1Opacity, mid2Opacity, mid3Opacity, mid4Opacity, mid5Opacity].slice(0, layerCount)
 
     // Scoped CSS class to force Framer slot children to fill their layer
     const scopeId = useId().replace(/:/g, "")
@@ -833,6 +848,7 @@ export default function DepthMotionStack(props: Props) {
                         inset: 0,
                         overflow: clipContent ? "hidden" : "visible",
                         willChange: "transform",
+                        opacity: bgOpacity < 100 ? bgOpacity / 100 : undefined,
                     }}
                 >
                     {background}
@@ -853,6 +869,7 @@ export default function DepthMotionStack(props: Props) {
                                         midBlendsArr[i] !== "normal"
                                             ? midBlendsArr[i]
                                             : undefined,
+                                    opacity: midOpacitiesArr[i] < 100 ? midOpacitiesArr[i] / 100 : undefined,
                                 }}
                             >
                                 {layer}
@@ -872,6 +889,7 @@ export default function DepthMotionStack(props: Props) {
                                     contentBlend !== "normal"
                                         ? contentBlend
                                         : undefined,
+                                opacity: contentOpacity < 100 ? contentOpacity / 100 : undefined,
                             }}
                         >
                             {content}
@@ -894,6 +912,7 @@ export default function DepthMotionStack(props: Props) {
                                     midBlendsArr[i] !== "normal"
                                         ? midBlendsArr[i]
                                         : undefined,
+                                opacity: midOpacitiesArr[i] < 100 ? midOpacitiesArr[i] / 100 : undefined,
                             }}
                         >
                             {layer}
@@ -914,6 +933,7 @@ export default function DepthMotionStack(props: Props) {
                                 contentBlend !== "normal"
                                     ? contentBlend
                                     : undefined,
+                            opacity: contentOpacity < 100 ? contentOpacity / 100 : undefined,
                         }}
                     >
                         {content}
@@ -966,6 +986,16 @@ addPropertyControls(DepthMotionStack, {
         options: BLEND_OPTIONS,
         optionTitles: BLEND_TITLES,
         defaultValue: "normal",
+        hidden: (props: any) => !props.parallax,
+    },
+    contentOpacity: {
+        type: ControlType.Number,
+        title: "Foreground Opacity",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
         hidden: (props: any) => !props.parallax,
     },
 
@@ -1112,6 +1142,16 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
     },
+    mid1Opacity: {
+        type: ControlType.Number,
+        title: "Layer 1 Opacity",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
+    },
 
     mid2: {
         type: ControlType.ComponentInstance,
@@ -1124,6 +1164,16 @@ addPropertyControls(DepthMotionStack, {
         options: BLEND_OPTIONS,
         optionTitles: BLEND_TITLES,
         defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
+    },
+    mid2Opacity: {
+        type: ControlType.Number,
+        title: "Layer 2 Opacity",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
     },
 
@@ -1140,6 +1190,16 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
     },
+    mid3Opacity: {
+        type: ControlType.Number,
+        title: "Layer 3 Opacity",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
+    },
 
     mid4: {
         type: ControlType.ComponentInstance,
@@ -1152,6 +1212,16 @@ addPropertyControls(DepthMotionStack, {
         options: BLEND_OPTIONS,
         optionTitles: BLEND_TITLES,
         defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
+    },
+    mid4Opacity: {
+        type: ControlType.Number,
+        title: "Layer 4 Opacity",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
     },
 
@@ -1168,11 +1238,31 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
     },
+    mid5Opacity: {
+        type: ControlType.Number,
+        title: "Layer 5 Opacity",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
+    },
 
     // Background — deepest layer
     background: {
         type: ControlType.ComponentInstance,
         title: "Background",
+        hidden: (props: any) => !props.parallax,
+    },
+    bgOpacity: {
+        type: ControlType.Number,
+        title: "Background Opacity",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
         hidden: (props: any) => !props.parallax,
     },
 
