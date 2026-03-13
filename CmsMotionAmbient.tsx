@@ -1235,11 +1235,10 @@ addPropertyControls(CmsMotionAmbient, {
 
     borderMode: {
         type: ControlType.Enum,
-        title: "Border Mode",
+        title: "Border Visibility",
         defaultValue: "always",
         options: ["always", "on-hover", "off-hover"],
-        optionTitles: ["Always", "On Hover", "Off Hover"],
-        displaySegmentedControl: true,
+        optionTitles: ["Always", "Hover Only", "Idle Only"],
         hidden: (props: any) => !props.borderEnabled,
     },
 
