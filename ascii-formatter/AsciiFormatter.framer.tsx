@@ -411,6 +411,7 @@ function getGradientStyle(props: AsciiFormatterProps): React.CSSProperties | nul
       : `radial-gradient(circle, ${props.gradientStart}, ${props.gradientEnd})`
 
   return {
+    display: "inline",
     background: gradient,
     backgroundClip: "text",
     WebkitBackgroundClip: "text",
@@ -598,12 +599,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         : text
 
   const textStyle = { ...getTextStyle(props), fontSize: autoFontSize }
-  // Framer canvas doesn't support background-clip: text — fall back to
-  // the gradient start colour so the user still sees coloured text.
-  if (isCanvas && props.fillType !== "solid") {
-    textStyle.color = props.gradientStart
-  }
-  const gradientStyle = isCanvas ? null : getGradientStyle(props)
+  const gradientStyle = getGradientStyle(props)
 
   const innerEffectStyle: React.CSSProperties = {}
   if (activeEffect === "fade") {

@@ -136,6 +136,7 @@ function getGradientStyle(props: AsciiFormatterProps): React.CSSProperties | nul
       : `radial-gradient(circle, ${props.gradientStart}, ${props.gradientEnd})`
 
   return {
+    display: "inline",
     background: gradient,
     backgroundClip: "text",
     WebkitBackgroundClip: "text",
