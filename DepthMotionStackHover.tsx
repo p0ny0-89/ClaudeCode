@@ -89,8 +89,8 @@ function clamp(v: number, lo: number, hi: number): number {
 
 // ─── Component ────────────────────────────────────────────
 
-// @framerSupportedLayoutWidth any-prefer-fixed
-// @framerSupportedLayoutHeight any-prefer-fixed
+// @framerSupportedLayoutWidth any
+// @framerSupportedLayoutHeight any
 // @framerIntrinsicWidth 400
 // @framerIntrinsicHeight 400
 // @framerDisableUnlink
@@ -147,9 +147,13 @@ export default function DepthMotionStackHover(props: Props) {
     const midLayersArr = [mid1, mid2, mid3, mid4, mid5].slice(0, layerCount)
     const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend].slice(0, layerCount)
 
-    // Scoped CSS class to force Framer slot children to fill their layer
+    // Scoped CSS classes to force Framer slot children to fill their layer.
+    // bgFillClass uses min-width/min-height so the background's intrinsic
+    // dimensions flow through for auto-sizing, while still stretching when
+    // the component has explicit dimensions set on canvas.
     const scopeId = useId().replace(/:/g, "")
     const fillClass = `dms-fill-${scopeId}`
+    const bgFillClass = `dms-bgfill-${scopeId}`
 
     const containerRef = useRef<HTMLDivElement>(null)
     const surfaceRef = useRef<HTMLDivElement>(null)
@@ -836,7 +840,10 @@ export default function DepthMotionStackHover(props: Props) {
     }
 
     const fillStyle = (
-        <style>{`.${fillClass} > * { width: 100% !important; height: 100% !important; }`}</style>
+        <style>{`
+.${fillClass} > * { width: 100% !important; height: 100% !important; }
+.${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; }
+        `}</style>
     )
 
     // Initial opacity values (idle state) — tick loop takes over on interaction
@@ -860,7 +867,7 @@ export default function DepthMotionStackHover(props: Props) {
                 {fillStyle}
                 <div
                     ref={surfaceRef}
-                    className={fillClass}
+                    className={bgFillClass}
                     style={{
                         width: "100%",
                         height: "100%",
@@ -875,10 +882,10 @@ export default function DepthMotionStackHover(props: Props) {
         )
     }
 
-    // Shared style for mid-layer divs
-    const midLayerBase: React.CSSProperties = {
-        position: "absolute",
-        inset: 0,
+    // Grid cell style — all layers overlap in the same cell.
+    const gridCell: React.CSSProperties = {
+        gridRow: 1,
+        gridColumn: 1,
         willChange: "transform",
     }
 
@@ -899,68 +906,27 @@ export default function DepthMotionStackHover(props: Props) {
                 style={{
                     width: "100%",
                     height: "100%",
-                    position: "relative",
+                    display: "grid",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
             >
+                {/* Background — sizing reference */}
                 <div
                     ref={bgRef}
-                    className={fillClass}
+                    className={bgFillClass}
                     style={{
-                        position: "absolute",
-                        inset: 0,
+                        ...gridCell,
                         overflow: clipContent ? "hidden" : "visible",
-                        willChange: "transform",
                         opacity: bgInitialOpacity,
                     }}
                 >
                     {background}
-
-                    {clipContent && midLayersArr.map((layer, i) =>
-                        layer ? (
-                            <div
-                                key={i}
-                                ref={(el) => {
-                                    midRefs.current[i] = el
-                                }}
-                                className={fillClass}
-                                style={{
-                                    ...midLayerBase,
-                                    mixBlendMode:
-                                        midBlendsArr[i] !== "normal"
-                                            ? midBlendsArr[i]
-                                            : undefined,
-                                    opacity: midInitialOpacities[i] < 100 ? midInitialOpacities[i] / 100 : undefined,
-                                }}
-                            >
-                                {layer}
-                            </div>
-                        ) : null
-                    )}
-
-                    {clipContent && (
-                        <div
-                            ref={fgRef}
-                            className={fillClass}
-                            style={{
-                                position: "absolute",
-                                inset: 0,
-                                willChange: "transform",
-                                mixBlendMode:
-                                    contentBlend !== "normal"
-                                        ? contentBlend
-                                        : undefined,
-                                opacity: fgInitialOpacity,
-                            }}
-                        >
-                            {content}
-                        </div>
-                    )}
                 </div>
 
-                {!clipContent && midLayersArr.map((layer, i) =>
+                {/* Mid layers */}
+                {midLayersArr.map((layer, i) =>
                     layer ? (
                         <div
                             key={i}
@@ -969,7 +935,8 @@ export default function DepthMotionStackHover(props: Props) {
                             }}
                             className={fillClass}
                             style={{
-                                ...midLayerBase,
+                                ...gridCell,
+                                overflow: clipContent ? "hidden" : "visible",
                                 mixBlendMode:
                                     midBlendsArr[i] !== "normal"
                                         ? midBlendsArr[i]
@@ -982,25 +949,22 @@ export default function DepthMotionStackHover(props: Props) {
                     ) : null
                 )}
 
-                {!clipContent && (
-                    <div
-                        ref={fgRef}
-                        className={fillClass}
-                        style={{
-                            position: "relative",
-                            width: "100%",
-                            height: "100%",
-                            willChange: "transform",
-                            mixBlendMode:
-                                contentBlend !== "normal"
-                                    ? contentBlend
-                                    : undefined,
-                            opacity: fgInitialOpacity,
-                        }}
-                    >
-                        {content}
-                    </div>
-                )}
+                {/* Foreground / content */}
+                <div
+                    ref={fgRef}
+                    className={fillClass}
+                    style={{
+                        ...gridCell,
+                        overflow: clipContent ? "hidden" : "visible",
+                        mixBlendMode:
+                            contentBlend !== "normal"
+                                ? contentBlend
+                                : undefined,
+                        opacity: fgInitialOpacity,
+                    }}
+                >
+                    {content}
+                </div>
             </div>
         </div>
     )

@@ -81,8 +81,8 @@ function clamp(v: number, lo: number, hi: number): number {
 
 // ─── Component ────────────────────────────────────────────
 
-// @framerSupportedLayoutWidth any-prefer-fixed
-// @framerSupportedLayoutHeight any-prefer-fixed
+// @framerSupportedLayoutWidth any
+// @framerSupportedLayoutHeight any
 // @framerIntrinsicWidth 400
 // @framerIntrinsicHeight 400
 // @framerDisableUnlink
@@ -133,9 +133,13 @@ export default function DepthMotionStack(props: Props) {
     const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend].slice(0, layerCount)
     const midOpacitiesArr = [mid1Opacity, mid2Opacity, mid3Opacity, mid4Opacity, mid5Opacity].slice(0, layerCount)
 
-    // Scoped CSS class to force Framer slot children to fill their layer
+    // Scoped CSS classes to force Framer slot children to fill their layer.
+    // bgFillClass uses min-width/min-height so the background's intrinsic
+    // dimensions flow through for auto-sizing, while still stretching when
+    // the component has explicit dimensions set on canvas.
     const scopeId = useId().replace(/:/g, "")
     const fillClass = `dms-fill-${scopeId}`
+    const bgFillClass = `dms-bgfill-${scopeId}`
 
     const containerRef = useRef<HTMLDivElement>(null)
     const surfaceRef = useRef<HTMLDivElement>(null)
@@ -758,10 +762,15 @@ export default function DepthMotionStack(props: Props) {
             : {}),
     }
 
-    // CSS rule: force Framer slot children to fill their layer wrapper.
-    // Uses !important to beat Framer's inline width/height on slot elements.
+    // CSS rules for slot children:
+    // - fillClass: forces mid/fg slot children to 100% of their wrapper
+    // - bgFillClass: uses min-width/height so the background's intrinsic
+    //   dimensions provide auto-sizing, but it still stretches when resized
     const fillStyle = (
-        <style>{`.${fillClass} > * { width: 100% !important; height: 100% !important; }`}</style>
+        <style>{`
+.${fillClass} > * { width: 100% !important; height: 100% !important; }
+.${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; }
+        `}</style>
     )
 
     // When parallax is off, render flat (no layer splitting).
@@ -780,7 +789,7 @@ export default function DepthMotionStack(props: Props) {
                 {fillStyle}
                 <div
                     ref={surfaceRef}
-                    className={fillClass}
+                    className={bgFillClass}
                     style={{
                         width: "100%",
                         height: "100%",
@@ -795,14 +804,18 @@ export default function DepthMotionStack(props: Props) {
         )
     }
 
-    // Shared style for mid-layer divs
-    const midLayerBase: React.CSSProperties = {
-        position: "absolute",
-        inset: 0,
+    // Grid cell style — all layers overlap in the same cell.
+    // The background provides intrinsic dimensions for auto-sizing;
+    // other layers stretch to fill the cell established by the bg.
+    const gridCell: React.CSSProperties = {
+        gridRow: 1,
+        gridColumn: 1,
         willChange: "transform",
     }
 
-    // Parallax on: multi-layer structure.
+    // Parallax on: multi-layer structure (CSS Grid stacking).
+    // All layers overlap in a single grid cell. The background's
+    // intrinsic dimensions size the component when in Fit mode.
     // DOM order = visual stack order (bottom to top):
     // Background → Layer 1 → Layer 2 → Layer 3 → Content
     return (
@@ -822,74 +835,30 @@ export default function DepthMotionStack(props: Props) {
                 style={{
                     width: "100%",
                     height: "100%",
-                    position: "relative",
+                    display: "grid",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
             >
-                {/* Background layer — deepest, shifts most opposite.
-                    When clipContent is on, this wrapper also clips all
-                    other layers to the background's visual bounds. */}
+                {/* Background layer — sizing reference.
+                    Uses bgFillClass (min-width/height) so its slot child's
+                    intrinsic dimensions flow through for auto-sizing, while
+                    still stretching when the component has explicit dims. */}
                 <div
                     ref={bgRef}
-                    className={fillClass}
+                    className={bgFillClass}
                     style={{
-                        position: "absolute",
-                        inset: 0,
+                        ...gridCell,
                         overflow: clipContent ? "hidden" : "visible",
-                        willChange: "transform",
                         opacity: bgOpacity < 100 ? bgOpacity / 100 : undefined,
                     }}
                 >
                     {background}
-
-                    {/* When clipping, mid/fg layers nest inside bg so
-                        overflow:hidden clips to the background bounds */}
-                    {clipContent && midLayersArr.map((layer, i) =>
-                        layer ? (
-                            <div
-                                key={i}
-                                ref={(el) => {
-                                    midRefs.current[i] = el
-                                }}
-                                className={fillClass}
-                                style={{
-                                    ...midLayerBase,
-                                    mixBlendMode:
-                                        midBlendsArr[i] !== "normal"
-                                            ? midBlendsArr[i]
-                                            : undefined,
-                                    opacity: midOpacitiesArr[i] < 100 ? midOpacitiesArr[i] / 100 : undefined,
-                                }}
-                            >
-                                {layer}
-                            </div>
-                        ) : null
-                    )}
-
-                    {clipContent && (
-                        <div
-                            ref={fgRef}
-                            className={fillClass}
-                            style={{
-                                position: "absolute",
-                                inset: 0,
-                                willChange: "transform",
-                                mixBlendMode:
-                                    contentBlend !== "normal"
-                                        ? contentBlend
-                                        : undefined,
-                                opacity: contentOpacity < 100 ? contentOpacity / 100 : undefined,
-                            }}
-                        >
-                            {content}
-                        </div>
-                    )}
                 </div>
 
-                {/* When NOT clipping, mid/fg layers are siblings (original structure) */}
-                {!clipContent && midLayersArr.map((layer, i) =>
+                {/* Mid layers — overlay on the bg via grid stacking */}
+                {midLayersArr.map((layer, i) =>
                     layer ? (
                         <div
                             key={i}
@@ -898,7 +867,8 @@ export default function DepthMotionStack(props: Props) {
                             }}
                             className={fillClass}
                             style={{
-                                ...midLayerBase,
+                                ...gridCell,
+                                overflow: clipContent ? "hidden" : "visible",
                                 mixBlendMode:
                                     midBlendsArr[i] !== "normal"
                                         ? midBlendsArr[i]
@@ -911,25 +881,22 @@ export default function DepthMotionStack(props: Props) {
                     ) : null
                 )}
 
-                {!clipContent && (
-                    <div
-                        ref={fgRef}
-                        className={fillClass}
-                        style={{
-                            position: "relative",
-                            width: "100%",
-                            height: "100%",
-                            willChange: "transform",
-                            mixBlendMode:
-                                contentBlend !== "normal"
-                                    ? contentBlend
-                                    : undefined,
-                            opacity: contentOpacity < 100 ? contentOpacity / 100 : undefined,
-                        }}
-                    >
-                        {content}
-                    </div>
-                )}
+                {/* Foreground / content — topmost layer */}
+                <div
+                    ref={fgRef}
+                    className={fillClass}
+                    style={{
+                        ...gridCell,
+                        overflow: clipContent ? "hidden" : "visible",
+                        mixBlendMode:
+                            contentBlend !== "normal"
+                                ? contentBlend
+                                : undefined,
+                        opacity: contentOpacity < 100 ? contentOpacity / 100 : undefined,
+                    }}
+                >
+                    {content}
+                </div>
             </div>
         </div>
     )
