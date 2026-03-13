@@ -397,48 +397,33 @@ function getTextStyle(props: AsciiFormatterProps, isCanvas: boolean): React.CSSP
   }
 
   if (props.fillType === "solid") {
-    // Solid: full-size <pre> is fine
     return { ...base, width: "100%", height: "100%" }
   }
 
+  // Gradient: applied directly on the <pre> in both canvas and preview
+  // so the gradient spans uniformly across all text (not per-line).
   const gradient =
     props.fillType === "linear"
       ? `linear-gradient(${props.gradientAngle}deg, ${props.gradientStart}, ${props.gradientEnd})`
       : `radial-gradient(circle, ${props.gradientStart}, ${props.gradientEnd})`
 
-  if (isCanvas) {
-    // Canvas: apply gradient directly on the <pre> but do NOT use
-    // width/height 100% so the background only covers text content.
-    return {
-      ...base,
-      background: gradient,
-      backgroundClip: "text",
-      WebkitBackgroundClip: "text",
-      WebkitTextFillColor: "transparent",
-      color: "transparent",
-    }
-  }
-
-  // Preview: full-size <pre>, gradient via inner <span> wrapper
-  return { ...base, width: "100%", height: "100%" }
-}
-
-/** Gradient styles for the inner <span> wrapper (preview only). */
-function getGradientStyle(props: AsciiFormatterProps): React.CSSProperties | null {
-  if (props.fillType === "solid") return null
-
-  const gradient =
-    props.fillType === "linear"
-      ? `linear-gradient(${props.gradientAngle}deg, ${props.gradientStart}, ${props.gradientEnd})`
-      : `radial-gradient(circle, ${props.gradientStart}, ${props.gradientEnd})`
-
-  return {
+  const gradientStyles: React.CSSProperties = {
     background: gradient,
     backgroundClip: "text",
     WebkitBackgroundClip: "text",
     WebkitTextFillColor: "transparent",
     color: "transparent",
   }
+
+  if (isCanvas) {
+    // Canvas: omit width/height 100% to prevent gradient filling the
+    // full frame when the canvas renderer ignores background-clip.
+    return { ...base, ...gradientStyles }
+  }
+
+  // Preview: background-clip: text works correctly in browsers, so
+  // we can safely use full sizing for layout.
+  return { ...base, width: "100%", height: "100%", ...gradientStyles }
 }
 
 // ─── Reveal Renderer ────────────────────────────────────────────────
@@ -620,8 +605,6 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         : text
 
   const textStyle = { ...getTextStyle(props, isCanvas), fontSize: autoFontSize }
-  // Preview only: gradient via inner <span> (canvas uses gradient on <pre> directly)
-  const gradientStyle = isCanvas ? null : getGradientStyle(props)
 
   const innerEffectStyle: React.CSSProperties = {}
   if (activeEffect === "fade") {
@@ -646,13 +629,6 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
     content = displayText
   }
 
-  // Preview: wrap in gradient span using background-clip: text
-  const wrappedContent = gradientStyle ? (
-    <span style={gradientStyle}>{content}</span>
-  ) : (
-    content
-  )
-
   return (
     <div
       ref={rootRef}
@@ -664,11 +640,14 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
       }}
     >
       <pre
+        // key forces React to recreate the <pre> when fill type changes,
+        // preventing the Framer canvas from caching stale gradient styles.
+        key={props.fillType}
         style={{ ...textStyle, ...innerEffectStyle }}
         onMouseMove={hoverGlitchActive ? hoverGlitchHook.handleMouseMove : undefined}
         onMouseLeave={hoverGlitchActive ? hoverGlitchHook.handleMouseLeave : undefined}
       >
-        {wrappedContent}
+        {content}
       </pre>
     </div>
   )
