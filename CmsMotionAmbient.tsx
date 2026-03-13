@@ -530,6 +530,8 @@ export default function CmsMotionAmbient(props: Props) {
         ambientIntensity,
         muteVideo,
         borderMode,
+        borderWidth,
+        borderColor,
     }
     const cfg = useRef(cfgVal)
     cfg.current = cfgVal
@@ -635,14 +637,20 @@ export default function CmsMotionAmbient(props: Props) {
             glowEl.style.opacity = glowOpCurrent.current.toFixed(3)
         }
 
-        // ── Apply border opacity (hover modes) ──────
+        // ── Apply border animation (hover modes) ─────
         const borderEl = borderRef.current
         if (borderEl) {
             const bm = cfg.current.borderMode
             if (bm === "on-hover") {
-                borderEl.style.opacity = overlayOpCurrent.current.toFixed(3)
+                const t = overlayOpCurrent.current
+                const w = (cfg.current.borderWidth * t).toFixed(2)
+                borderEl.style.boxShadow = `inset 0 0 0 ${w}px ${cfg.current.borderColor}`
+                borderEl.style.opacity = t.toFixed(3)
             } else if (bm === "off-hover") {
-                borderEl.style.opacity = (1 - overlayOpCurrent.current).toFixed(3)
+                const t = 1 - overlayOpCurrent.current
+                const w = (cfg.current.borderWidth * t).toFixed(2)
+                borderEl.style.boxShadow = `inset 0 0 0 ${w}px ${cfg.current.borderColor}`
+                borderEl.style.opacity = t.toFixed(3)
             }
         }
 
@@ -693,9 +701,15 @@ export default function CmsMotionAmbient(props: Props) {
             if (borderEl) {
                 const bm = cfg.current.borderMode
                 if (bm === "on-hover") {
-                    borderEl.style.opacity = String(overlayOpCurrent.current)
+                    const t = overlayOpCurrent.current
+                    const w = cfg.current.borderWidth * t
+                    borderEl.style.boxShadow = `inset 0 0 0 ${w}px ${cfg.current.borderColor}`
+                    borderEl.style.opacity = String(t)
                 } else if (bm === "off-hover") {
-                    borderEl.style.opacity = String(1 - overlayOpCurrent.current)
+                    const t = 1 - overlayOpCurrent.current
+                    const w = cfg.current.borderWidth * t
+                    borderEl.style.boxShadow = `inset 0 0 0 ${w}px ${cfg.current.borderColor}`
+                    borderEl.style.opacity = String(t)
                 }
             }
 
@@ -1025,7 +1039,9 @@ export default function CmsMotionAmbient(props: Props) {
                             position: "absolute",
                             inset: 0,
                             borderRadius: backgroundRadius,
-                            boxShadow: borderShadow,
+                            boxShadow: borderMode === "on-hover"
+                                ? `inset 0 0 0 0px ${borderColor}`
+                                : borderShadow,
                             pointerEvents: "none",
                             opacity: borderMode === "on-hover" ? 0 : 1,
                         }}
