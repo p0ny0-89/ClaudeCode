@@ -109,7 +109,7 @@ const DEFAULT_TEXT = `  /\\_/\\
   > ^ <`
 
 function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
-  const base: React.CSSProperties = {
+  return {
     fontFamily: FONT_MAP[props.font],
     fontSize: props.fontSize,
     lineHeight: props.lineHeight,
@@ -121,11 +121,14 @@ function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
     width: "100%",
     height: "100%",
     boxSizing: "border-box",
+    color: props.fillType === "solid" ? props.textColor : "transparent",
   }
+}
 
-  if (props.fillType === "solid") {
-    return { ...base, color: props.textColor }
-  }
+/** Gradient styles applied to an inner wrapper so the background only
+ *  covers the text, not the full-size <pre> block. */
+function getGradientStyle(props: AsciiFormatterProps): React.CSSProperties | null {
+  if (props.fillType === "solid") return null
 
   const gradient =
     props.fillType === "linear"
@@ -133,7 +136,6 @@ function getTextStyle(props: AsciiFormatterProps): React.CSSProperties {
       : `radial-gradient(circle, ${props.gradientStart}, ${props.gradientEnd})`
 
   return {
-    ...base,
     background: gradient,
     backgroundClip: "text",
     WebkitBackgroundClip: "text",
@@ -344,6 +346,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         : text
 
   const textStyle = { ...getTextStyle(props), fontSize: autoFontSize }
+  const gradientStyle = getGradientStyle(props)
 
   const innerEffectStyle: React.CSSProperties = {}
   if (activeEffect === "fade") {
@@ -370,6 +373,14 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
     content = displayText
   }
 
+  // Wrap content in gradient span so background-clip: text only covers
+  // the actual text, not the full-size <pre> block.
+  const wrappedContent = gradientStyle ? (
+    <span style={gradientStyle}>{content}</span>
+  ) : (
+    content
+  )
+
   return (
     <div
       ref={rootRef}
@@ -385,7 +396,7 @@ export default function AsciiFormatter(props: AsciiFormatterProps) {
         onMouseMove={hoverGlitchActive ? hoverGlitchHook.handleMouseMove : undefined}
         onMouseLeave={hoverGlitchActive ? hoverGlitchHook.handleMouseLeave : undefined}
       >
-        {content}
+        {wrappedContent}
       </pre>
     </div>
   )
