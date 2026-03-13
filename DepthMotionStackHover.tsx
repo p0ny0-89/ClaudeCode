@@ -845,6 +845,29 @@ export default function DepthMotionStackHover(props: Props) {
         startLoop()
     }, [activation, startLoop])
 
+    // ── Click-outside deactivation ───────────────────────
+
+    useEffect(() => {
+        if (isCanvas || activation !== "click") return
+
+        const onWindowDown = (e: PointerEvent) => {
+            if (e.pointerType === "touch") return
+            if (!clickActive.current) return
+            const el = containerRef.current
+            if (el && !el.contains(e.target as Node)) {
+                clickActive.current = false
+                hovering.current = false
+                hoverOpTarget.current = 0
+                pTarget.current.tx = 0
+                pTarget.current.ty = 0
+                startLoop()
+            }
+        }
+
+        window.addEventListener("pointerdown", onWindowDown)
+        return () => window.removeEventListener("pointerdown", onWindowDown)
+    }, [activation, isCanvas, startLoop])
+
     // ── Page-level Parallax Tracking ─────────────────────
 
     useEffect(() => {
@@ -929,6 +952,7 @@ export default function DepthMotionStackHover(props: Props) {
         ...style,
         ...(tilt ? { perspective: `${perspective}px` } : {}),
         overflow: "visible",
+        ...(activation === "click" ? { cursor: "pointer" } : {}),
         ...(touchActive
             ? ({
                   userSelect: "none",
