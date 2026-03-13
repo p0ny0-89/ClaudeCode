@@ -346,13 +346,13 @@ export default function DepthMotionStackHover(props: Props) {
 
             if (bgRef.current) {
                 bgRef.current.style.transform =
-                    `translate3d(${(-0.5 * pc.tx).toFixed(2)}px, ${(-0.5 * pc.ty).toFixed(2)}px, 0)`
+                    `translate3d(${(-1 * pc.tx).toFixed(2)}px, ${(-1 * pc.ty).toFixed(2)}px, 0)`
             }
 
             for (let i = 0; i < lc; i++) {
                 const ref = midRefs.current[i]
                 if (ref) {
-                    const f = -0.5 + (i + 1) / (n - 1)
+                    const f = -1 + (i + 1) / (n - 1) * 2
                     ref.style.transform =
                         `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
                 }
@@ -360,7 +360,7 @@ export default function DepthMotionStackHover(props: Props) {
 
             if (fgRef.current) {
                 fgRef.current.style.transform =
-                    `translate3d(${(0.5 * pc.tx).toFixed(2)}px, ${(0.5 * pc.ty).toFixed(2)}px, 0)`
+                    `translate3d(${(1 * pc.tx).toFixed(2)}px, ${(1 * pc.ty).toFixed(2)}px, 0)`
             }
         }
 
@@ -436,12 +436,12 @@ export default function DepthMotionStackHover(props: Props) {
 
                 if (bgRef.current)
                     bgRef.current.style.transform =
-                        `translate3d(${(-0.5 * pc.tx).toFixed(2)}px, ${(-0.5 * pc.ty).toFixed(2)}px, 0)`
+                        `translate3d(${(-1 * pc.tx).toFixed(2)}px, ${(-1 * pc.ty).toFixed(2)}px, 0)`
 
                 for (let i = 0; i < lc; i++) {
                     const ref = midRefs.current[i]
                     if (ref) {
-                        const f = -0.5 + (i + 1) / (n - 1)
+                        const f = -1 + (i + 1) / (n - 1) * 2
                         ref.style.transform =
                             `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
                     }
@@ -449,7 +449,7 @@ export default function DepthMotionStackHover(props: Props) {
 
                 if (fgRef.current)
                     fgRef.current.style.transform =
-                        `translate3d(${(0.5 * pc.tx).toFixed(2)}px, ${(0.5 * pc.ty).toFixed(2)}px, 0)`
+                        `translate3d(${(1 * pc.tx).toFixed(2)}px, ${(1 * pc.ty).toFixed(2)}px, 0)`
             }
 
             // Snap hover opacity
@@ -1411,8 +1411,8 @@ addPropertyControls(DepthMotionStackHover, {
         title: "Parallax Amount",
         defaultValue: 20,
         min: 1,
-        max: 60,
-        step: 1,
+        max: 300,
+        step: 5,
         unit: "px",
         displayStepper: true,
         hidden: (props: any) => !props.parallax,
