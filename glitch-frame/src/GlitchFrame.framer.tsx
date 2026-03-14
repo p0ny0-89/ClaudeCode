@@ -183,6 +183,7 @@ interface Props {
   returnDuration?: number
   returnEasing?: "smooth" | "gentle" | "snap" | "bounce"
   parallaxDirection?: "toward" | "away"
+  touchDrag?: boolean
 }
 
 function GlitchFrame({
@@ -201,6 +202,7 @@ function GlitchFrame({
   returnDuration = 600,
   returnEasing = "smooth",
   parallaxDirection = "away",
+  touchDrag = true,
 }: Props) {
   const selfRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -214,6 +216,9 @@ function GlitchFrame({
 
   const mouseTrail = useRef<TrailPoint[]>([])
   const mouseActive = useRef(false)
+  const touchCaptured = useRef(false)
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const holdStart = useRef<{ x: number; y: number; pointerId: number; target: HTMLElement } | null>(null)
   const lastPointerPos = useRef({ x: 0, y: 0 })
   const lastMoveTime = useRef(0)
   const cellDisplacements = useRef<Float64Array>(new Float64Array(0))
@@ -549,18 +554,41 @@ function GlitchFrame({
     }
   }, [])
 
-  // ── Phase 3: Pointer handlers on parent (works for mouse + touch) ───────
+  // ── Phase 3: Pointer handlers on parent (mouse + hold-to-activate touch) ──
+  //
+  // Mouse: immediate activation on enter/move, deactivate on leave.
+  // Touch: a brief hold (~300 ms) with minimal movement activates the effect.
+  //        Quick swipes pass through as normal page scrolls.
+
+  const HOLD_DELAY = 300   // ms before touch activation
+  const HOLD_SLOP  = 10    // px movement tolerance during hold
+
+  const cancelHold = () => {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null }
+    holdStart.current = null
+  }
 
   useEffect(() => {
     const parent = parentRef.current
     if (!parent) return
 
-    const handlePointerMove = (e: PointerEvent) => {
-      mouseActive.current = true
+    // Apply touch-protection CSS when touchDrag is enabled
+    const origUserSelect = parent.style.userSelect
+    const origWebkitUserSelect = parent.style.getPropertyValue("-webkit-user-select")
+    const origTouchCallout = parent.style.getPropertyValue("-webkit-touch-callout")
+    const origTapColor = parent.style.getPropertyValue("-webkit-tap-highlight-color")
+    if (touchDrag) {
+      parent.style.userSelect = "none"
+      parent.style.setProperty("-webkit-user-select", "none")
+      parent.style.setProperty("-webkit-touch-callout", "none")
+      parent.style.setProperty("-webkit-tap-highlight-color", "transparent")
+    }
+
+    const updateTrail = (clientX: number, clientY: number) => {
       const rect = parent.getBoundingClientRect()
       const now = performance.now()
-      const localX = e.clientX - rect.left
-      const localY = e.clientY - rect.top
+      const localX = clientX - rect.left
+      const localY = clientY - rect.top
 
       const trail = mouseTrail.current
       let vx = 0, vy = 0
@@ -586,30 +614,115 @@ function GlitchFrame({
       if (trail.length > 50) trail.splice(0, trail.length - 50)
     }
 
-    // Activate on initial touch (mobile) — pointerdown fires before pointermove
-    const handlePointerDown = (e: PointerEvent) => {
+    const activateTouch = (pointerId: number, el: HTMLElement) => {
+      el.setPointerCapture(pointerId)
+      touchCaptured.current = true
       mouseActive.current = true
-      const rect = parent.getBoundingClientRect()
-      lastPointerPos.current.x = e.clientX - rect.left
-      lastPointerPos.current.y = e.clientY - rect.top
-      lastMoveTime.current = performance.now()
     }
 
-    const deactivate = () => { mouseActive.current = false }
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") {
+        // Mouse: activate immediately
+        mouseActive.current = true
+        updateTrail(e.clientX, e.clientY)
+        return
+      }
+
+      // Touch: start hold-to-activate timer
+      if (!touchDrag) return
+      holdStart.current = {
+        x: e.clientX,
+        y: e.clientY,
+        pointerId: e.pointerId,
+        target: e.target as HTMLElement,
+      }
+      holdTimer.current = setTimeout(() => {
+        const hs = holdStart.current
+        if (hs) activateTouch(hs.pointerId, hs.target)
+        holdTimer.current = null
+      }, HOLD_DELAY)
+    }
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        // Cancel hold if finger moves too far before activation
+        if (holdStart.current && !touchCaptured.current) {
+          const dx = e.clientX - holdStart.current.x
+          const dy = e.clientY - holdStart.current.y
+          if (dx * dx + dy * dy > HOLD_SLOP * HOLD_SLOP) {
+            cancelHold()
+            return
+          }
+        }
+        // Only track trail if touch is captured (held long enough)
+        if (!touchCaptured.current) return
+      }
+
+      mouseActive.current = true
+      updateTrail(e.clientX, e.clientY)
+    }
+
+    const handlePointerUp = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        cancelHold()
+        if (touchCaptured.current) {
+          ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+          touchCaptured.current = false
+        }
+      }
+      mouseActive.current = false
+    }
+
+    const handlePointerLeave = (e: PointerEvent) => {
+      // Touch with pointer capture shouldn't deactivate on leave
+      if (touchCaptured.current) return
+      if (e.pointerType === "touch") return
+      mouseActive.current = false
+    }
 
     parent.addEventListener("pointerdown", handlePointerDown)
     parent.addEventListener("pointermove", handlePointerMove)
-    parent.addEventListener("pointerleave", deactivate)
-    parent.addEventListener("pointerup", deactivate)
-    parent.addEventListener("pointercancel", deactivate)
+    parent.addEventListener("pointerleave", handlePointerLeave)
+    parent.addEventListener("pointerup", handlePointerUp)
+    parent.addEventListener("pointercancel", handlePointerUp)
     return () => {
       parent.removeEventListener("pointerdown", handlePointerDown)
       parent.removeEventListener("pointermove", handlePointerMove)
-      parent.removeEventListener("pointerleave", deactivate)
-      parent.removeEventListener("pointerup", deactivate)
-      parent.removeEventListener("pointercancel", deactivate)
+      parent.removeEventListener("pointerleave", handlePointerLeave)
+      parent.removeEventListener("pointerup", handlePointerUp)
+      parent.removeEventListener("pointercancel", handlePointerUp)
+      cancelHold()
+      // Restore touch-protection CSS
+      parent.style.userSelect = origUserSelect
+      parent.style.setProperty("-webkit-user-select", origWebkitUserSelect)
+      parent.style.setProperty("-webkit-touch-callout", origTouchCallout)
+      parent.style.setProperty("-webkit-tap-highlight-color", origTapColor)
     }
-  }, [trailDuration])
+  }, [trailDuration, touchDrag])
+
+  // ── Block scroll, context menu & selection during active touch drag ──────
+  useEffect(() => {
+    const parent = parentRef.current
+    if (!parent || !touchDrag) return
+
+    const blockMove = (e: TouchEvent) => {
+      if (touchCaptured.current) e.preventDefault()
+    }
+    const block = (e: Event) => {
+      if (touchCaptured.current) e.preventDefault()
+    }
+
+    parent.addEventListener("touchmove", blockMove, { passive: false })
+    parent.addEventListener("contextmenu", block)
+    parent.addEventListener("selectstart", block)
+
+    return () => {
+      parent.removeEventListener("touchmove", blockMove)
+      parent.removeEventListener("contextmenu", block)
+      parent.removeEventListener("selectstart", block)
+      if (holdTimer.current) clearTimeout(holdTimer.current)
+    }
+  }, [touchDrag])
 
   // ── Phase 4: Animation loop (transform cells) ─────────────────────────
 
@@ -1017,6 +1130,13 @@ addPropertyControls(GlitchFrame, {
     title: "Pause on Hover",
     defaultValue: false,
     hidden: (props: any) => props.effect === "parallax",
+  },
+  touchDrag: {
+    type: ControlType.Boolean,
+    title: "Touch Drag",
+    defaultValue: true,
+    description:
+      "Enables finger drag to control the glitch effect on touch devices. Hold briefly to activate, then drag.",
   },
   clipOverflow: {
     type: ControlType.Boolean,

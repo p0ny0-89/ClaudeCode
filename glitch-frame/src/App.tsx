@@ -72,6 +72,7 @@ export default function App() {
   const [intensity, setIntensity] = useState(60)
   const [trailDuration, setTrailDuration] = useState(300)
   const [smoothing, setSmoothing] = useState(0.12)
+  const [touchDrag, setTouchDrag] = useState(true)
 
   return (
     <div
@@ -96,6 +97,7 @@ export default function App() {
         intensity={intensity}
         trailDuration={trailDuration}
         smoothing={smoothing}
+        touchDrag={touchDrag}
         style={{ width: 600 }}
       >
         {/* Sample children — mixed content */}
@@ -219,6 +221,17 @@ export default function App() {
             />
           </>
         )}
+
+        <div style={labelStyle}>
+          <span>Touch Drag</span>
+          <span style={{ color: "#fff" }}>{touchDrag ? "On" : "Off"}</span>
+        </div>
+        <input
+          type="checkbox"
+          checked={touchDrag}
+          onChange={(e) => setTouchDrag(e.target.checked)}
+          style={{ marginBottom: 12 }}
+        />
 
         <hr style={dividerStyle} />
 
