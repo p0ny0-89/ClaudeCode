@@ -110,9 +110,6 @@ export default function GlitchFrame({
 
   const sinA = Math.abs(Math.sin((angle * Math.PI) / 180))
 
-  const WORD_PX = 80
-  const CHAR_PX = 20
-
   let rowCount: number
   let rowHeight: number
   let colCount: number
@@ -131,11 +128,20 @@ export default function GlitchFrame({
     const colW = containerWidth - sinA * (containerWidth - clampedBlockSize)
     colCount = Math.max(1, Math.ceil(containerWidth / colW))
     colWidth = containerWidth / colCount
+  } else if (scope === "word") {
+    // Segment: columns ~4× blockSize
+    const baseColW = clampedBlockSize * 4
+
+    const rowH = clampedBlockSize + sinA * (baseColW - clampedBlockSize)
+    rowCount = Math.max(1, Math.ceil(containerHeight / rowH))
+    rowHeight = containerHeight / rowCount
+
+    const colW = baseColW - sinA * (baseColW - clampedBlockSize)
+    colCount = Math.max(1, Math.ceil(containerWidth / colW))
+    colWidth = containerWidth / colCount
   } else {
-    const baseColW =
-      scope === "word"
-        ? Math.max(clampedBlockSize * 4, WORD_PX)
-        : Math.max(clampedBlockSize * 2, CHAR_PX)
+    // Block: square-ish cells based directly on blockSize
+    const baseColW = clampedBlockSize * 2
 
     const rowH = clampedBlockSize + sinA * (baseColW - clampedBlockSize)
     rowCount = Math.max(1, Math.ceil(containerHeight / rowH))

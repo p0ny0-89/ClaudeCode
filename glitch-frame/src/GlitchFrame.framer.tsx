@@ -241,8 +241,6 @@ function GlitchFrame({
 
   // sinA blends between horizontal (0) and vertical (1) cell layouts
   const sinA = Math.abs(Math.sin((angle * Math.PI) / 180))
-  const WORD_PX = 80
-  const CHAR_PX = 20
 
   let rowCount: number, rowHeight: number, colCount: number, colWidth: number
 
@@ -255,10 +253,18 @@ function GlitchFrame({
     const colW = pw - sinA * (pw - clampedBlockSize)
     colCount = Math.max(1, Math.ceil(pw / colW))
     colWidth = pw / colCount
+  } else if (scope === "word") {
+    // Segment: columns ~4× blockSize, minimum 3× to keep segments visible
+    const baseColW = clampedBlockSize * 4
+    const rowH = clampedBlockSize + sinA * (baseColW - clampedBlockSize)
+    rowCount = Math.max(1, Math.ceil(ph / rowH))
+    rowHeight = ph / rowCount
+    const colW = baseColW - sinA * (baseColW - clampedBlockSize)
+    colCount = Math.max(1, Math.ceil(pw / colW))
+    colWidth = pw / colCount
   } else {
-    const baseColW = scope === "word"
-      ? Math.max(clampedBlockSize * 4, WORD_PX)
-      : Math.max(clampedBlockSize * 2, CHAR_PX)
+    // Block: square-ish cells based directly on blockSize
+    const baseColW = clampedBlockSize * 2
     const rowH = clampedBlockSize + sinA * (baseColW - clampedBlockSize)
     rowCount = Math.max(1, Math.ceil(ph / rowH))
     rowHeight = ph / rowCount
@@ -267,8 +273,9 @@ function GlitchFrame({
     colWidth = pw / colCount
   }
 
-  // Cap cell count — prevents extreme DOM bloat at small block sizes
-  const MAX_CELLS = 400
+  // Cap cell count — prevents extreme DOM bloat at small block sizes.
+  // Cells are lazily populated so the DOM only holds active ones.
+  const MAX_CELLS = 2500
   if (rowCount * colCount > MAX_CELLS && pw > 0 && ph > 0) {
     const scale = Math.sqrt((rowCount * colCount) / MAX_CELLS)
     rowCount = Math.max(1, Math.round(rowCount / scale))
