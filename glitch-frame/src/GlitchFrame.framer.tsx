@@ -104,34 +104,44 @@ function findTargetParent(self: HTMLElement): HTMLElement | null {
 /**
  * Collapse all wrapper elements between `self` and `targetParent` so they
  * take zero space in auto-layout / stacks.
+ *
+ * Uses both positional (`position:absolute`) and flex-specific
+ * (`flex:0 0 0; margin:0`) props, plus `!important` via a <style> tag
+ * to survive Framer re-applying layout styles on re-render.
  */
 function collapseWrappers(self: HTMLElement, targetParent: HTMLElement): (() => void) {
-  const origStyles: { el: HTMLElement; pos: string; w: string; h: string; ov: string; min: string }[] = []
+  const origStyles: { el: HTMLElement; cssText: string }[] = []
+  const classNames: string[] = []
   let wrapper = self.parentElement
   while (wrapper && wrapper !== targetParent) {
-    origStyles.push({
-      el: wrapper,
-      pos: wrapper.style.position,
-      w: wrapper.style.width,
-      h: wrapper.style.height,
-      ov: wrapper.style.overflow,
-      min: wrapper.style.minHeight,
-    })
-    wrapper.style.position = "absolute"
-    wrapper.style.width = "0"
-    wrapper.style.height = "0"
-    wrapper.style.overflow = "visible"
-    wrapper.style.minHeight = "0"
+    origStyles.push({ el: wrapper, cssText: wrapper.style.cssText })
+    // Unique class per wrapper for the !important style tag
+    const cls = `glitch-collapse-${Math.random().toString(36).slice(2, 8)}`
+    wrapper.classList.add(cls)
+    classNames.push(cls)
     wrapper = wrapper.parentElement
   }
-  // Return a restore function
+
+  // Inject a <style> tag with !important rules to survive Framer overrides
+  const styleEl = document.createElement("style")
+  styleEl.textContent = classNames
+    .map(
+      (cls) =>
+        `.${cls}{position:absolute!important;width:0!important;height:0!important;` +
+        `min-width:0!important;min-height:0!important;overflow:visible!important;` +
+        `flex:0 0 0!important;margin:0!important;padding:0!important;` +
+        `border:none!important;opacity:0!important;pointer-events:none!important;}`
+    )
+    .join("\n")
+  document.head.appendChild(styleEl)
+
   return () => {
+    styleEl.remove()
     for (const s of origStyles) {
-      s.el.style.position = s.pos
-      s.el.style.width = s.w
-      s.el.style.height = s.h
-      s.el.style.overflow = s.ov
-      s.el.style.minHeight = s.min
+      s.el.style.cssText = s.cssText
+    }
+    for (let i = 0; i < classNames.length; i++) {
+      origStyles[i].el.classList.remove(classNames[i])
     }
   }
 }
