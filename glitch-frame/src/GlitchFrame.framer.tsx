@@ -221,7 +221,6 @@ function GlitchFrame({
   const templateRef = useRef<HTMLDivElement | null>(null)
   const cellPopulatedRef = useRef<boolean[]>([])
   const baseRef = useRef<HTMLDivElement | null>(null)
-  const clipDirty = useRef(false)
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 })
 
   const mouseTrail = useRef<TrailPoint[]>([])
@@ -421,9 +420,8 @@ function GlitchFrame({
     overlay.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:999;${clipOverflow ? "overflow:hidden;" : ""}`
 
     // ── Base layer: seamless full clone ──
-    // Shows content at rest.  clip-path (evenodd) punches holes at
-    // populated cell positions so the displaced cells above don't
-    // create a ghost/double image through transparent text gaps.
+    // Shows content at rest.  Displaced cells (z-index:1) render on
+    // top, covering the base at their destination position.
     const base = template.cloneNode(true) as HTMLDivElement
     base.style.zIndex = "0"
     overlay.appendChild(base)
@@ -724,7 +722,6 @@ function GlitchFrame({
       const active = mouseActive.current
       const populated = cellPopulatedRef.current
       const template = templateRef.current
-      const base = baseRef.current
       const returnStarts = cellReturnStart.current
       const returnTimes = cellReturnTime.current
       const pdx = parallaxDispsX.current
@@ -939,11 +936,11 @@ function GlitchFrame({
                 clone.style.height = `${ph}px`
                 el.appendChild(clone)
                 populated[idx] = true
-                clipDirty.current = true
+
               } else if (absPX < DEPOPULATE_THRESHOLD && populated[idx]) {
                 while (el.firstChild) el.removeChild(el.firstChild)
                 populated[idx] = false
-                clipDirty.current = true
+
               }
             }
 
@@ -1020,27 +1017,6 @@ function GlitchFrame({
             el.style.transform = "none"
           }
         }
-      }
-
-      // ── Rebuild base clip-path when cell population changes ──
-      if (clipDirty.current && base) {
-        clipDirty.current = false
-        let hasAnyPopulated = false
-        // Build path: outer rect (clockwise) + inner rects (counter-clockwise) = evenodd holes
-        let d = `M0,0H${pw}V${ph}H0Z`
-        for (let ri = 0; ri < rowCount; ri++) {
-          for (let ci = 0; ci < colCount; ci++) {
-            const ii = ri * colCount + ci
-            if (populated[ii]) {
-              hasAnyPopulated = true
-              const x = ci * colWidth
-              const y = ri * rowHeight
-              d += `M${x},${y}v${rowHeight}h${colWidth}v${-rowHeight}Z`
-            }
-          }
-        }
-        base.style.clipPath = hasAnyPopulated ? `path(evenodd,"${d}")` : "none"
-        ;(base.style as any).WebkitClipPath = hasAnyPopulated ? `path(evenodd,"${d}")` : "none"
       }
 
       rafId.current = requestAnimationFrame(animate)
