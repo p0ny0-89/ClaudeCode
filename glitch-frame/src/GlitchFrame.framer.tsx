@@ -81,7 +81,7 @@ const EASING_FNS: Record<string, (t: number) => number> = {
 
 const GLITCH_ATTR = "data-glitch-overlay"
 
-let maskIdCounter = 0
+// Module-level constants
 
 /**
  * Walk up from self until we find an ancestor that has other visible children
@@ -210,7 +210,6 @@ function GlitchFrame({
   const cellEls = useRef<HTMLDivElement[]>([])
   const templateRef = useRef<HTMLDivElement | null>(null)
   const cellPopulatedRef = useRef<boolean[]>([])
-  const maskRectsRef = useRef<SVGRectElement[]>([])
   const baseRef = useRef<HTMLDivElement | null>(null)
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 })
 
@@ -417,55 +416,11 @@ function GlitchFrame({
     overlay.appendChild(base)
     baseRef.current = base
 
-    // ── SVG mask: crisp-edge rects punch transparent holes in the base
-    // at displaced cell positions.  shape-rendering="crispEdges" avoids
-    // the anti-aliased seams that clip-path produces.
-    const svgNS = "http://www.w3.org/2000/svg"
-    const maskId = `glitch-mask-${++maskIdCounter}`
-    const svg = document.createElementNS(svgNS, "svg")
-    svg.setAttribute("aria-hidden", "true")
-    svg.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;"
-    const defs = document.createElementNS(svgNS, "defs")
-    const maskEl = document.createElementNS(svgNS, "mask")
-    maskEl.setAttribute("id", maskId)
-    maskEl.setAttribute("maskUnits", "userSpaceOnUse")
-    maskEl.setAttribute("x", "0")
-    maskEl.setAttribute("y", "0")
-    maskEl.setAttribute("width", String(pw))
-    maskEl.setAttribute("height", String(ph))
-    // White background = base fully visible by default
-    const bgRect = document.createElementNS(svgNS, "rect")
-    bgRect.setAttribute("width", String(pw))
-    bgRect.setAttribute("height", String(ph))
-    bgRect.setAttribute("fill", "white")
-    bgRect.setAttribute("shape-rendering", "crispEdges")
-    maskEl.appendChild(bgRect)
-    // Pre-create black rects per cell (hidden by default)
-    const maskRects: SVGRectElement[] = []
-    for (let r = 0; r < rowCount; r++) {
-      const cellTop = r * rowHeight
-      for (let c = 0; c < colCount; c++) {
-        const cellLeft = c * colWidth
-        const mr = document.createElementNS(svgNS, "rect")
-        mr.setAttribute("x", String(cellLeft))
-        mr.setAttribute("y", String(cellTop))
-        mr.setAttribute("width", String(colWidth))
-        mr.setAttribute("height", String(rowHeight))
-        mr.setAttribute("fill", "black")
-        mr.setAttribute("shape-rendering", "crispEdges")
-        mr.setAttribute("display", "none")
-        maskEl.appendChild(mr)
-        maskRects.push(mr)
-      }
-    }
-    defs.appendChild(maskEl)
-    svg.appendChild(defs)
-    overlay.appendChild(svg)
-    // Apply SVG mask to base layer
-    base.style.mask = `url(#${maskId})`
-    ;(base.style as any).webkitMask = `url(#${maskId})`
-
     // ── Empty cell grid: content clones added lazily when displaced ──
+    // Cells sit above the base (z-index:1 vs 0).  When a cell is
+    // populated its clone covers the base at that position; displacement
+    // is applied to the clone's transform, not the cell itself, so the
+    // cell always covers the base beneath it.  No mask needed.
     const cellFrag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
     const populated: boolean[] = []
@@ -474,7 +429,7 @@ function GlitchFrame({
       for (let c = 0; c < colCount; c++) {
         const cellLeft = c * colWidth
         const cell = document.createElement("div")
-        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;will-change:transform;backface-visibility:hidden;z-index:1;`
+        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;backface-visibility:hidden;z-index:1;`
         cellFrag.appendChild(cell)
         cells.push(cell)
         populated.push(false)
@@ -487,7 +442,6 @@ function GlitchFrame({
     overlayRef.current = overlay
     cellEls.current = cells
     cellPopulatedRef.current = populated
-    maskRectsRef.current = maskRects
 
     // Suppress observer while we change sibling visibility (prevents rebuild loop)
     suppressObserverRef.current = true
@@ -501,7 +455,6 @@ function GlitchFrame({
       overlayRef.current = null
       cellEls.current = []
       cellPopulatedRef.current = []
-      maskRectsRef.current = []
       templateRef.current = null
       baseRef.current = null
       siblings.forEach((s, i) => { s.style.visibility = origVisibility[i] })
@@ -762,7 +715,6 @@ function GlitchFrame({
       const active = mouseActive.current
       const populated = cellPopulatedRef.current
       const template = templateRef.current
-      const maskRects = maskRectsRef.current
       const returnStarts = cellReturnStart.current
       const returnTimes = cellReturnTime.current
       const pdx = parallaxDispsX.current
@@ -966,7 +918,7 @@ function GlitchFrame({
           if (isParallax || isCursorDir) {
             const absPX = Math.abs(pdx[idx]) + Math.abs(pdy[idx])
 
-            // Lazy populate / depopulate + toggle SVG mask rect
+            // Lazy populate / depopulate
             if (template && populated) {
               if (absPX > POPULATE_THRESHOLD && !populated[idx]) {
                 const clone = template.cloneNode(true) as HTMLDivElement
@@ -975,20 +927,19 @@ function GlitchFrame({
                 clone.style.top = `-${r * rowHeight}px`
                 clone.style.width = `${pw}px`
                 clone.style.height = `${ph}px`
+                clone.style.willChange = "transform"
                 el.appendChild(clone)
                 populated[idx] = true
-                if (maskRects[idx]) maskRects[idx].removeAttribute("display")
               } else if (absPX < DEPOPULATE_THRESHOLD && populated[idx]) {
                 while (el.firstChild) el.removeChild(el.firstChild)
                 populated[idx] = false
-                if (maskRects[idx]) maskRects[idx].setAttribute("display", "none")
               }
             }
 
+            // Transform the clone inside the cell, not the cell itself
             if (populated && populated[idx]) {
-              el.style.transform = `translate3d(${pdx[idx]}px,${pdy[idx]}px,0)`
-            } else {
-              el.style.transform = "none"
+              const clone = el.firstChild as HTMLElement
+              if (clone) clone.style.transform = `translate3d(${pdx[idx]}px,${pdy[idx]}px,0)`
             }
             continue
           }
@@ -1027,7 +978,7 @@ function GlitchFrame({
           const absDisp = Math.abs(disps[idx])
           const isReturning = returnTimes[idx] > 0
 
-          // Lazy populate / depopulate + toggle SVG mask rect
+          // Lazy populate / depopulate
           if (template && populated) {
             const needsContent = absDisp > POPULATE_THRESHOLD || absTarget > POPULATE_THRESHOLD || isReturning
             const isSettled = !isReturning && absDisp < DEPOPULATE_THRESHOLD && absTarget < DEPOPULATE_THRESHOLD
@@ -1039,23 +990,23 @@ function GlitchFrame({
               clone.style.top = `-${r * rowHeight}px`
               clone.style.width = `${pw}px`
               clone.style.height = `${ph}px`
+              clone.style.willChange = "transform"
               el.appendChild(clone)
               populated[idx] = true
-              if (maskRects[idx]) maskRects[idx].removeAttribute("display")
             } else if (isSettled && populated[idx]) {
               while (el.firstChild) el.removeChild(el.firstChild)
               populated[idx] = false
-              if (maskRects[idx]) maskRects[idx].setAttribute("display", "none")
             }
           }
 
-          // Only write transform on populated cells
+          // Transform the clone inside the cell, not the cell itself
           if (populated && populated[idx]) {
-            el.style.transform = absDisp < DEPOPULATE_THRESHOLD
-              ? "none"
-              : `translate(${disps[idx] * cosA}px,${disps[idx] * sinADisp}px)`
-          } else if (el.style.transform !== "none") {
-            el.style.transform = "none"
+            const clone = el.firstChild as HTMLElement
+            if (clone) {
+              clone.style.transform = absDisp < DEPOPULATE_THRESHOLD
+                ? "none"
+                : `translate(${disps[idx] * cosA}px,${disps[idx] * sinADisp}px)`
+            }
           }
         }
       }
