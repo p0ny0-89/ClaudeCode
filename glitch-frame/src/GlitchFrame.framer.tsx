@@ -81,6 +81,22 @@ const EASING_FNS: Record<string, (t: number) => number> = {
 
 const GLITCH_ATTR = "data-glitch-overlay"
 
+/**
+ * Inject a global style tag (once) that ensures ALL elements inside the
+ * glitch overlay are pointer-events:none.  Cloned children may carry
+ * inline `pointer-events:auto` from Framer, which would steal touches
+ * from the parent — this rule overrides that.
+ */
+let overlayStyleInjected = false
+function ensureOverlayStyle() {
+  if (overlayStyleInjected) return
+  overlayStyleInjected = true
+  const s = document.createElement("style")
+  s.textContent =
+    `[${GLITCH_ATTR}],[${GLITCH_ATTR}] *{pointer-events:none!important;}`
+  document.head.appendChild(s)
+}
+
 // Module-level constants
 
 /**
@@ -446,6 +462,9 @@ function GlitchFrame({
     neutralizeCanvases(template, parent)
     templateRef.current = template
 
+    // Ensure global overlay pointer-events rule exists
+    ensureOverlayStyle()
+
     // Create overlay
     const overlay = document.createElement("div")
     overlay.setAttribute(GLITCH_ATTR, "true")
@@ -482,10 +501,20 @@ function GlitchFrame({
     cellEls.current = cells
     cellPopulatedRef.current = populated
 
-    // Suppress observer while we change sibling visibility (prevents rebuild loop)
+    // Hide siblings with !important via <style> tag to survive Framer re-renders.
+    // Plain inline styles get overwritten when Framer re-applies layout.
     suppressObserverRef.current = true
-    const origVisibility: string[] = siblings.map((s) => s.style.visibility)
-    siblings.forEach((s) => { s.style.visibility = "hidden" })
+    const sibClasses: string[] = []
+    siblings.forEach((s) => {
+      const cls = `glitch-sib-${Math.random().toString(36).slice(2, 8)}`
+      s.classList.add(cls)
+      sibClasses.push(cls)
+    })
+    const sibStyleEl = document.createElement("style")
+    sibStyleEl.textContent = sibClasses
+      .map((cls) => `.${cls}{visibility:hidden!important;}`)
+      .join("\n")
+    document.head.appendChild(sibStyleEl)
     setTimeout(() => { suppressObserverRef.current = false }, 0)
 
     return () => {
@@ -496,7 +525,8 @@ function GlitchFrame({
       cellPopulatedRef.current = []
       templateRef.current = null
       baseRef.current = null
-      siblings.forEach((s, i) => { s.style.visibility = origVisibility[i] })
+      sibStyleEl.remove()
+      siblings.forEach((s, i) => { s.classList.remove(sibClasses[i]) })
       setTimeout(() => { suppressObserverRef.current = false }, 0)
     }
   }, [cellCount, rowCount, colCount, colWidth, rowHeight, pw, ph, clipOverflow, rebuildKey])
@@ -571,16 +601,19 @@ function GlitchFrame({
     const parent = parentRef.current
     if (!parent) return
 
-    // Apply touch-protection CSS when touchDrag is enabled
-    const origUserSelect = parent.style.userSelect
-    const origWebkitUserSelect = parent.style.getPropertyValue("-webkit-user-select")
-    const origTouchCallout = parent.style.getPropertyValue("-webkit-touch-callout")
-    const origTapColor = parent.style.getPropertyValue("-webkit-tap-highlight-color")
+    // Apply touch-protection CSS via !important style tag when touchDrag enabled.
+    // Framer overrides inline styles, so we inject a class-based rule.
+    let touchStyleEl: HTMLStyleElement | null = null
+    let touchCls = ""
     if (touchDrag) {
-      parent.style.userSelect = "none"
-      parent.style.setProperty("-webkit-user-select", "none")
-      parent.style.setProperty("-webkit-touch-callout", "none")
-      parent.style.setProperty("-webkit-tap-highlight-color", "transparent")
+      touchCls = `glitch-touch-${Math.random().toString(36).slice(2, 8)}`
+      parent.classList.add(touchCls)
+      touchStyleEl = document.createElement("style")
+      touchStyleEl.textContent =
+        `.${touchCls}{user-select:none!important;-webkit-user-select:none!important;` +
+        `-webkit-touch-callout:none!important;-webkit-tap-highlight-color:transparent!important;` +
+        `touch-action:pan-x pan-y!important;}`
+      document.head.appendChild(touchStyleEl)
     }
 
     const updateTrail = (clientX: number, clientY: number) => {
@@ -613,8 +646,8 @@ function GlitchFrame({
       if (trail.length > 50) trail.splice(0, trail.length - 50)
     }
 
-    const activateTouch = (pointerId: number, el: HTMLElement) => {
-      el.setPointerCapture(pointerId)
+    const activateTouch = (pointerId: number) => {
+      parent.setPointerCapture(pointerId)
       touchCaptured.current = true
       mouseActive.current = true
     }
@@ -633,11 +666,11 @@ function GlitchFrame({
         x: e.clientX,
         y: e.clientY,
         pointerId: e.pointerId,
-        target: e.target as HTMLElement,
+        target: parent,
       }
       holdTimer.current = setTimeout(() => {
         const hs = holdStart.current
-        if (hs) activateTouch(hs.pointerId, hs.target)
+        if (hs) activateTouch(hs.pointerId)
         holdTimer.current = null
       }, HOLD_DELAY)
     }
@@ -665,7 +698,7 @@ function GlitchFrame({
       if (e.pointerType === "touch") {
         cancelHold()
         if (touchCaptured.current) {
-          ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+          try { parent.releasePointerCapture(e.pointerId) } catch { /* already released */ }
           touchCaptured.current = false
         }
       }
@@ -692,10 +725,8 @@ function GlitchFrame({
       parent.removeEventListener("pointercancel", handlePointerUp)
       cancelHold()
       // Restore touch-protection CSS
-      parent.style.userSelect = origUserSelect
-      parent.style.setProperty("-webkit-user-select", origWebkitUserSelect)
-      parent.style.setProperty("-webkit-touch-callout", origTouchCallout)
-      parent.style.setProperty("-webkit-tap-highlight-color", origTapColor)
+      if (touchStyleEl) { touchStyleEl.remove() }
+      if (touchCls) { parent.classList.remove(touchCls) }
     }
   }, [trailDuration, touchDrag])
 
