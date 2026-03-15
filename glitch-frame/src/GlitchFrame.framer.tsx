@@ -295,39 +295,76 @@ function GlitchFrame({
 
   const cellCount = rowCount * colCount
 
+  // Rebuild counter — incremented by MutationObserver to trigger re-clone
+  const [rebuildKey, setRebuildKey] = useState(0)
+
   // ── Phase 1: Find parent, collapse wrappers, observe size ────────────────
+  //
+  // In Framer's live-preview / published site the sibling content may
+  // mount *after* this component, so `findTargetParent` might not find
+  // a parent with other children on the first attempt.  If that happens,
+  // we observe the nearest ancestor for child additions and retry.
 
   useEffect(() => {
     const self = selfRef.current
     if (!self) return
 
-    // Skip past Framer wrapper(s) to the actual user frame
-    const parent = findTargetParent(self)
-    if (!parent) return
-    parentRef.current = parent
+    let ro: ResizeObserver | null = null
+    let restoreWrappers: (() => void) | null = null
+    let origPosition = ""
+    let foundParent: HTMLElement | null = null
 
-    // Collapse any intermediate Framer wrapper elements so they don't
-    // interfere with auto-layout / stacks
-    const restoreWrappers = collapseWrappers(self, parent)
+    const setup = (parent: HTMLElement) => {
+      foundParent = parent
+      parentRef.current = parent
 
-    // Ensure parent is positioned for absolute overlay
-    const cs = getComputedStyle(parent)
-    const origPosition = parent.style.position
-    if (cs.position === "static") {
-      parent.style.position = "relative"
+      restoreWrappers = collapseWrappers(self, parent)
+
+      const cs = getComputedStyle(parent)
+      origPosition = parent.style.position
+      if (cs.position === "static") {
+        parent.style.position = "relative"
+      }
+
+      ro = new ResizeObserver((entries) => {
+        const { width: w, height: h } = entries[0].contentRect
+        setParentSize((prev) =>
+          prev.w !== w || prev.h !== h ? { w, h } : prev
+        )
+      })
+      ro.observe(parent)
     }
 
-    const ro = new ResizeObserver((entries) => {
-      const { width: w, height: h } = entries[0].contentRect
-      setParentSize((prev) =>
-        prev.w !== w || prev.h !== h ? { w, h } : prev
-      )
-    })
-    ro.observe(parent)
+    // Try immediately
+    const parent = findTargetParent(self)
+    if (parent) {
+      setup(parent)
+    }
+
+    // If not found, watch the nearest ancestors for child additions
+    // so we can retry once siblings mount (preview / published mode).
+    let waitMo: MutationObserver | null = null
+    if (!parent) {
+      const watchTarget = self.parentElement?.parentElement || self.parentElement || document.body
+      waitMo = new MutationObserver(() => {
+        if (foundParent) return
+        const p = findTargetParent(self)
+        if (p) {
+          setup(p)
+          waitMo?.disconnect()
+          waitMo = null
+          // Trigger Phase 2 by bumping rebuild key
+          setRebuildKey((k) => k + 1)
+        }
+      })
+      waitMo.observe(watchTarget, { childList: true, subtree: true })
+    }
+
     return () => {
-      ro.disconnect()
-      restoreWrappers()
-      parent.style.position = origPosition
+      ro?.disconnect()
+      waitMo?.disconnect()
+      restoreWrappers?.()
+      if (foundParent) foundParent.style.position = origPosition
       parentRef.current = null
     }
   }, [])
@@ -353,9 +390,6 @@ function GlitchFrame({
       cellDirsRef.current = dirs
     }
   }, [cellCount])
-
-  // Rebuild counter — incremented by MutationObserver to trigger re-clone
-  const [rebuildKey, setRebuildKey] = useState(0)
 
   useEffect(() => {
     const parent = parentRef.current
