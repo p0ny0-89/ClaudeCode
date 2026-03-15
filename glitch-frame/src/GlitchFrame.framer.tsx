@@ -211,6 +211,7 @@ function GlitchFrame({
   const templateRef = useRef<HTMLDivElement | null>(null)
   const cellPopulatedRef = useRef<boolean[]>([])
   const baseRef = useRef<HTMLDivElement | null>(null)
+  const clipDirty = useRef(false)
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 })
 
   const mouseTrail = useRef<TrailPoint[]>([])
@@ -409,18 +410,16 @@ function GlitchFrame({
     overlay.setAttribute(GLITCH_ATTR, "true")
     overlay.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:999;${clipOverflow ? "overflow:hidden;" : ""}`
 
-    // ── Base layer: seamless full clone (NO clip-path anywhere) ──
-    // Provides the clean rest-state visual.
+    // ── Base layer: seamless full clone ──
+    // Shows content at rest.  clip-path (evenodd) punches holes at
+    // populated cell positions so the displaced cells above don't
+    // create a ghost/double image through transparent text gaps.
     const base = template.cloneNode(true) as HTMLDivElement
     base.style.zIndex = "0"
     overlay.appendChild(base)
     baseRef.current = base
 
     // ── Empty cell grid: content clones added lazily when displaced ──
-    // Cells sit above the base (z-index:1 vs 0).  When a cell is
-    // populated its clone covers the base at that position; displacement
-    // is applied to the clone's transform, not the cell itself, so the
-    // cell always covers the base beneath it.  No mask needed.
     const cellFrag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
     const populated: boolean[] = []
@@ -429,7 +428,7 @@ function GlitchFrame({
       for (let c = 0; c < colCount; c++) {
         const cellLeft = c * colWidth
         const cell = document.createElement("div")
-        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;backface-visibility:hidden;z-index:1;`
+        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;will-change:transform;backface-visibility:hidden;z-index:1;`
         cellFrag.appendChild(cell)
         cells.push(cell)
         populated.push(false)
@@ -715,6 +714,7 @@ function GlitchFrame({
       const active = mouseActive.current
       const populated = cellPopulatedRef.current
       const template = templateRef.current
+      const base = baseRef.current
       const returnStarts = cellReturnStart.current
       const returnTimes = cellReturnTime.current
       const pdx = parallaxDispsX.current
@@ -927,19 +927,20 @@ function GlitchFrame({
                 clone.style.top = `-${r * rowHeight}px`
                 clone.style.width = `${pw}px`
                 clone.style.height = `${ph}px`
-                clone.style.willChange = "transform"
                 el.appendChild(clone)
                 populated[idx] = true
+                clipDirty.current = true
               } else if (absPX < DEPOPULATE_THRESHOLD && populated[idx]) {
                 while (el.firstChild) el.removeChild(el.firstChild)
                 populated[idx] = false
+                clipDirty.current = true
               }
             }
 
-            // Transform the clone inside the cell, not the cell itself
             if (populated && populated[idx]) {
-              const clone = el.firstChild as HTMLElement
-              if (clone) clone.style.transform = `translate3d(${pdx[idx]}px,${pdy[idx]}px,0)`
+              el.style.transform = `translate3d(${pdx[idx]}px,${pdy[idx]}px,0)`
+            } else {
+              el.style.transform = "none"
             }
             continue
           }
@@ -990,25 +991,46 @@ function GlitchFrame({
               clone.style.top = `-${r * rowHeight}px`
               clone.style.width = `${pw}px`
               clone.style.height = `${ph}px`
-              clone.style.willChange = "transform"
               el.appendChild(clone)
               populated[idx] = true
+              clipDirty.current = true
             } else if (isSettled && populated[idx]) {
               while (el.firstChild) el.removeChild(el.firstChild)
               populated[idx] = false
+              clipDirty.current = true
             }
           }
 
-          // Transform the clone inside the cell, not the cell itself
+          // Only write transform on populated cells
           if (populated && populated[idx]) {
-            const clone = el.firstChild as HTMLElement
-            if (clone) {
-              clone.style.transform = absDisp < DEPOPULATE_THRESHOLD
-                ? "none"
-                : `translate(${disps[idx] * cosA}px,${disps[idx] * sinADisp}px)`
+            el.style.transform = absDisp < DEPOPULATE_THRESHOLD
+              ? "none"
+              : `translate(${disps[idx] * cosA}px,${disps[idx] * sinADisp}px)`
+          } else if (el.style.transform !== "none") {
+            el.style.transform = "none"
+          }
+        }
+      }
+
+      // ── Rebuild base clip-path when cell population changes ──
+      if (clipDirty.current && base) {
+        clipDirty.current = false
+        let hasAnyPopulated = false
+        // Build path: outer rect (clockwise) + inner rects (counter-clockwise) = evenodd holes
+        let d = `M0,0H${pw}V${ph}H0Z`
+        for (let ri = 0; ri < rowCount; ri++) {
+          for (let ci = 0; ci < colCount; ci++) {
+            const ii = ri * colCount + ci
+            if (populated[ii]) {
+              hasAnyPopulated = true
+              const x = ci * colWidth
+              const y = ri * rowHeight
+              d += `M${x},${y}v${rowHeight}h${colWidth}v${-rowHeight}Z`
             }
           }
         }
+        base.style.clipPath = hasAnyPopulated ? `path(evenodd,"${d}")` : "none"
+        ;(base.style as any).WebkitClipPath = hasAnyPopulated ? `path(evenodd,"${d}")` : "none"
       }
 
       rafId.current = requestAnimationFrame(animate)
