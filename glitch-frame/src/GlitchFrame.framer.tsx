@@ -233,8 +233,6 @@ function GlitchFrame({
   const parentRef = useRef<HTMLElement | null>(null)
   const cellEls = useRef<HTMLDivElement[]>([])
   const templateRef = useRef<HTMLDivElement | null>(null)
-  const cellPopulatedRef = useRef<boolean[]>([])
-  const baseRef = useRef<HTMLDivElement | null>(null)
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 })
 
   const mouseTrail = useRef<TrailPoint[]>([])
@@ -297,7 +295,6 @@ function GlitchFrame({
   }
 
   // Cap cell count — prevents extreme DOM bloat at small block sizes.
-  // Cells are lazily populated so the DOM only holds active ones.
   const MAX_CELLS = 2500
   if (rowCount * colCount > MAX_CELLS && pw > 0 && ph > 0) {
     const scale = Math.sqrt((rowCount * colCount) / MAX_CELLS)
@@ -470,27 +467,28 @@ function GlitchFrame({
     overlay.setAttribute(GLITCH_ATTR, "true")
     overlay.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:999;${clipOverflow ? "overflow:hidden;" : ""}`
 
-    // ── Base layer: seamless full clone ──
-    // Shows content at rest.  Displaced cells (z-index:1) render on
-    // top, covering the base at their destination position.
-    const base = template.cloneNode(true) as HTMLDivElement
-    base.style.zIndex = "0"
-    overlay.appendChild(base)
-    baseRef.current = base
-
-    // ── Empty cell grid: content clones added lazily when displaced ──
+    // ── Cell grid: each cell contains a positioned content clone ──
+    // No base layer — cells collectively form the full image at rest.
+    // When displaced, vacated areas are empty (the glitch gap).
     const cellFrag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
-    const populated: boolean[] = []
     for (let r = 0; r < rowCount; r++) {
       const cellTop = r * rowHeight
       for (let c = 0; c < colCount; c++) {
         const cellLeft = c * colWidth
         const cell = document.createElement("div")
-        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;will-change:transform;backface-visibility:hidden;z-index:1;`
+        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;will-change:transform;backface-visibility:hidden;`
+        // Always populate: clone template positioned so this cell's window
+        // shows the correct slice of the full content.
+        const clone = template.cloneNode(true) as HTMLDivElement
+        clone.style.inset = "auto"
+        clone.style.left = `-${cellLeft}px`
+        clone.style.top = `-${cellTop}px`
+        clone.style.width = `${pw}px`
+        clone.style.height = `${ph}px`
+        cell.appendChild(clone)
         cellFrag.appendChild(cell)
         cells.push(cell)
-        populated.push(false)
       }
     }
     overlay.appendChild(cellFrag)
@@ -499,7 +497,6 @@ function GlitchFrame({
     parent.appendChild(overlay)
     overlayRef.current = overlay
     cellEls.current = cells
-    cellPopulatedRef.current = populated
 
     // Hide siblings with !important via <style> tag to survive Framer re-renders.
     // Plain inline styles get overwritten when Framer re-applies layout.
@@ -522,9 +519,7 @@ function GlitchFrame({
       overlay.remove()
       overlayRef.current = null
       cellEls.current = []
-      cellPopulatedRef.current = []
       templateRef.current = null
-      baseRef.current = null
       sibStyleEl.remove()
       siblings.forEach((s, i) => { s.classList.remove(sibClasses[i]) })
       setTimeout(() => { suppressObserverRef.current = false }, 0)
@@ -768,8 +763,7 @@ function GlitchFrame({
     const sinADisp = Math.sin(angleRad)
     const sinABlend = Math.abs(sinADisp)
     const velocitySensitivity = 12
-    const POPULATE_THRESHOLD = 0.3
-    const DEPOPULATE_THRESHOLD = 0.05
+    const REST_THRESHOLD = 0.05
     const easeFn = EASING_FNS[returnEasing] || EASING_FNS.smooth
     const returnDur = returnDuration
     const sigma = influenceRadius / 2.5
@@ -783,8 +777,6 @@ function GlitchFrame({
       const trail = mouseTrail.current
       const now = performance.now()
       const active = mouseActive.current
-      const populated = cellPopulatedRef.current
-      const template = templateRef.current
       const returnStarts = cellReturnStart.current
       const returnTimes = cellReturnTime.current
       const pdx = parallaxDispsX.current
@@ -987,31 +979,9 @@ function GlitchFrame({
           // ── 2D displacement (parallax OR cursor direction) ──
           if (isParallax || isCursorDir) {
             const absPX = Math.abs(pdx[idx]) + Math.abs(pdy[idx])
-
-            // Lazy populate / depopulate
-            if (template && populated) {
-              if (absPX > POPULATE_THRESHOLD && !populated[idx]) {
-                const clone = template.cloneNode(true) as HTMLDivElement
-                clone.style.inset = "auto"
-                clone.style.left = `-${c * colWidth}px`
-                clone.style.top = `-${r * rowHeight}px`
-                clone.style.width = `${pw}px`
-                clone.style.height = `${ph}px`
-                el.appendChild(clone)
-                populated[idx] = true
-
-              } else if (absPX < DEPOPULATE_THRESHOLD && populated[idx]) {
-                while (el.firstChild) el.removeChild(el.firstChild)
-                populated[idx] = false
-
-              }
-            }
-
-            if (populated && populated[idx]) {
-              el.style.transform = `translate3d(${pdx[idx]}px,${pdy[idx]}px,0)`
-            } else {
-              el.style.transform = "none"
-            }
+            el.style.transform = absPX < 0.05
+              ? "none"
+              : `translate3d(${pdx[idx]}px,${pdy[idx]}px,0)`
             continue
           }
 
@@ -1028,7 +998,7 @@ function GlitchFrame({
             returnTimes[idx] = 0
             const diff = targets[idx] - disps[idx]
             disps[idx] += Math.abs(diff) > 0.05 ? diff * smoothing : diff
-          } else if (prevAbsDisp > DEPOPULATE_THRESHOLD || returnTimes[idx] > 0) {
+          } else if (prevAbsDisp > REST_THRESHOLD || returnTimes[idx] > 0) {
             // Return: ease back to rest with configurable curve
             if (returnTimes[idx] === 0) {
               returnStarts[idx] = disps[idx]
@@ -1047,36 +1017,11 @@ function GlitchFrame({
           }
 
           const absDisp = Math.abs(disps[idx])
-          const isReturning = returnTimes[idx] > 0
 
-          // Lazy populate / depopulate
-          if (template && populated) {
-            const needsContent = absDisp > POPULATE_THRESHOLD || absTarget > POPULATE_THRESHOLD || isReturning
-            const isSettled = !isReturning && absDisp < DEPOPULATE_THRESHOLD && absTarget < DEPOPULATE_THRESHOLD
-
-            if (needsContent && !populated[idx]) {
-              const clone = template.cloneNode(true) as HTMLDivElement
-              clone.style.inset = "auto"
-              clone.style.left = `-${c * colWidth}px`
-              clone.style.top = `-${r * rowHeight}px`
-              clone.style.width = `${pw}px`
-              clone.style.height = `${ph}px`
-              el.appendChild(clone)
-              populated[idx] = true
-            } else if (isSettled && populated[idx]) {
-              while (el.firstChild) el.removeChild(el.firstChild)
-              populated[idx] = false
-            }
-          }
-
-          // Only write transform on populated cells
-          if (populated && populated[idx]) {
-            el.style.transform = absDisp < DEPOPULATE_THRESHOLD
-              ? "none"
-              : `translate(${disps[idx] * cosA}px,${disps[idx] * sinADisp}px)`
-          } else if (el.style.transform !== "none") {
-            el.style.transform = "none"
-          }
+          // Write transform
+          el.style.transform = absDisp < 0.05
+            ? "none"
+            : `translate(${disps[idx] * cosA}px,${disps[idx] * sinADisp}px)`
         }
       }
 
