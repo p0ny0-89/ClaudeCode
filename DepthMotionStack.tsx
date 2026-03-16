@@ -68,6 +68,12 @@ interface Props {
     mid4Opacity: number
     mid5Opacity: number
     bgOpacity: number
+    bgClipByAbove: boolean
+    mid1ClipByAbove: boolean
+    mid2ClipByAbove: boolean
+    mid3ClipByAbove: boolean
+    mid4ClipByAbove: boolean
+    mid5ClipByAbove: boolean
     style?: React.CSSProperties
 }
 
@@ -128,6 +134,12 @@ export default function DepthMotionStack(props: Props) {
         mid4Opacity = 100,
         mid5Opacity = 100,
         bgOpacity = 100,
+        bgClipByAbove = false,
+        mid1ClipByAbove = false,
+        mid2ClipByAbove = false,
+        mid3ClipByAbove = false,
+        mid4ClipByAbove = false,
+        mid5ClipByAbove = false,
         style,
     } = props
 
@@ -135,6 +147,36 @@ export default function DepthMotionStack(props: Props) {
     const midLayersArr = [mid1, mid2, mid3, mid4, mid5].slice(0, layerCount)
     const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend].slice(0, layerCount)
     const midOpacitiesArr = [mid1Opacity, mid2Opacity, mid3Opacity, mid4Opacity, mid5Opacity].slice(0, layerCount)
+
+    const midClipArr = [mid1ClipByAbove, mid2ClipByAbove, mid3ClipByAbove, mid4ClipByAbove, mid5ClipByAbove].slice(0, layerCount)
+
+    // ── Clip-by-above: nesting & effective depth factors ──
+    const totalLayers = 2 + layerCount
+    const rawFactors: number[] = [
+        -1,
+        ...Array.from({ length: layerCount }, (_, i) => -1 + (i + 1) / (totalLayers - 1) * 2),
+        1,
+    ]
+    const clipFlags = [
+        bgClipByAbove && parallax,
+        ...midClipArr.map(c => c && parallax),
+        false,
+    ]
+    const parentOf: number[] = new Array(totalLayers).fill(-1)
+    for (let i = 0; i < totalLayers - 1; i++) {
+        if (!clipFlags[i]) continue
+        for (let j = i + 1; j < totalLayers; j++) {
+            const hasContent = j === 0 || j === totalLayers - 1 || midLayersArr[j - 1]
+            if (hasContent) { parentOf[i] = j; break }
+        }
+    }
+    const childrenOf: number[][] = Array.from({ length: totalLayers }, () => [])
+    for (let i = 0; i < totalLayers; i++) {
+        if (parentOf[i] >= 0) childrenOf[parentOf[i]].push(i)
+    }
+    const effectiveFactors = rawFactors.map((f, i) =>
+        parentOf[i] >= 0 ? f - rawFactors[parentOf[i]] : f
+    )
 
     // Scoped CSS classes to force Framer slot children to fill their layer.
     // bgFillClass uses min-width/min-height so the background's intrinsic
@@ -172,6 +214,8 @@ export default function DepthMotionStack(props: Props) {
 
     // Click-to-activate toggle state
     const clickActive = useRef(false)
+
+    const clipFactorsRef = useRef({ bg: -1, mid: [] as number[], fg: 1 })
 
     // Latest props in a ref so callbacks stay stable
     const cfg = useRef({
@@ -211,6 +255,12 @@ export default function DepthMotionStack(props: Props) {
         parallaxAmount,
         parallaxSmoothing,
         layerCount,
+    }
+
+    clipFactorsRef.current = {
+        bg: effectiveFactors[0],
+        mid: effectiveFactors.slice(1, 1 + layerCount),
+        fg: effectiveFactors[1 + layerCount],
     }
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
@@ -318,31 +368,27 @@ export default function DepthMotionStack(props: Props) {
             pc.tx = lerp(pc.tx, pt.tx, pLerp)
             pc.ty = lerp(pc.ty, pt.ty, pLerp)
 
-            // Total layers: background + mid layers + foreground
-            const n = 2 + lc
-            // Depth factor for layer at index i: -1 to +1
-            // bg (i=0) → -1, fg (i=n-1) → +1
+            const cf = clipFactorsRef.current
 
             // Background — always deepest
             if (bgRef.current) {
                 bgRef.current.style.transform =
-                    `translate3d(${(-1 * pc.tx).toFixed(2)}px, ${(-1 * pc.ty).toFixed(2)}px, 0)`
+                    `translate3d(${(cf.bg * pc.tx).toFixed(2)}px, ${(cf.bg * pc.ty).toFixed(2)}px, 0)`
             }
 
             // Mid layers — auto-distributed between bg and fg
             for (let i = 0; i < lc; i++) {
                 const ref = midRefs.current[i]
                 if (ref) {
-                    const f = -1 + (i + 1) / (n - 1) * 2
                     ref.style.transform =
-                        `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
+                        `translate3d(${(cf.mid[i] * pc.tx).toFixed(2)}px, ${(cf.mid[i] * pc.ty).toFixed(2)}px, 0)`
                 }
             }
 
             // Foreground — always shallowest
             if (fgRef.current) {
                 fgRef.current.style.transform =
-                    `translate3d(${(1 * pc.tx).toFixed(2)}px, ${(1 * pc.ty).toFixed(2)}px, 0)`
+                    `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
             }
         }
 
@@ -373,24 +419,23 @@ export default function DepthMotionStack(props: Props) {
                 pc.tx = pt.tx
                 pc.ty = pt.ty
 
-                const n = 2 + lc
+                const cf = clipFactorsRef.current
 
                 if (bgRef.current)
                     bgRef.current.style.transform =
-                        `translate3d(${(-1 * pc.tx).toFixed(2)}px, ${(-1 * pc.ty).toFixed(2)}px, 0)`
+                        `translate3d(${(cf.bg * pc.tx).toFixed(2)}px, ${(cf.bg * pc.ty).toFixed(2)}px, 0)`
 
                 for (let i = 0; i < lc; i++) {
                     const ref = midRefs.current[i]
                     if (ref) {
-                        const f = -1 + (i + 1) / (n - 1) * 2
                         ref.style.transform =
-                            `translate3d(${(f * pc.tx).toFixed(2)}px, ${(f * pc.ty).toFixed(2)}px, 0)`
+                            `translate3d(${(cf.mid[i] * pc.tx).toFixed(2)}px, ${(cf.mid[i] * pc.ty).toFixed(2)}px, 0)`
                     }
                 }
 
                 if (fgRef.current)
                     fgRef.current.style.transform =
-                        `translate3d(${(1 * pc.tx).toFixed(2)}px, ${(1 * pc.ty).toFixed(2)}px, 0)`
+                        `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
             }
 
             loopRunning.current = false
@@ -927,6 +972,62 @@ export default function DepthMotionStack(props: Props) {
         )
     }
 
+    const layerContents: React.ReactNode[] = [background, ...midLayersArr, content]
+    const layerClassNames = [bgClass, ...new Array(layerCount).fill(fillClass), fillClass]
+    const layerBlends: (string | undefined)[] = [
+        undefined,
+        ...midBlendsArr.map((b: string) => b !== "normal" ? b : undefined),
+        contentBlend !== "normal" ? contentBlend : undefined,
+    ]
+    const layerOpacities: (number | undefined)[] = [
+        bgOpacity < 100 ? bgOpacity / 100 : undefined,
+        ...midOpacitiesArr.map((o: number) => o < 100 ? o / 100 : undefined),
+        contentOpacity < 100 ? contentOpacity / 100 : undefined,
+    ]
+
+    const renderLayer = (layerIdx: number, isRoot: boolean): React.ReactNode => {
+        if (layerIdx > 0 && layerIdx <= layerCount && !midLayersArr[layerIdx - 1]) return null
+
+        const hasClipChildren = childrenOf[layerIdx].length > 0
+        const nestedChildren = childrenOf[layerIdx]
+            .map(ci => renderLayer(ci, false))
+            .filter(Boolean)
+
+        const refCb = (el: HTMLDivElement | null) => {
+            if (layerIdx === 0) (bgRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+            else if (layerIdx <= layerCount) midRefs.current[layerIdx - 1] = el
+            else (fgRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+        }
+
+        const style: React.CSSProperties = isRoot
+            ? {
+                ...gridCell,
+                overflow: (clipContent || hasClipChildren) ? "hidden" : "visible",
+                mixBlendMode: layerBlends[layerIdx] as any,
+                opacity: layerOpacities[layerIdx],
+            }
+            : {
+                position: "absolute",
+                inset: 0,
+                willChange: "transform",
+                overflow: hasClipChildren ? "hidden" : undefined,
+                mixBlendMode: layerBlends[layerIdx] as any,
+                opacity: layerOpacities[layerIdx],
+            }
+
+        return (
+            <div
+                key={`layer-${layerIdx}`}
+                ref={refCb}
+                className={layerClassNames[layerIdx]}
+                style={style}
+            >
+                {nestedChildren}
+                {layerContents[layerIdx]}
+            </div>
+        )
+    }
+
     // Grid cell style — all layers overlap in the same cell.
     // pointer-events: none on wrapper so stacked layers don't block each other;
     // children get pointer-events: auto via CSS class below.
@@ -965,62 +1066,9 @@ export default function DepthMotionStack(props: Props) {
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
             >
-                {/* Background layer — sizing reference.
-                    In Fit mode (auto-size), uses bgFillClass so the slot
-                    child's intrinsic dimensions flow through. In Fixed/Fill
-                    mode, uses fillClass so content fills responsively. */}
-                <div
-                    ref={bgRef}
-                    className={bgClass}
-                    style={{
-                        ...gridCell,
-                        overflow: clipContent ? "hidden" : "visible",
-                        opacity: bgOpacity < 100 ? bgOpacity / 100 : undefined,
-                    }}
-                >
-                    {background}
-                </div>
-
-                {/* Mid layers — overlay on the bg via grid stacking */}
-                {midLayersArr.map((layer, i) =>
-                    layer ? (
-                        <div
-                            key={i}
-                            ref={(el) => {
-                                midRefs.current[i] = el
-                            }}
-                            className={fillClass}
-                            style={{
-                                ...gridCell,
-                                overflow: clipContent ? "hidden" : "visible",
-                                mixBlendMode:
-                                    midBlendsArr[i] !== "normal"
-                                        ? midBlendsArr[i]
-                                        : undefined,
-                                opacity: midOpacitiesArr[i] < 100 ? midOpacitiesArr[i] / 100 : undefined,
-                            }}
-                        >
-                            {layer}
-                        </div>
-                    ) : null
-                )}
-
-                {/* Foreground / content — topmost layer */}
-                <div
-                    ref={fgRef}
-                    className={fillClass}
-                    style={{
-                        ...gridCell,
-                        overflow: clipContent ? "hidden" : "visible",
-                        mixBlendMode:
-                            contentBlend !== "normal"
-                                ? contentBlend
-                                : undefined,
-                        opacity: contentOpacity < 100 ? contentOpacity / 100 : undefined,
-                    }}
-                >
-                    {content}
-                </div>
+                {Array.from({ length: totalLayers }, (_, i) => i)
+                    .filter(i => parentOf[i] === -1)
+                    .map(i => renderLayer(i, true))}
             </div>
         </div>
     )
@@ -1357,6 +1405,56 @@ addPropertyControls(DepthMotionStack, {
         step: 1,
         unit: "%",
         hidden: (props: any) => !props.parallax,
+    },
+
+    bgClipByAbove: {
+        type: ControlType.Boolean,
+        title: "BG Clip by Above",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        description: "Clips the background to the frame bounds of the layer above it.",
+        hidden: (props: any) => !props.parallax,
+    },
+    mid1ClipByAbove: {
+        type: ControlType.Boolean,
+        title: "L1 Clip by Above",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
+    },
+    mid2ClipByAbove: {
+        type: ControlType.Boolean,
+        title: "L2 Clip by Above",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
+    },
+    mid3ClipByAbove: {
+        type: ControlType.Boolean,
+        title: "L3 Clip by Above",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
+    },
+    mid4ClipByAbove: {
+        type: ControlType.Boolean,
+        title: "L4 Clip by Above",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
+    },
+    mid5ClipByAbove: {
+        type: ControlType.Boolean,
+        title: "L5 Clip by Above",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
     },
 
     // ── Motion behavior ─────────────────────────────────
