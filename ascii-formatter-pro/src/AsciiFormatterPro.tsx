@@ -1,0 +1,1278 @@
+// AsciiFormatterPro — Framer Code Component (V2)
+// Paste this entire file into Framer's code editor (Assets > Code > +)
+
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+  useLayoutEffect,
+} from "react"
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
+
+// ─── Types ──────────────────────────────────────────────────────────
+
+type Font = "courier" | "consolas" | "firacode" | "jetbrains" | "spacemono" | "ibmplex"
+type FillType = "solid" | "linear" | "radial"
+type AppearEffect =
+  | "none"
+  | "fade"
+  | "reveal"
+  | "typing"
+  | "glitch"
+  | "scramble"
+  | "scan"
+  | "boot"
+  | "interference"
+type Trigger = "mount" | "hover" | "viewport"
+type RepeatMode = "once" | "loop" | "pingPong"
+type StaggerMode = "none" | "byChar" | "byLine"
+type RevealDirection = "left" | "right" | "top" | "bottom" | "centerOut" | "random"
+type GlitchDirection = "horizontal" | "vertical" | "both"
+type HoverEffect = "none" | "glitch" | "scramble" | "revealPulse" | "flicker"
+type TextAlign = "left" | "center" | "right"
+type FontSizingMode = "fixed" | "auto"
+
+interface AsciiFormatterProProps {
+  // Content
+  text: string
+  font: Font
+  textAlign: TextAlign
+  // Typography
+  fontSizingMode: FontSizingMode
+  fontSize: number
+  lineHeight: number
+  letterSpacing: number
+  preserveFormatting: boolean
+  // Appearance
+  fillType: FillType
+  color: string
+  gradientStart: string
+  gradientEnd: string
+  gradientAngle: number
+  // Animation
+  appearEffect: AppearEffect
+  trigger: Trigger
+  repeatMode: RepeatMode
+  duration: number
+  delay: number
+  stagger: StaggerMode
+  staggerAmount: number
+  direction: RevealDirection
+  repeatDelay: number
+  loopCount: number
+  // Effect Controls
+  intensity: number
+  frequency: number
+  seed: number
+  jitter: number
+  rgbSplit: number
+  glitchDirection: GlitchDirection
+  cursorBlink: boolean
+  // Interaction
+  hoverEffect: HoverEffect
+  hoverIntensity: number
+  retriggerOnHover: boolean
+  // Framer
+  style?: React.CSSProperties
+}
+
+// ─── Constants ──────────────────────────────────────────────────────
+
+const FONT_MAP: Record<Font, string> = {
+  courier: "'Courier New', Courier, monospace",
+  consolas: "'Consolas', monospace",
+  firacode: "'Fira Code', monospace",
+  jetbrains: "'JetBrains Mono', monospace",
+  spacemono: "'Space Mono', monospace",
+  ibmplex: "'IBM Plex Mono', monospace",
+}
+
+const GLITCH_CHARS = "!@#$%^&*()_+-=[]{}|;:',.<>?/~`0123456789"
+const BLOCK_CHARS = "░▒▓█▄▀■□▪▫"
+
+const DEFAULT_TEXT = `  /\\_/\\
+ ( o.o )
+  > ^ <`
+
+// ─── Seeded RNG ─────────────────────────────────────────────────────
+
+function createRng(seed: number) {
+  let s = seed | 0 || 1
+  return () => {
+    s = (s * 1664525 + 1013904223) | 0
+    return ((s >>> 0) / 0x100000000)
+  }
+}
+
+// ─── Playback Engine ────────────────────────────────────────────────
+
+function usePlayback(config: {
+  enabled: boolean
+  duration: number
+  delay: number
+  repeatMode: RepeatMode
+  repeatDelay: number
+  loopCount: number
+  trigger: Trigger
+  containerRef: React.RefObject<HTMLDivElement | null>
+  retriggerOnHover: boolean
+}) {
+  const {
+    enabled,
+    duration,
+    delay,
+    repeatMode,
+    repeatDelay,
+    loopCount,
+    trigger,
+    containerRef,
+    retriggerOnHover,
+  } = config
+
+  const [progress, setProgress] = useState(0)
+  const [cycle, setCycle] = useState(0)
+  const [started, setStarted] = useState(false)
+  const rafRef = useRef(0)
+  const startTime = useRef(0)
+  const isHovering = useRef(false)
+
+  // Viewport trigger
+  useEffect(() => {
+    if (!enabled || trigger !== "viewport") return
+    const el = containerRef.current
+    if (!el) return
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !started) setStarted(true)
+      },
+      { threshold: 0.15 }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [enabled, trigger, started, containerRef])
+
+  // Hover trigger
+  useEffect(() => {
+    if (!enabled || trigger !== "hover") return
+    const el = containerRef.current
+    if (!el) return
+
+    const enter = () => {
+      isHovering.current = true
+      if (!started || retriggerOnHover) {
+        setStarted(true)
+        setCycle(0)
+        startTime.current = 0
+      }
+    }
+    const leave = () => {
+      isHovering.current = false
+    }
+
+    el.addEventListener("pointerenter", enter)
+    el.addEventListener("pointerleave", leave)
+    return () => {
+      el.removeEventListener("pointerenter", enter)
+      el.removeEventListener("pointerleave", leave)
+    }
+  }, [enabled, trigger, started, retriggerOnHover])
+
+  // Mount trigger
+  useEffect(() => {
+    if (!enabled) return
+    if (trigger === "mount") setStarted(true)
+  }, [enabled, trigger])
+
+  // Animation loop
+  useEffect(() => {
+    if (!enabled || !started) {
+      setProgress(enabled ? 0 : 1)
+      return
+    }
+
+    const animate = (now: number) => {
+      if (startTime.current === 0) startTime.current = now
+
+      const elapsed = now - startTime.current
+      const afterDelay = elapsed - delay * 1000
+
+      if (afterDelay < 0) {
+        setProgress(0)
+        rafRef.current = requestAnimationFrame(animate)
+        return
+      }
+
+      let raw = Math.min(afterDelay / (duration * 1000), 1)
+
+      // Ping-pong: reverse on odd cycles
+      if (repeatMode === "pingPong" && cycle % 2 === 1) {
+        raw = 1 - raw
+      }
+
+      setProgress(raw)
+
+      if (raw >= 1 || (repeatMode === "pingPong" && cycle % 2 === 1 && raw <= 0)) {
+        // Cycle complete
+        const maxCycles = loopCount <= 0 ? Infinity : loopCount
+        if (repeatMode === "once" || cycle + 1 >= maxCycles) {
+          setProgress(repeatMode === "pingPong" && cycle % 2 === 1 ? 0 : 1)
+          return
+        }
+        // Start next cycle after repeatDelay
+        setCycle((c) => c + 1)
+        startTime.current = now + repeatDelay * 1000
+        rafRef.current = requestAnimationFrame(animate)
+        return
+      }
+
+      rafRef.current = requestAnimationFrame(animate)
+    }
+
+    rafRef.current = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [enabled, started, duration, delay, repeatMode, repeatDelay, loopCount, cycle])
+
+  const replay = useCallback(() => {
+    setCycle(0)
+    setProgress(0)
+    startTime.current = 0
+    setStarted(true)
+  }, [])
+
+  return { progress, cycle, replay, isHovering: isHovering.current }
+}
+
+// ─── Auto-Fit ───────────────────────────────────────────────────────
+
+function useAutoFit(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  preRef: React.RefObject<HTMLPreElement | null>,
+  enabled: boolean,
+  deps: unknown[]
+) {
+  const [scale, setScale] = useState(1)
+
+  useLayoutEffect(() => {
+    if (!enabled) {
+      setScale(1)
+      return
+    }
+    const c = containerRef.current
+    const p = preRef.current
+    if (!c || !p) return
+
+    const cw = c.clientWidth
+    const ch = c.clientHeight
+    const pw = p.scrollWidth
+    const ph = p.scrollHeight
+
+    if (pw > 0 && ph > 0 && cw > 0 && ch > 0) {
+      setScale(Math.min(cw / pw, ch / ph, 1))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, ...deps])
+
+  // Also respond to container resize
+  useEffect(() => {
+    if (!enabled) return
+    const c = containerRef.current
+    if (!c) return
+
+    const ro = new ResizeObserver(() => {
+      const p = preRef.current
+      if (!p) return
+      const cw = c.clientWidth
+      const ch = c.clientHeight
+      const pw = p.scrollWidth
+      const ph = p.scrollHeight
+      if (pw > 0 && ph > 0 && cw > 0 && ch > 0) {
+        setScale(Math.min(cw / pw, ch / ph, 1))
+      }
+    })
+    ro.observe(c)
+    return () => ro.disconnect()
+  }, [enabled, containerRef, preRef])
+
+  return scale
+}
+
+// ─── Effect Computers ───────────────────────────────────────────────
+
+// -- Fade
+function computeFade(progress: number): React.CSSProperties {
+  return { opacity: progress }
+}
+
+// -- Reveal (clip-path based)
+function computeReveal(
+  progress: number,
+  direction: RevealDirection,
+  seed: number
+): React.CSSProperties {
+  const p = progress * 100
+  let clipPath: string
+
+  switch (direction) {
+    case "left":
+      clipPath = `inset(0 ${100 - p}% 0 0)`
+      break
+    case "right":
+      clipPath = `inset(0 0 0 ${100 - p}%)`
+      break
+    case "top":
+      clipPath = `inset(0 0 ${100 - p}% 0)`
+      break
+    case "bottom":
+      clipPath = `inset(${100 - p}% 0 0 0)`
+      break
+    case "centerOut": {
+      const half = (100 - p) / 2
+      clipPath = `inset(${half}% ${half}% ${half}% ${half}%)`
+      break
+    }
+    case "random": {
+      // Use seed to pick a consistent random direction for this instance
+      const rng = createRng(seed)
+      const dirs: RevealDirection[] = ["left", "right", "top", "bottom", "centerOut"]
+      const picked = dirs[Math.floor(rng() * dirs.length)]
+      return computeReveal(progress, picked, seed)
+    }
+    default:
+      clipPath = `inset(0 ${100 - p}% 0 0)`
+  }
+
+  return { clipPath }
+}
+
+// -- Scan (clip-path reveal + glow band)
+function computeScan(
+  progress: number,
+  direction: RevealDirection
+): { clip: React.CSSProperties; scanLineStyle: React.CSSProperties } {
+  const isVertical = direction === "top" || direction === "bottom"
+  const pos = progress * 100
+  const bandWidth = 3 // % of container
+
+  const clip = computeReveal(progress, direction === "random" ? "left" : direction, 0)
+
+  const scanLineStyle: React.CSSProperties = {
+    position: "absolute",
+    [isVertical ? "left" : "top"]: 0,
+    [isVertical ? "right" : "bottom"]: 0,
+    [isVertical ? "top" : "left"]: `${pos - bandWidth / 2}%`,
+    [isVertical ? "height" : "width"]: `${bandWidth}%`,
+    background: isVertical
+      ? `linear-gradient(to bottom, transparent, rgba(0,255,65,0.4), transparent)`
+      : `linear-gradient(to right, transparent, rgba(0,255,65,0.4), transparent)`,
+    pointerEvents: "none",
+    zIndex: 2,
+    opacity: progress < 1 ? 1 : 0,
+    transition: "opacity 0.2s",
+  }
+
+  return { clip, scanLineStyle }
+}
+
+// -- Typing
+function computeTyping(
+  text: string,
+  progress: number,
+  stagger: StaggerMode,
+  _staggerAmount: number
+): { visible: string; hidden: string } {
+  if (stagger === "byLine") {
+    const lines = text.split("\n")
+    const visibleLines = Math.ceil(progress * lines.length)
+    const visible = lines.slice(0, visibleLines).join("\n")
+    const hidden = lines.slice(visibleLines).join("\n")
+    return { visible, hidden: hidden ? "\n" + hidden : "" }
+  }
+
+  // Default: by character
+  const len = Math.floor(progress * text.length)
+  return {
+    visible: text.slice(0, len),
+    hidden: text.slice(len),
+  }
+}
+
+// -- Glitch (progressive resolve with scramble)
+function computeGlitch(
+  text: string,
+  progress: number,
+  intensity: number,
+  seed: number,
+  frameCount: number
+): string {
+  const rng = createRng(seed)
+  const chars = text.split("")
+
+  // Pre-compute resolve order (seeded, deterministic)
+  const indices = chars.map((_, i) => i).filter((i) => {
+    const ch = chars[i]
+    return ch !== " " && ch !== "\n" && ch !== "\r" && ch !== "\t"
+  })
+  // Shuffle with seeded rng
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[indices[i], indices[j]] = [indices[j], indices[i]]
+  }
+
+  const resolveCount = Math.floor(progress * indices.length)
+  const resolved = new Set(indices.slice(0, resolveCount))
+
+  // Frame-based randomization for unresolved chars
+  const frameRng = createRng(seed + frameCount * 7919)
+  const glitchRate = intensity * (1 - progress)
+
+  return chars
+    .map((ch, i) => {
+      if (ch === " " || ch === "\n" || ch === "\r" || ch === "\t") return ch
+      if (resolved.has(i)) return ch
+      if (frameRng() < glitchRate) {
+        return GLITCH_CHARS[Math.floor(frameRng() * GLITCH_CHARS.length)]
+      }
+      return ch
+    })
+    .join("")
+}
+
+// -- Scramble (all chars randomize then resolve in random order)
+function computeScramble(
+  text: string,
+  progress: number,
+  seed: number,
+  frameCount: number
+): string {
+  const rng = createRng(seed + 31)
+  const chars = text.split("")
+
+  const indices = chars.map((_, i) => i).filter((i) => {
+    const ch = chars[i]
+    return ch !== " " && ch !== "\n" && ch !== "\r" && ch !== "\t"
+  })
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[indices[i], indices[j]] = [indices[j], indices[i]]
+  }
+
+  const resolveCount = Math.floor(progress * indices.length)
+  const resolved = new Set(indices.slice(0, resolveCount))
+
+  const frameRng = createRng(seed + frameCount * 3571)
+
+  return chars
+    .map((ch, i) => {
+      if (ch === " " || ch === "\n" || ch === "\r" || ch === "\t") return ch
+      if (resolved.has(i)) return ch
+      return GLITCH_CHARS[Math.floor(frameRng() * GLITCH_CHARS.length)]
+    })
+    .join("")
+}
+
+// -- Boot Sequence (line-by-line terminal reveal)
+function computeBoot(
+  text: string,
+  progress: number,
+  cursorBlink: boolean,
+  stagger: StaggerMode,
+  frameCount: number
+): string {
+  const lines = text.split("\n")
+  const totalLines = lines.length
+
+  if (stagger === "byChar") {
+    // Type out all lines char by char
+    const totalChars = text.length
+    const visibleCount = Math.floor(progress * totalChars)
+    const visible = text.slice(0, visibleCount)
+    const showCursor = cursorBlink && progress < 1 && Math.floor(frameCount / 15) % 2 === 0
+    return visible + (showCursor ? "▌" : "")
+  }
+
+  // Default: by line (each line appears fully, one at a time)
+  const visibleLines = Math.ceil(progress * totalLines)
+  const result = lines.slice(0, visibleLines).join("\n")
+
+  // Cursor on the last visible line
+  const showCursor = cursorBlink && progress < 1 && Math.floor(frameCount / 15) % 2 === 0
+  return result + (showCursor ? "▌" : "")
+}
+
+// -- Interference (noisy signal stabilization)
+function computeInterference(
+  text: string,
+  progress: number,
+  intensity: number,
+  jitter: number,
+  seed: number,
+  frameCount: number
+): { text: string; lineOffsets: number[] } {
+  const distortion = (1 - progress) * intensity
+  const rng = createRng(seed + frameCount * 1279)
+  const lines = text.split("\n")
+
+  const lineOffsets: number[] = []
+  const resultLines: string[] = []
+
+  for (let li = 0; li < lines.length; li++) {
+    // Random horizontal shift per line
+    const shift = Math.round((rng() - 0.5) * jitter * distortion * 4)
+    lineOffsets.push(shift)
+
+    const chars = lines[li].split("")
+    const lineResult = chars
+      .map((ch) => {
+        if (ch === " " || ch === "\t") return ch
+        if (rng() < distortion * 0.6) {
+          // Replace with block/noise chars
+          return rng() < 0.5
+            ? BLOCK_CHARS[Math.floor(rng() * BLOCK_CHARS.length)]
+            : GLITCH_CHARS[Math.floor(rng() * GLITCH_CHARS.length)]
+        }
+        return ch
+      })
+      .join("")
+
+    resultLines.push(lineResult)
+  }
+
+  return { text: resultLines.join("\n"), lineOffsets }
+}
+
+// ─── Hover Effects ──────────────────────────────────────────────────
+
+function useHoverEngine(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  hoverEffect: HoverEffect,
+  hoverIntensity: number,
+  text: string,
+  seed: number,
+  enabled: boolean
+) {
+  const [isHovering, setIsHovering] = useState(false)
+  const [hoverFrame, setHoverFrame] = useState(0)
+  const rafRef = useRef(0)
+
+  useEffect(() => {
+    if (!enabled || hoverEffect === "none") return
+    const el = containerRef.current
+    if (!el) return
+
+    const enter = () => setIsHovering(true)
+    const leave = () => setIsHovering(false)
+
+    el.addEventListener("pointerenter", enter)
+    el.addEventListener("pointerleave", leave)
+    return () => {
+      el.removeEventListener("pointerenter", enter)
+      el.removeEventListener("pointerleave", leave)
+    }
+  }, [enabled, hoverEffect, containerRef])
+
+  // Animate while hovering
+  useEffect(() => {
+    if (!isHovering || hoverEffect === "none") {
+      setHoverFrame(0)
+      return
+    }
+
+    let frame = 0
+    const tick = () => {
+      frame++
+      setHoverFrame(frame)
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [isHovering, hoverEffect])
+
+  // Compute hover display
+  const hoverResult = useMemo(() => {
+    if (!isHovering || hoverEffect === "none") return null
+
+    switch (hoverEffect) {
+      case "glitch": {
+        const rng = createRng(seed + hoverFrame * 7919)
+        return text
+          .split("")
+          .map((ch) => {
+            if (ch === " " || ch === "\n" || ch === "\r") return ch
+            if (rng() < hoverIntensity * 0.3) {
+              return GLITCH_CHARS[Math.floor(rng() * GLITCH_CHARS.length)]
+            }
+            return ch
+          })
+          .join("")
+      }
+
+      case "scramble": {
+        const rng = createRng(seed + hoverFrame * 3571)
+        return text
+          .split("")
+          .map((ch) => {
+            if (ch === " " || ch === "\n" || ch === "\r") return ch
+            if (rng() < hoverIntensity * 0.5) {
+              return GLITCH_CHARS[Math.floor(rng() * GLITCH_CHARS.length)]
+            }
+            return ch
+          })
+          .join("")
+      }
+
+      case "revealPulse":
+      case "flicker":
+        return null // handled via CSS
+
+      default:
+        return null
+    }
+  }, [isHovering, hoverEffect, hoverIntensity, text, seed, hoverFrame])
+
+  // Hover CSS effects
+  const hoverStyle = useMemo((): React.CSSProperties => {
+    if (!isHovering) return {}
+
+    switch (hoverEffect) {
+      case "revealPulse":
+        return {
+          filter: `brightness(${1 + hoverIntensity * 0.5})`,
+          transition: "filter 0.15s ease-out",
+        }
+      case "flicker": {
+        const on = Math.floor(hoverFrame / 3) % 2 === 0
+        return { opacity: on ? 1 : 1 - hoverIntensity * 0.4 }
+      }
+      default:
+        return {}
+    }
+  }, [isHovering, hoverEffect, hoverIntensity, hoverFrame])
+
+  return { hoverText: hoverResult, hoverStyle, isHovering }
+}
+
+// ─── Style Helper ───────────────────────────────────────────────────
+
+function getTextStyle(props: AsciiFormatterProProps, effectiveFontSize: number): React.CSSProperties {
+  const base: React.CSSProperties = {
+    fontFamily: FONT_MAP[props.font],
+    fontSize: effectiveFontSize,
+    lineHeight: props.lineHeight,
+    letterSpacing: props.letterSpacing,
+    whiteSpace: props.preserveFormatting ? "pre" : "pre-wrap",
+    textAlign: props.textAlign,
+    margin: 0,
+    padding: 0,
+    boxSizing: "border-box",
+    wordBreak: "keep-all",
+    overflowWrap: "normal",
+    tabSize: 4,
+  }
+
+  if (props.fillType === "solid") {
+    return { ...base, color: props.color }
+  }
+
+  const gradient =
+    props.fillType === "linear"
+      ? `linear-gradient(${props.gradientAngle}deg, ${props.gradientStart}, ${props.gradientEnd})`
+      : `radial-gradient(circle, ${props.gradientStart}, ${props.gradientEnd})`
+
+  return {
+    ...base,
+    background: gradient,
+    backgroundClip: "text",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    color: "transparent",
+  }
+}
+
+// ─── RGB Split Helper ───────────────────────────────────────────────
+
+function getRgbSplitStyle(
+  amount: number,
+  direction: GlitchDirection,
+  active: boolean
+): React.CSSProperties {
+  if (!active || amount <= 0) return {}
+
+  const h = direction === "vertical" ? 0 : amount
+  const v = direction === "horizontal" ? 0 : amount
+
+  return {
+    textShadow: [
+      `${h}px ${v}px rgba(255,0,0,0.7)`,
+      `${-h}px ${-v}px rgba(0,100,255,0.7)`,
+    ].join(", "),
+  }
+}
+
+// ─── Jitter Transform ───────────────────────────────────────────────
+
+function getJitterStyle(
+  jitter: number,
+  direction: GlitchDirection,
+  frame: number,
+  active: boolean
+): React.CSSProperties {
+  if (!active || jitter <= 0) return {}
+
+  const rng = createRng(frame * 997 + 42)
+  const x = direction === "vertical" ? 0 : (rng() - 0.5) * jitter * 2
+  const y = direction === "horizontal" ? 0 : (rng() - 0.5) * jitter * 2
+
+  return {
+    transform: `translate(${x}px, ${y}px)`,
+  }
+}
+
+// ─── Component ──────────────────────────────────────────────────────
+
+export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
+  const {
+    text,
+    fontSizingMode,
+    fontSize,
+    appearEffect,
+    trigger,
+    repeatMode,
+    duration,
+    delay,
+    stagger,
+    staggerAmount,
+    direction,
+    repeatDelay,
+    loopCount,
+    intensity,
+    frequency,
+    seed,
+    jitter,
+    rgbSplit,
+    glitchDirection,
+    cursorBlink,
+    hoverEffect,
+    hoverIntensity,
+    retriggerOnHover,
+    style,
+  } = props
+
+  // Detect Framer canvas — disable all animations
+  let isCanvas = false
+  try {
+    isCanvas = RenderTarget.current() === RenderTarget.canvas
+  } catch {
+    // dev harness — allow animations
+  }
+
+  const active = !isCanvas && appearEffect !== "none"
+  const containerRef = useRef<HTMLDivElement>(null)
+  const preRef = useRef<HTMLPreElement>(null)
+  const [frameCount, setFrameCount] = useState(0)
+
+  // Animation frame counter for text-manipulation effects
+  useEffect(() => {
+    if (!active && hoverEffect === "none") return
+
+    let running = true
+    let frame = 0
+
+    // Throttle to ~30fps for text effects (no need for 60fps string manipulation)
+    let lastTick = 0
+    const interval = 1000 / (frequency > 0 ? Math.min(frequency, 60) : 30)
+
+    const tick = (now: number) => {
+      if (!running) return
+      if (now - lastTick >= interval) {
+        frame++
+        setFrameCount(frame)
+        lastTick = now
+      }
+      requestAnimationFrame(tick)
+    }
+
+    requestAnimationFrame(tick)
+    return () => { running = false }
+  }, [active, hoverEffect, frequency])
+
+  // Playback engine
+  const { progress } = usePlayback({
+    enabled: active,
+    duration,
+    delay,
+    repeatMode,
+    repeatDelay,
+    loopCount,
+    trigger,
+    containerRef,
+    retriggerOnHover,
+  })
+
+  // Auto-fit
+  const autoFit = fontSizingMode === "auto"
+  const scale = useAutoFit(containerRef, preRef, autoFit, [text, fontSize, props.lineHeight, props.letterSpacing])
+  const effectiveFontSize = fontSize
+
+  // Hover engine (only when appear effect is done or always-on)
+  const { hoverText, hoverStyle, isHovering: hoverActive } = useHoverEngine(
+    containerRef,
+    isCanvas ? "none" : hoverEffect,
+    hoverIntensity,
+    text,
+    seed,
+    !isCanvas
+  )
+
+  // ── Compute display text and styles ──
+
+  const textEffects = useMemo(() => {
+    if (!active) return { displayText: text, outerStyle: {} as React.CSSProperties, innerStyle: {} as React.CSSProperties, scanLine: null as React.CSSProperties | null }
+
+    let displayText = text
+    const outerStyle: React.CSSProperties = {}
+    const innerStyle: React.CSSProperties = {}
+    let scanLine: React.CSSProperties | null = null
+
+    switch (appearEffect) {
+      case "fade":
+        Object.assign(innerStyle, computeFade(progress))
+        break
+
+      case "reveal":
+        Object.assign(outerStyle, computeReveal(progress, direction, seed))
+        break
+
+      case "typing": {
+        const typed = computeTyping(text, progress, stagger, staggerAmount)
+        displayText = typed.visible
+        break
+      }
+
+      case "glitch":
+        displayText = computeGlitch(text, progress, intensity, seed, frameCount)
+        break
+
+      case "scramble":
+        displayText = computeScramble(text, progress, seed, frameCount)
+        break
+
+      case "scan": {
+        const { clip, scanLineStyle } = computeScan(progress, direction)
+        Object.assign(outerStyle, clip)
+        scanLine = scanLineStyle
+        break
+      }
+
+      case "boot":
+        displayText = computeBoot(text, progress, cursorBlink, stagger, frameCount)
+        break
+
+      case "interference": {
+        const result = computeInterference(text, progress, intensity, jitter, seed, frameCount)
+        displayText = result.text
+        break
+      }
+    }
+
+    return { displayText, outerStyle, innerStyle, scanLine }
+  }, [active, appearEffect, text, progress, direction, seed, frameCount, intensity, jitter, stagger, staggerAmount, cursorBlink])
+
+  // Apply hover text override when hovering (and appear effect is complete)
+  const finalText = hoverActive && hoverText !== null && (progress >= 1 || !active)
+    ? hoverText
+    : textEffects.displayText
+
+  // Hidden text for typing effect (layout stability)
+  const typingHidden = active && appearEffect === "typing"
+    ? computeTyping(text, progress, stagger, staggerAmount).hidden
+    : ""
+
+  // RGB split + jitter (active during glitch/interference effects or hover glitch)
+  const isGlitchActive = (active && (appearEffect === "glitch" || appearEffect === "interference") && progress < 1)
+    || (hoverActive && (hoverEffect === "glitch" || hoverEffect === "scramble"))
+  const rgbStyle = getRgbSplitStyle(rgbSplit, glitchDirection, isGlitchActive)
+  const jitterStyle = getJitterStyle(jitter, glitchDirection, frameCount, isGlitchActive)
+
+  const textStyle = getTextStyle(props, effectiveFontSize)
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        ...style,
+        overflow: "hidden",
+        width: "100%",
+        height: "100%",
+        position: "relative",
+        ...textEffects.outerStyle,
+        ...hoverStyle,
+      }}
+    >
+      <pre
+        ref={preRef}
+        style={{
+          ...textStyle,
+          ...textEffects.innerStyle,
+          ...rgbStyle,
+          ...jitterStyle,
+          ...(autoFit
+            ? {
+                transform: `scale(${scale})`,
+                transformOrigin: "top left",
+                width: "max-content",
+              }
+            : { width: "100%", height: "100%" }),
+        }}
+      >
+        {finalText}
+        {typingHidden && (
+          <span style={{ visibility: "hidden" }}>{typingHidden}</span>
+        )}
+      </pre>
+      {textEffects.scanLine && (
+        <div style={textEffects.scanLine} />
+      )}
+    </div>
+  )
+}
+
+AsciiFormatterPro.defaultProps = {
+  // Content
+  text: DEFAULT_TEXT,
+  font: "courier" as Font,
+  textAlign: "left" as TextAlign,
+  // Typography
+  fontSizingMode: "fixed" as FontSizingMode,
+  fontSize: 14,
+  lineHeight: 1.2,
+  letterSpacing: 0,
+  preserveFormatting: true,
+  // Appearance
+  fillType: "solid" as FillType,
+  color: "#00FF41",
+  gradientStart: "#00FF41",
+  gradientEnd: "#0080FF",
+  gradientAngle: 90,
+  // Animation
+  appearEffect: "none" as AppearEffect,
+  trigger: "mount" as Trigger,
+  repeatMode: "once" as RepeatMode,
+  duration: 1,
+  delay: 0,
+  stagger: "none" as StaggerMode,
+  staggerAmount: 0.05,
+  direction: "left" as RevealDirection,
+  repeatDelay: 0.5,
+  loopCount: 0,
+  // Effect Controls
+  intensity: 0.8,
+  frequency: 30,
+  seed: 42,
+  jitter: 2,
+  rgbSplit: 0,
+  glitchDirection: "horizontal" as GlitchDirection,
+  cursorBlink: true,
+  // Interaction
+  hoverEffect: "none" as HoverEffect,
+  hoverIntensity: 0.5,
+  retriggerOnHover: false,
+}
+
+// ─── Property Controls ──────────────────────────────────────────────
+
+// Helper types for conditional visibility
+type P = AsciiFormatterProProps
+
+const isEffectNone = (p: P) => p.appearEffect === "none"
+const isGlitchLike = (p: P) =>
+  p.appearEffect === "glitch" || p.appearEffect === "interference"
+const isTextBased = (p: P) =>
+  p.appearEffect === "typing" ||
+  p.appearEffect === "scramble" ||
+  p.appearEffect === "boot"
+const hasDirection = (p: P) =>
+  p.appearEffect === "reveal" || p.appearEffect === "scan"
+const hasStagger = (p: P) => isTextBased(p)
+
+addPropertyControls(AsciiFormatterPro, {
+  // ━━━ Content ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  text: {
+    type: ControlType.String,
+    title: "ASCII Art",
+    defaultValue: DEFAULT_TEXT,
+    displayTextArea: true,
+    placeholder: "Paste your ASCII art here...",
+  },
+  font: {
+    type: ControlType.Enum,
+    title: "Font",
+    defaultValue: "courier",
+    options: ["courier", "consolas", "firacode", "jetbrains", "spacemono", "ibmplex"],
+    optionTitles: ["Courier New", "Consolas", "Fira Code", "JetBrains Mono", "Space Mono", "IBM Plex Mono"],
+  },
+  textAlign: {
+    type: ControlType.Enum,
+    title: "Align",
+    defaultValue: "left",
+    options: ["left", "center", "right"],
+    optionTitles: ["Left", "Center", "Right"],
+    displaySegmentedControl: true,
+  },
+
+  // ━━━ Typography ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  fontSizingMode: {
+    type: ControlType.Enum,
+    title: "Sizing Mode",
+    defaultValue: "fixed",
+    options: ["fixed", "auto"],
+    optionTitles: ["Fixed", "Auto Fit"],
+    displaySegmentedControl: true,
+  },
+  fontSize: {
+    type: ControlType.Number,
+    title: "Font Size",
+    defaultValue: 14,
+    min: 4,
+    max: 120,
+    step: 1,
+    unit: "px",
+  },
+  lineHeight: {
+    type: ControlType.Number,
+    title: "Line Height",
+    defaultValue: 1.2,
+    min: 0.5,
+    max: 4,
+    step: 0.05,
+  },
+  letterSpacing: {
+    type: ControlType.Number,
+    title: "Letter Spacing",
+    defaultValue: 0,
+    min: -5,
+    max: 20,
+    step: 0.5,
+    unit: "px",
+  },
+  preserveFormatting: {
+    type: ControlType.Boolean,
+    title: "Preserve Format",
+    defaultValue: true,
+    enabledTitle: "On",
+    disabledTitle: "Off",
+  },
+
+  // ━━━ Appearance ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  fillType: {
+    type: ControlType.Enum,
+    title: "Fill Type",
+    defaultValue: "solid",
+    options: ["solid", "linear", "radial"],
+    optionTitles: ["Solid", "Linear", "Radial"],
+    displaySegmentedControl: true,
+  },
+  color: {
+    type: ControlType.Color,
+    title: "Color",
+    defaultValue: "#00FF41",
+    hidden: (p: P) => p.fillType !== "solid",
+  },
+  gradientStart: {
+    type: ControlType.Color,
+    title: "Start Color",
+    defaultValue: "#00FF41",
+    hidden: (p: P) => p.fillType === "solid",
+  },
+  gradientEnd: {
+    type: ControlType.Color,
+    title: "End Color",
+    defaultValue: "#0080FF",
+    hidden: (p: P) => p.fillType === "solid",
+  },
+  gradientAngle: {
+    type: ControlType.Number,
+    title: "Angle",
+    defaultValue: 90,
+    min: 0,
+    max: 360,
+    step: 1,
+    unit: "deg",
+    hidden: (p: P) => p.fillType !== "linear",
+  },
+
+  // ━━━ Animation ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  appearEffect: {
+    type: ControlType.Enum,
+    title: "Appear Effect",
+    defaultValue: "none",
+    options: ["none", "fade", "reveal", "typing", "glitch", "scramble", "scan", "boot", "interference"],
+    optionTitles: ["None", "Fade In", "Directional Reveal", "Typing", "Glitch", "Scramble In", "Scan Reveal", "Boot Sequence", "Interference"],
+  },
+  trigger: {
+    type: ControlType.Enum,
+    title: "Trigger",
+    defaultValue: "mount",
+    options: ["mount", "hover", "viewport"],
+    optionTitles: ["On Mount", "On Hover", "In Viewport"],
+    hidden: isEffectNone,
+  },
+  duration: {
+    type: ControlType.Number,
+    title: "Duration",
+    defaultValue: 1,
+    min: 0.1,
+    max: 10,
+    step: 0.1,
+    unit: "s",
+    hidden: isEffectNone,
+  },
+  delay: {
+    type: ControlType.Number,
+    title: "Delay",
+    defaultValue: 0,
+    min: 0,
+    max: 5,
+    step: 0.1,
+    unit: "s",
+    hidden: isEffectNone,
+  },
+  direction: {
+    type: ControlType.Enum,
+    title: "Direction",
+    defaultValue: "left",
+    options: ["left", "right", "top", "bottom", "centerOut", "random"],
+    optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top", "Center Out", "Random"],
+    hidden: (p: P) => !hasDirection(p),
+  },
+  stagger: {
+    type: ControlType.Enum,
+    title: "Stagger",
+    defaultValue: "none",
+    options: ["none", "byChar", "byLine"],
+    optionTitles: ["None", "By Character", "By Line"],
+    hidden: (p: P) => !hasStagger(p),
+  },
+  repeatMode: {
+    type: ControlType.Enum,
+    title: "Repeat",
+    defaultValue: "once",
+    options: ["once", "loop", "pingPong"],
+    optionTitles: ["Play Once", "Loop", "Ping-Pong"],
+    hidden: isEffectNone,
+  },
+  repeatDelay: {
+    type: ControlType.Number,
+    title: "Repeat Delay",
+    defaultValue: 0.5,
+    min: 0,
+    max: 5,
+    step: 0.1,
+    unit: "s",
+    hidden: (p: P) => isEffectNone(p) || p.repeatMode === "once",
+  },
+  loopCount: {
+    type: ControlType.Number,
+    title: "Loop Count",
+    defaultValue: 0,
+    min: 0,
+    max: 100,
+    step: 1,
+    displayStepper: true,
+    hidden: (p: P) => isEffectNone(p) || p.repeatMode === "once",
+  },
+
+  // ━━━ Effect Controls ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  intensity: {
+    type: ControlType.Number,
+    title: "Intensity",
+    defaultValue: 0.8,
+    min: 0,
+    max: 1,
+    step: 0.05,
+    hidden: (p: P) => !isGlitchLike(p),
+  },
+  frequency: {
+    type: ControlType.Number,
+    title: "Frequency",
+    defaultValue: 30,
+    min: 5,
+    max: 60,
+    step: 1,
+    unit: "fps",
+    hidden: (p: P) => !isGlitchLike(p) && !isTextBased(p),
+  },
+  seed: {
+    type: ControlType.Number,
+    title: "Seed",
+    defaultValue: 42,
+    min: 1,
+    max: 9999,
+    step: 1,
+    hidden: (p: P) => p.appearEffect === "none" || p.appearEffect === "fade" || p.appearEffect === "reveal" || p.appearEffect === "typing",
+  },
+  jitter: {
+    type: ControlType.Number,
+    title: "Jitter",
+    defaultValue: 2,
+    min: 0,
+    max: 20,
+    step: 0.5,
+    unit: "px",
+    hidden: (p: P) => !isGlitchLike(p),
+  },
+  rgbSplit: {
+    type: ControlType.Number,
+    title: "RGB Split",
+    defaultValue: 0,
+    min: 0,
+    max: 10,
+    step: 0.5,
+    unit: "px",
+    hidden: (p: P) => !isGlitchLike(p),
+  },
+  glitchDirection: {
+    type: ControlType.Enum,
+    title: "Glitch Dir",
+    defaultValue: "horizontal",
+    options: ["horizontal", "vertical", "both"],
+    optionTitles: ["Horizontal", "Vertical", "Both"],
+    hidden: (p: P) => !isGlitchLike(p),
+  },
+  cursorBlink: {
+    type: ControlType.Boolean,
+    title: "Cursor Blink",
+    defaultValue: true,
+    enabledTitle: "On",
+    disabledTitle: "Off",
+    hidden: (p: P) => p.appearEffect !== "boot",
+  },
+
+  // ━━━ Interaction ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  hoverEffect: {
+    type: ControlType.Enum,
+    title: "Hover Effect",
+    defaultValue: "none",
+    options: ["none", "glitch", "scramble", "revealPulse", "flicker"],
+    optionTitles: ["None", "Glitch", "Scramble", "Reveal Pulse", "Flicker"],
+  },
+  hoverIntensity: {
+    type: ControlType.Number,
+    title: "Hover Intensity",
+    defaultValue: 0.5,
+    min: 0,
+    max: 1,
+    step: 0.05,
+    hidden: (p: P) => p.hoverEffect === "none",
+  },
+  retriggerOnHover: {
+    type: ControlType.Boolean,
+    title: "Retrigger",
+    defaultValue: false,
+    enabledTitle: "On",
+    disabledTitle: "Off",
+    hidden: (p: P) => p.hoverEffect === "none" && p.trigger !== "hover",
+  },
+})
