@@ -126,7 +126,7 @@ export default function App() {
       {/* Preview */}
       <div style={{ flex: 1, background: "#111", display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
         <div style={{ width: 700, height: 500, background: "#0a0a0a", borderRadius: 8, overflow: "hidden", padding: 20, border: "1px solid #222" }}>
-          <AsciiFormatterPro key={replayKey} {...allProps} />
+          <AsciiFormatterPro key={`${replayKey}-${appearEffect}-${trigger}`} {...allProps} />
         </div>
       </div>
 
