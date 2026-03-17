@@ -31,6 +31,7 @@ type StaggerMode = "none" | "byChar" | "byLine"
 type RevealDirection = "left" | "right" | "top" | "bottom" | "centerOut" | "random"
 type GlitchDirection = "horizontal" | "vertical" | "both"
 type HoverEffect = "none" | "glitch" | "scramble" | "revealPulse" | "flicker"
+type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 
@@ -72,6 +73,8 @@ interface AsciiFormatterProProps {
   cursorBlink: boolean
   // Interaction
   hoverEffect: HoverEffect
+  hoverScope: HoverScope
+  hoverRadius: number
   hoverIntensity: number
   retriggerOnHover: boolean
   // Framer
@@ -255,46 +258,43 @@ function useAutoFit(
 ) {
   const [scale, setScale] = useState(1)
 
-  useLayoutEffect(() => {
-    if (!enabled) {
-      setScale(1)
-      return
-    }
+  const measure = useCallback(() => {
+    if (!enabled) { setScale(1); return }
     const c = containerRef.current
     const p = preRef.current
     if (!c || !p) return
+
+    // Temporarily remove any transform so we measure natural size
+    const prevTransform = p.style.transform
+    p.style.transform = "none"
 
     const cw = c.clientWidth
     const ch = c.clientHeight
     const pw = p.scrollWidth
     const ph = p.scrollHeight
 
+    p.style.transform = prevTransform
+
     if (pw > 0 && ph > 0 && cw > 0 && ch > 0) {
-      setScale(Math.min(cw / pw, ch / ph, 1))
+      setScale(Math.min(cw / pw, ch / ph))
     }
+  }, [enabled, containerRef, preRef])
+
+  // Measure on mount and when deps change
+  useLayoutEffect(() => {
+    measure()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, ...deps])
+  }, [measure, ...deps])
 
   // Also respond to container resize
   useEffect(() => {
     if (!enabled) return
     const c = containerRef.current
     if (!c) return
-
-    const ro = new ResizeObserver(() => {
-      const p = preRef.current
-      if (!p) return
-      const cw = c.clientWidth
-      const ch = c.clientHeight
-      const pw = p.scrollWidth
-      const ph = p.scrollHeight
-      if (pw > 0 && ph > 0 && cw > 0 && ch > 0) {
-        setScale(Math.min(cw / pw, ch / ph, 1))
-      }
-    })
+    const ro = new ResizeObserver(measure)
     ro.observe(c)
     return () => ro.disconnect()
-  }, [enabled, containerRef, preRef])
+  }, [enabled, containerRef, measure])
 
   return scale
 }
@@ -547,7 +547,10 @@ function computeInterference(
 
 function useHoverEngine(
   containerRef: React.RefObject<HTMLDivElement | null>,
+  preRef: React.RefObject<HTMLPreElement | null>,
   hoverEffect: HoverEffect,
+  hoverScope: HoverScope,
+  hoverRadius: number,
   hoverIntensity: number,
   text: string,
   seed: number,
@@ -555,6 +558,7 @@ function useHoverEngine(
 ) {
   const [isHovering, setIsHovering] = useState(false)
   const [hoverFrame, setHoverFrame] = useState(0)
+  const [pointerPos, setPointerPos] = useState({ x: -1, y: -1 })
   const rafRef = useRef(0)
 
   useEffect(() => {
@@ -563,13 +567,19 @@ function useHoverEngine(
     if (!el) return
 
     const enter = () => setIsHovering(true)
-    const leave = () => setIsHovering(false)
+    const leave = () => { setIsHovering(false); setPointerPos({ x: -1, y: -1 }) }
+    const move = (e: PointerEvent) => {
+      const rect = el.getBoundingClientRect()
+      setPointerPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+    }
 
     el.addEventListener("pointerenter", enter)
     el.addEventListener("pointerleave", leave)
+    el.addEventListener("pointermove", move)
     return () => {
       el.removeEventListener("pointerenter", enter)
       el.removeEventListener("pointerleave", leave)
+      el.removeEventListener("pointermove", move)
     }
   }, [enabled, hoverEffect, containerRef])
 
@@ -590,9 +600,9 @@ function useHoverEngine(
     return () => cancelAnimationFrame(rafRef.current)
   }, [isHovering, hoverEffect])
 
-  // Compute hover display
-  const hoverResult = useMemo(() => {
-    if (!isHovering || hoverEffect === "none") return null
+  // Compute global hover text (affects all characters)
+  const globalHoverText = useMemo(() => {
+    if (!isHovering || hoverEffect === "none" || hoverScope === "local") return null
 
     switch (hoverEffect) {
       case "glitch": {
@@ -608,7 +618,6 @@ function useHoverEngine(
           })
           .join("")
       }
-
       case "scramble": {
         const rng = createRng(seed + hoverFrame * 3571)
         return text
@@ -622,19 +631,63 @@ function useHoverEngine(
           })
           .join("")
       }
-
-      case "revealPulse":
-      case "flicker":
-        return null // handled via CSS
-
       default:
         return null
     }
-  }, [isHovering, hoverEffect, hoverIntensity, text, seed, hoverFrame])
+  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, text, seed, hoverFrame])
 
-  // Hover CSS effects
+  // Compute local hover (per-character, distance-based)
+  const localHoverChars = useMemo((): Map<number, string> | null => {
+    if (!isHovering || hoverEffect === "none" || hoverScope !== "local") return null
+    if (pointerPos.x < 0) return null
+    if (hoverEffect === "revealPulse" || hoverEffect === "flicker") return null
+
+    const pre = preRef.current
+    if (!pre) return null
+
+    // Measure character dimensions from the pre's computed style
+    const cs = getComputedStyle(pre)
+    const fSize = parseFloat(cs.fontSize)
+    const lHeight = parseFloat(cs.lineHeight) || fSize * 1.2
+    // Monospace char width: ~0.6 × fontSize (approximate)
+    const charW = fSize * 0.6
+    const charH = lHeight
+
+    const affected = new Map<number, string>()
+    const rng = createRng(seed + hoverFrame * 4919)
+    const lines = text.split("\n")
+    let flatIdx = 0
+
+    for (let row = 0; row < lines.length; row++) {
+      const line = lines[row]
+      for (let col = 0; col < line.length; col++) {
+        const ch = line[col]
+        const cx = col * charW + charW / 2
+        const cy = row * charH + charH / 2
+        const dist = Math.sqrt((pointerPos.x - cx) ** 2 + (pointerPos.y - cy) ** 2)
+
+        if (dist < hoverRadius && ch !== " " && ch !== "\t") {
+          // Closer = more likely to be affected
+          const strength = (1 - dist / hoverRadius) * hoverIntensity
+          if (rng() < strength * 0.6) {
+            affected.set(flatIdx, GLITCH_CHARS[Math.floor(rng() * GLITCH_CHARS.length)])
+          } else {
+            rng() // consume to keep RNG in sync
+          }
+        } else {
+          rng() // consume
+        }
+        flatIdx++
+      }
+      flatIdx++ // newline character
+    }
+
+    return affected.size > 0 ? affected : null
+  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverRadius, text, seed, hoverFrame, pointerPos, preRef])
+
+  // Hover CSS effects (global only)
   const hoverStyle = useMemo((): React.CSSProperties => {
-    if (!isHovering) return {}
+    if (!isHovering || hoverScope === "local") return {}
 
     switch (hoverEffect) {
       case "revealPulse":
@@ -649,9 +702,9 @@ function useHoverEngine(
       default:
         return {}
     }
-  }, [isHovering, hoverEffect, hoverIntensity, hoverFrame])
+  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverFrame])
 
-  return { hoverText: hoverResult, hoverStyle, isHovering }
+  return { globalHoverText, localHoverChars, hoverStyle, isHovering, pointerPos }
 }
 
 // ─── Style Helper ───────────────────────────────────────────────────
@@ -755,6 +808,8 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     glitchDirection,
     cursorBlink,
     hoverEffect,
+    hoverScope,
+    hoverRadius,
     hoverIntensity,
     retriggerOnHover,
     style,
@@ -817,9 +872,12 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const effectiveFontSize = fontSize
 
   // Hover engine (only when appear effect is done or always-on)
-  const { hoverText, hoverStyle, isHovering: hoverActive } = useHoverEngine(
+  const { globalHoverText, localHoverChars, hoverStyle, isHovering: hoverActive } = useHoverEngine(
     containerRef,
+    preRef,
     isCanvas ? "none" : hoverEffect,
+    hoverScope,
+    hoverRadius,
     hoverIntensity,
     text,
     seed,
@@ -881,9 +939,38 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   }, [active, appearEffect, text, progress, direction, seed, frameCount, intensity, jitter, stagger, staggerAmount, cursorBlink])
 
   // Apply hover text override when hovering (and appear effect is complete)
-  const finalText = hoverActive && hoverText !== null && (progress >= 1 || !active)
-    ? hoverText
+  const canHover = progress >= 1 || !active
+  const finalText = hoverActive && globalHoverText !== null && canHover
+    ? globalHoverText
     : textEffects.displayText
+
+  // Build local-hover aware content: if local hover is active, render per-character spans
+  const useLocalRender = hoverActive && localHoverChars !== null && canHover
+  const renderedContent = useMemo(() => {
+    if (!useLocalRender || !localHoverChars) return null
+
+    // Render characters individually, applying hover replacements
+    const baseText = textEffects.displayText
+    const elements: React.ReactNode[] = []
+    let flatIdx = 0
+
+    for (let i = 0; i < baseText.length; i++) {
+      const ch = baseText[i]
+      const replacement = localHoverChars.get(flatIdx)
+      if (replacement !== undefined) {
+        elements.push(
+          <span key={i} style={{ color: "inherit", opacity: 0.85 }}>
+            {replacement}
+          </span>
+        )
+      } else {
+        elements.push(ch)
+      }
+      flatIdx++
+    }
+
+    return elements
+  }, [useLocalRender, localHoverChars, textEffects.displayText])
 
   // Hidden text for typing effect (layout stability)
   const typingHidden = active && appearEffect === "typing"
@@ -918,16 +1005,13 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
           ...textEffects.innerStyle,
           ...rgbStyle,
           ...jitterStyle,
+          width: "max-content",
           ...(autoFit
-            ? {
-                transform: `scale(${scale})`,
-                transformOrigin: "top left",
-                width: "max-content",
-              }
-            : { width: "100%", height: "100%" }),
+            ? { transform: `scale(${scale})`, transformOrigin: "top left" }
+            : {}),
         }}
       >
-        {finalText}
+        {useLocalRender ? renderedContent : finalText}
         {typingHidden && (
           <span style={{ visibility: "hidden" }}>{typingHidden}</span>
         )}
@@ -977,6 +1061,8 @@ AsciiFormatterPro.defaultProps = {
   cursorBlink: true,
   // Interaction
   hoverEffect: "none" as HoverEffect,
+  hoverScope: "global" as HoverScope,
+  hoverRadius: 80,
   hoverIntensity: 0.5,
   retriggerOnHover: false,
 }
@@ -1257,6 +1343,25 @@ addPropertyControls(AsciiFormatterPro, {
     defaultValue: "none",
     options: ["none", "glitch", "scramble", "revealPulse", "flicker"],
     optionTitles: ["None", "Glitch", "Scramble", "Reveal Pulse", "Flicker"],
+  },
+  hoverScope: {
+    type: ControlType.Enum,
+    title: "Hover Scope",
+    defaultValue: "global",
+    options: ["global", "local"],
+    optionTitles: ["Global", "Characters"],
+    displaySegmentedControl: true,
+    hidden: (p: P) => p.hoverEffect === "none" || p.hoverEffect === "revealPulse" || p.hoverEffect === "flicker",
+  },
+  hoverRadius: {
+    type: ControlType.Number,
+    title: "Hover Radius",
+    defaultValue: 80,
+    min: 20,
+    max: 300,
+    step: 5,
+    unit: "px",
+    hidden: (p: P) => p.hoverEffect === "none" || p.hoverScope !== "local" || p.hoverEffect === "revealPulse" || p.hoverEffect === "flicker",
   },
   hoverIntensity: {
     type: ControlType.Number,

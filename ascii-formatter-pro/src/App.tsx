@@ -43,6 +43,7 @@ type StaggerMode = "none" | "byChar" | "byLine"
 type RevealDirection = "left" | "right" | "top" | "bottom" | "centerOut" | "random"
 type GlitchDirection = "horizontal" | "vertical" | "both"
 type HoverEffect = "none" | "glitch" | "scramble" | "revealPulse" | "flicker"
+type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 
@@ -89,6 +90,8 @@ export default function App() {
 
   // Interaction
   const [hoverEffect, setHoverEffect] = useState<HoverEffect>("none")
+  const [hoverScope, setHoverScope] = useState<HoverScope>("global")
+  const [hoverRadius, setHoverRadius] = useState(80)
   const [hoverIntensity, setHoverIntensity] = useState(0.5)
   const [retriggerOnHover, setRetriggerOnHover] = useState(false)
 
@@ -102,7 +105,7 @@ export default function App() {
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
     direction, repeatDelay, loopCount,
     intensity, frequency, seed, jitter, rgbSplit, glitchDirection, cursorBlink,
-    hoverEffect, hoverIntensity, retriggerOnHover,
+    hoverEffect, hoverScope, hoverRadius, hoverIntensity, retriggerOnHover,
   }
 
   const S: Record<string, React.CSSProperties> = {
@@ -359,6 +362,23 @@ export default function App() {
 
         {hoverEffect !== "none" && (
           <>
+            {(hoverEffect === "glitch" || hoverEffect === "scramble") && (
+              <>
+                <label style={{ ...S.label, marginTop: 8 }}>Hover Scope</label>
+                <div style={S.segWrap}>
+                  <button style={seg(hoverScope === "global")} onClick={() => setHoverScope("global")}>Global</button>
+                  <button style={seg(hoverScope === "local")} onClick={() => setHoverScope("local")}>Characters</button>
+                </div>
+
+                {hoverScope === "local" && (
+                  <>
+                    <label style={{ ...S.label, marginTop: 8 }}>Hover Radius: {hoverRadius}px</label>
+                    <input type="range" min={20} max={300} step={5} value={hoverRadius} onChange={(e) => setHoverRadius(Number(e.target.value))} style={{ width: "100%" }} />
+                  </>
+                )}
+              </>
+            )}
+
             <label style={{ ...S.label, marginTop: 8 }}>Hover Intensity: {hoverIntensity}</label>
             <input type="range" min={0} max={1} step={0.05} value={hoverIntensity} onChange={(e) => setHoverIntensity(Number(e.target.value))} style={{ width: "100%" }} />
           </>
