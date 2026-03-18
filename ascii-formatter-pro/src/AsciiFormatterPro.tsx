@@ -755,6 +755,7 @@ function renderDisplacedLines(
 
 function useGlobalHoverEffect(
   containerRef: React.RefObject<HTMLDivElement | null>,
+  preRef: React.RefObject<HTMLPreElement | null>,
   hoverEffect: HoverEffect,
   hoverIntensity: number,
   text: string,
@@ -763,6 +764,7 @@ function useGlobalHoverEffect(
 ) {
   const [isHovering, setIsHovering] = useState(false)
   const [hoverFrame, setHoverFrame] = useState(0)
+  const pointerY = useRef(-1)
 
   useEffect(() => {
     if (!enabled || hoverEffect === "none") return
@@ -770,28 +772,54 @@ function useGlobalHoverEffect(
     if (!el) return
 
     const enter = () => setIsHovering(true)
-    const leave = () => setIsHovering(false)
+    const leave = () => { setIsHovering(false); pointerY.current = -1 }
+    const move = (e: PointerEvent) => {
+      const rect = el.getBoundingClientRect()
+      pointerY.current = e.clientY - rect.top
+    }
 
     el.addEventListener("pointerenter", enter)
     el.addEventListener("pointerleave", leave)
+    el.addEventListener("pointermove", move)
     return () => {
       el.removeEventListener("pointerenter", enter)
       el.removeEventListener("pointerleave", leave)
+      el.removeEventListener("pointermove", move)
     }
   }, [enabled, hoverEffect, containerRef])
 
-  // Throttled animation while hovering (not RAF-speed, ~15fps for text effects)
+  // Animation tick — use RAF for smooth wave motion on displace, interval for text effects
   useEffect(() => {
     if (!isHovering || hoverEffect === "none") {
       setHoverFrame(0)
       return
     }
 
+    if (hoverEffect === "displace") {
+      // RAF for smooth wave animation
+      let frame = 0
+      let running = true
+      let lastTick = 0
+      const tick = (now: number) => {
+        if (!running) return
+        // ~30fps for smooth but not excessive updates
+        if (now - lastTick >= 33) {
+          frame++
+          setHoverFrame(frame)
+          lastTick = now
+        }
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+      return () => { running = false }
+    }
+
+    // Text effects: ~15fps
     let frame = 0
     const iv = setInterval(() => {
       frame++
       setHoverFrame(frame)
-    }, 66) // ~15fps — matches the feel of the original
+    }, 66)
     return () => clearInterval(iv)
   }, [isHovering, hoverEffect])
 
@@ -830,15 +858,39 @@ function useGlobalHoverEffect(
     }
   }, [isHovering, hoverEffect, hoverIntensity, text, seed, hoverFrame])
 
-  // Per-line displacement offsets (px) for displace hover effect
+  // Per-line displacement offsets (px) for displace hover effect.
+  // Creates a sine-wave ripple centered on the cursor Y position,
+  // with smooth gaussian falloff — lines near cursor displace most.
   const displaceOffsets = useMemo((): number[] | null => {
     if (!isHovering || hoverEffect !== "displace") return null
+
+    const pre = preRef.current
+    if (!pre) return null
+
+    const cs = getComputedStyle(pre)
+    const fSize = parseFloat(cs.fontSize) || 14
+    const lh = parseFloat(cs.lineHeight) || fSize
     const lines = text.split("\n")
-    const rng = createRng(seed + hoverFrame * 1279)
-    return lines.map(() => {
-      return Math.round((rng() - 0.5) * hoverIntensity * 30)
+    const py = pointerY.current
+
+    const time = hoverFrame * 0.15 // wave phase advances with time
+    const maxPx = hoverIntensity * 20 // max displacement in px
+    const waveFreq = 0.8 // how tight the wave ripples are
+    const falloffRadius = lh * 6 // lines within ~6 line-heights are affected
+
+    return lines.map((_, i) => {
+      const lineCenterY = i * lh + lh / 2
+      const dist = Math.abs(lineCenterY - py)
+
+      // Gaussian-ish falloff: 1 at cursor, ~0 at falloffRadius
+      const falloff = Math.exp(-(dist * dist) / (2 * (falloffRadius * 0.45) ** 2))
+
+      // Sine wave: ripples outward from cursor, phase advances with time
+      const wave = Math.sin(time + (dist / lh) * waveFreq * Math.PI)
+
+      return Math.round(wave * falloff * maxPx)
     })
-  }, [isHovering, hoverEffect, hoverIntensity, text, seed, hoverFrame])
+  }, [isHovering, hoverEffect, hoverIntensity, text, hoverFrame, preRef])
 
   const hoverStyle = useMemo((): React.CSSProperties => {
     if (!isHovering) return {}
@@ -1044,6 +1096,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const globalHoverActive = hoverEffect !== "none" && (hoverScope === "global" || isCssOnlyHover) && !isCanvas
   const { hoverText: globalHoverText, hoverStyle, displaceOffsets, isHovering: globalHovering } = useGlobalHoverEffect(
     containerRef,
+    preRef,
     globalHoverActive ? hoverEffect : "none",
     hoverIntensity,
     text,
