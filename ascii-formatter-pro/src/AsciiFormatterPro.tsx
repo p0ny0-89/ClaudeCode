@@ -7,13 +7,12 @@ import React, {
   useRef,
   useMemo,
   useCallback,
-  useLayoutEffect,
 } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-type Font = "courier" | "consolas" | "firacode" | "jetbrains" | "spacemono" | "ibmplex"
+type Font = string
 type FillType = "solid" | "linear" | "radial"
 type AppearEffect =
   | "none"
@@ -81,16 +80,81 @@ interface AsciiFormatterProProps {
   style?: React.CSSProperties
 }
 
-// ─── Constants ──────────────────────────────────────────────────────
+// ─── Font Definitions ───────────────────────────────────────────────
+// Grouped by category; monospace fonts listed first for ASCII art use.
+// Fonts marked with `google: true` are loaded on-demand via Google Fonts.
 
-const FONT_MAP: Record<Font, string> = {
-  courier: "'Courier New', Courier, monospace",
-  consolas: "'Consolas', monospace",
-  firacode: "'Fira Code', monospace",
-  jetbrains: "'JetBrains Mono', monospace",
-  spacemono: "'Space Mono', monospace",
-  ibmplex: "'IBM Plex Mono', monospace",
+interface FontDef {
+  family: string
+  google?: boolean
+  category: "monospace" | "sans-serif" | "serif" | "display"
 }
+
+const FONT_LIST: Record<string, FontDef> = {
+  // ── Monospace ──
+  "courier":       { family: "'Courier New', Courier, monospace", category: "monospace" },
+  "consolas":      { family: "'Consolas', monospace", category: "monospace" },
+  "firacode":      { family: "'Fira Code', monospace", google: true, category: "monospace" },
+  "jetbrains":     { family: "'JetBrains Mono', monospace", google: true, category: "monospace" },
+  "sourcecodepro": { family: "'Source Code Pro', monospace", google: true, category: "monospace" },
+  "ubuntumono":    { family: "'Ubuntu Mono', monospace", google: true, category: "monospace" },
+  "robotomono":    { family: "'Roboto Mono', monospace", google: true, category: "monospace" },
+  "ibmplexmono":   { family: "'IBM Plex Mono', monospace", google: true, category: "monospace" },
+  "spacemono":     { family: "'Space Mono', monospace", google: true, category: "monospace" },
+  "inconsolata":   { family: "'Inconsolata', monospace", google: true, category: "monospace" },
+  // ── Sans-Serif ──
+  "inter":         { family: "'Inter', sans-serif", google: true, category: "sans-serif" },
+  "roboto":        { family: "'Roboto', sans-serif", google: true, category: "sans-serif" },
+  "opensans":      { family: "'Open Sans', sans-serif", google: true, category: "sans-serif" },
+  "lato":          { family: "'Lato', sans-serif", google: true, category: "sans-serif" },
+  "montserrat":    { family: "'Montserrat', sans-serif", google: true, category: "sans-serif" },
+  "poppins":       { family: "'Poppins', sans-serif", google: true, category: "sans-serif" },
+  "nunito":        { family: "'Nunito', sans-serif", google: true, category: "sans-serif" },
+  "raleway":       { family: "'Raleway', sans-serif", google: true, category: "sans-serif" },
+  "arial":         { family: "Arial, Helvetica, sans-serif", category: "sans-serif" },
+  "helvetica":     { family: "Helvetica, Arial, sans-serif", category: "sans-serif" },
+  "verdana":       { family: "Verdana, Geneva, sans-serif", category: "sans-serif" },
+  // ── Serif ──
+  "georgia":       { family: "Georgia, 'Times New Roman', serif", category: "serif" },
+  "timesnewroman": { family: "'Times New Roman', Times, serif", category: "serif" },
+  "playfair":      { family: "'Playfair Display', serif", google: true, category: "serif" },
+  "merriweather":  { family: "'Merriweather', serif", google: true, category: "serif" },
+  "lora":          { family: "'Lora', serif", google: true, category: "serif" },
+  "ptserif":       { family: "'PT Serif', serif", google: true, category: "serif" },
+  // ── Display ──
+  "orbitron":      { family: "'Orbitron', sans-serif", google: true, category: "display" },
+  "pressstart":    { family: "'Press Start 2P', monospace", google: true, category: "display" },
+  "vt323":         { family: "'VT323', monospace", google: true, category: "display" },
+  "silkscreen":    { family: "'Silkscreen', monospace", google: true, category: "display" },
+}
+
+// Backwards-compatible lookup: returns CSS font-family string
+const FONT_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(FONT_LIST).map(([key, def]) => [key, def.family])
+)
+
+// Google Fonts that need to be loaded
+const GOOGLE_FONT_NAMES = Object.values(FONT_LIST)
+  .filter((d) => d.google)
+  .map((d) => {
+    const match = d.family.match(/^'([^']+)'/)
+    return match ? match[1] : ""
+  })
+  .filter(Boolean)
+
+// Inject Google Fonts stylesheet once
+let googleFontsLoaded = false
+function loadGoogleFonts() {
+  if (googleFontsLoaded || typeof document === "undefined") return
+  googleFontsLoaded = true
+  const families = GOOGLE_FONT_NAMES.map((n) => n.replace(/ /g, "+")).join("&family=")
+  const link = document.createElement("link")
+  link.rel = "stylesheet"
+  link.href = `https://fonts.googleapis.com/css2?family=${families}&display=swap`
+  document.head.appendChild(link)
+}
+
+// ─── Constants ──────────────────────────────────────────────────────
 
 const GLITCH_CHARS = "!@#$%^&*()_+-=[]{}|;:',.<>?/~`0123456789"
 const BLOCK_CHARS = "░▒▓█▄▀■□▪▫"
@@ -248,55 +312,77 @@ function usePlayback(config: {
   return { progress, cycle, replay, isHovering: isHovering.current }
 }
 
-// ─── Auto-Fit ───────────────────────────────────────────────────────
+// ─── Auto-Fit Font Sizing ────────────────────────────────────────────
+// Calculates the font size that makes the longest line fit the container width.
+// Uses canvas measurement for accurate character widths per font.
 
-function useAutoFit(
+let _measureCanvas: HTMLCanvasElement | null = null
+const REF_SIZE = 16
+
+function getCharWidth(fontFamily: string): number {
+  if (typeof document === "undefined") return REF_SIZE * 0.6
+  if (!_measureCanvas) _measureCanvas = document.createElement("canvas")
+  const ctx = _measureCanvas.getContext("2d")!
+  ctx.font = `${REF_SIZE}px ${fontFamily}`
+  return ctx.measureText("M").width
+}
+
+function useAutoFitFontSize(
   containerRef: React.RefObject<HTMLDivElement | null>,
-  preRef: React.RefObject<HTMLPreElement | null>,
-  enabled: boolean,
-  deps: unknown[]
-) {
-  const [scale, setScale] = useState(1)
+  text: string,
+  fontFamily: string,
+  maxFontSize: number,
+  letterSpacing: number,
+  enabled: boolean
+): number {
+  const [computedSize, setComputedSize] = useState(maxFontSize)
+  const fontFamilyRef = useRef(fontFamily)
+  fontFamilyRef.current = fontFamily
 
-  const measure = useCallback(() => {
-    if (!enabled) { setScale(1); return }
-    const c = containerRef.current
-    const p = preRef.current
-    if (!c || !p) return
+  const longestLineLen = useMemo(() => {
+    const lines = text.split("\n")
+    return Math.max(...lines.map((l) => l.length), 1)
+  }, [text])
 
-    // Temporarily remove any transform so we measure natural size
-    const prevTransform = p.style.transform
-    p.style.transform = "none"
+  const calculate = useCallback(() => {
+    const el = containerRef.current
+    if (!el) return
+    const containerWidth = el.clientWidth
+    if (containerWidth <= 0) return
 
-    const cw = c.clientWidth
-    const ch = c.clientHeight
-    const pw = p.scrollWidth
-    const ph = p.scrollHeight
+    const charWidthAtRef = getCharWidth(fontFamilyRef.current)
+    if (charWidthAtRef <= 0) return
 
-    p.style.transform = prevTransform
+    const raw =
+      (containerWidth / longestLineLen - letterSpacing) *
+      (REF_SIZE / charWidthAtRef)
 
-    if (pw > 0 && ph > 0 && cw > 0 && ch > 0) {
-      setScale(Math.min(cw / pw, ch / ph))
-    }
-  }, [enabled, containerRef, preRef])
+    const clamped = Math.max(1, Math.min(raw, 500))
+    setComputedSize(clamped)
+  }, [containerRef, longestLineLen, letterSpacing])
 
-  // Measure on mount and when deps change
-  useLayoutEffect(() => {
-    measure()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [measure, ...deps])
-
-  // Also respond to container resize
   useEffect(() => {
-    if (!enabled) return
-    const c = containerRef.current
-    if (!c) return
-    const ro = new ResizeObserver(measure)
-    ro.observe(c)
-    return () => ro.disconnect()
-  }, [enabled, containerRef, measure])
+    if (!enabled) {
+      setComputedSize(maxFontSize)
+      return
+    }
 
-  return scale
+    const el = containerRef.current
+    if (!el) return
+
+    calculate()
+
+    const ro = new ResizeObserver(() => calculate())
+    ro.observe(el)
+
+    if (typeof document !== "undefined" && document.fonts) {
+      document.fonts.ready.then(() => calculate())
+    }
+
+    return () => ro.disconnect()
+  }, [enabled, calculate, containerRef, maxFontSize])
+
+  return enabled ? computedSize : maxFontSize
 }
 
 // ─── Effect Computers ───────────────────────────────────────────────
@@ -545,12 +631,162 @@ function computeInterference(
 
 // ─── Hover Effects ──────────────────────────────────────────────────
 
-function useHoverEngine(
+// ─── Hover Glitch (ported from original — event delegation + decay) ─
+
+/**
+ * Per-character hover glitch using event delegation.
+ * Characters are wrapped in `<span data-ci={flatIndex}>`.
+ * When cursor moves over a character, it and neighbours within `radius`
+ * start cycling through random glitch characters.  Chars decay back
+ * after `decayMs`.
+ */
+function useHoverGlitch(
+  text: string,
+  enabled: boolean,
+  radius: number = 2,
+  decayMs: number = 350,
+  cycleMs: number = 60
+) {
+  const activeRef = useRef<Map<number, number>>(new Map())
+  const [overrides, setOverrides] = useState<Map<number, string>>(new Map())
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const flatChars = useRef<string[]>([])
+  const rowColOf = useRef<{ row: number; col: number }[]>([])
+
+  useEffect(() => {
+    const chars = text.split("")
+    flatChars.current = chars
+    const rc: { row: number; col: number }[] = []
+    let row = 0, col = 0
+    for (let i = 0; i < chars.length; i++) {
+      rc.push({ row, col })
+      if (chars[i] === "\n") { row++; col = 0 } else { col++ }
+    }
+    rowColOf.current = rc
+  }, [text])
+
+  const startCycling = useCallback(() => {
+    if (intervalRef.current !== null) return
+    intervalRef.current = setInterval(() => {
+      const now = performance.now()
+      const active = activeRef.current
+      const chars = flatChars.current
+
+      for (const [idx, expiry] of active) {
+        if (now >= expiry) active.delete(idx)
+      }
+
+      if (active.size === 0) {
+        if (intervalRef.current !== null) {
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
+        }
+        setOverrides(new Map())
+        return
+      }
+
+      const next = new Map<number, string>()
+      for (const idx of active.keys()) {
+        const ch = chars[idx]
+        if (ch === " " || ch === "\n" || ch === "\r" || ch === "\t") continue
+        next.set(idx, GLITCH_CHARS[Math.floor(Math.random() * GLITCH_CHARS.length)])
+      }
+      setOverrides(next)
+    }, cycleMs)
+  }, [cycleMs])
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!enabled) return
+
+      const target = (e.target as HTMLElement).closest("[data-ci]") as HTMLElement | null
+      if (!target) return
+
+      const ci = parseInt(target.getAttribute("data-ci") || "", 10)
+      if (isNaN(ci)) return
+
+      const now = performance.now()
+      const expiry = now + decayMs
+      const rc = rowColOf.current
+      const chars = flatChars.current
+
+      if (!rc[ci]) return
+
+      const { row: hoverRow, col: hoverCol } = rc[ci]
+
+      for (let i = 0; i < chars.length; i++) {
+        if (chars[i] === "\n" || chars[i] === "\r") continue
+        const { row: r, col: c } = rc[i]
+        const dist = Math.abs(r - hoverRow) + Math.abs(c - hoverCol)
+        if (dist <= radius) {
+          const prob = 1 - dist / (radius + 1)
+          if (Math.random() < prob) {
+            activeRef.current.set(i, expiry)
+          }
+        }
+      }
+
+      startCycling()
+    },
+    [enabled, radius, decayMs, startCycling]
+  )
+
+  const handleMouseLeave = useCallback(() => {
+    // Let existing chars decay naturally via their expiry timestamps
+  }, [])
+
+  useEffect(() => {
+    if (!enabled) {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+      activeRef.current.clear()
+      setOverrides(new Map())
+    }
+    return () => {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+  }, [enabled])
+
+  return { overrides, handleMouseMove, handleMouseLeave }
+}
+
+/**
+ * Wraps every character in a <span data-ci={flatIndex}> for hover targeting.
+ * Newlines emitted as raw "\n" to preserve whitespace layout.
+ */
+function renderHoverGlitchContent(
+  text: string,
+  overrides: Map<number, string>
+): React.ReactNode {
+  const nodes: React.ReactNode[] = []
+  let flatIndex = 0
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === "\n") {
+      nodes.push("\n")
+    } else {
+      const display = overrides.get(flatIndex) ?? ch
+      nodes.push(
+        <span key={flatIndex} data-ci={flatIndex}>
+          {display}
+        </span>
+      )
+    }
+    flatIndex++
+  }
+  return nodes
+}
+
+// ─── Global Hover Effects (CSS-based) ───────────────────────────────
+
+function useGlobalHoverEffect(
   containerRef: React.RefObject<HTMLDivElement | null>,
-  preRef: React.RefObject<HTMLPreElement | null>,
   hoverEffect: HoverEffect,
-  hoverScope: HoverScope,
-  hoverRadius: number,
   hoverIntensity: number,
   text: string,
   seed: number,
@@ -558,8 +794,6 @@ function useHoverEngine(
 ) {
   const [isHovering, setIsHovering] = useState(false)
   const [hoverFrame, setHoverFrame] = useState(0)
-  const [pointerPos, setPointerPos] = useState({ x: -1, y: -1 })
-  const rafRef = useRef(0)
 
   useEffect(() => {
     if (!enabled || hoverEffect === "none") return
@@ -567,23 +801,17 @@ function useHoverEngine(
     if (!el) return
 
     const enter = () => setIsHovering(true)
-    const leave = () => { setIsHovering(false); setPointerPos({ x: -1, y: -1 }) }
-    const move = (e: PointerEvent) => {
-      const rect = el.getBoundingClientRect()
-      setPointerPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-    }
+    const leave = () => setIsHovering(false)
 
     el.addEventListener("pointerenter", enter)
     el.addEventListener("pointerleave", leave)
-    el.addEventListener("pointermove", move)
     return () => {
       el.removeEventListener("pointerenter", enter)
       el.removeEventListener("pointerleave", leave)
-      el.removeEventListener("pointermove", move)
     }
   }, [enabled, hoverEffect, containerRef])
 
-  // Animate while hovering
+  // Throttled animation while hovering (not RAF-speed, ~15fps for text effects)
   useEffect(() => {
     if (!isHovering || hoverEffect === "none") {
       setHoverFrame(0)
@@ -591,18 +819,15 @@ function useHoverEngine(
     }
 
     let frame = 0
-    const tick = () => {
+    const iv = setInterval(() => {
       frame++
       setHoverFrame(frame)
-      rafRef.current = requestAnimationFrame(tick)
-    }
-    rafRef.current = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafRef.current)
+    }, 66) // ~15fps — matches the feel of the original
+    return () => clearInterval(iv)
   }, [isHovering, hoverEffect])
 
-  // Compute global hover text (affects all characters)
-  const globalHoverText = useMemo(() => {
-    if (!isHovering || hoverEffect === "none" || hoverScope === "local") return null
+  const hoverText = useMemo(() => {
+    if (!isHovering || hoverEffect === "none") return null
 
     switch (hoverEffect) {
       case "glitch": {
@@ -634,60 +859,10 @@ function useHoverEngine(
       default:
         return null
     }
-  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, text, seed, hoverFrame])
+  }, [isHovering, hoverEffect, hoverIntensity, text, seed, hoverFrame])
 
-  // Compute local hover (per-character, distance-based)
-  const localHoverChars = useMemo((): Map<number, string> | null => {
-    if (!isHovering || hoverEffect === "none" || hoverScope !== "local") return null
-    if (pointerPos.x < 0) return null
-    if (hoverEffect === "revealPulse" || hoverEffect === "flicker") return null
-
-    const pre = preRef.current
-    if (!pre) return null
-
-    // Measure character dimensions from the pre's computed style
-    const cs = getComputedStyle(pre)
-    const fSize = parseFloat(cs.fontSize)
-    const lHeight = parseFloat(cs.lineHeight) || fSize * 1.2
-    // Monospace char width: ~0.6 × fontSize (approximate)
-    const charW = fSize * 0.6
-    const charH = lHeight
-
-    const affected = new Map<number, string>()
-    const rng = createRng(seed + hoverFrame * 4919)
-    const lines = text.split("\n")
-    let flatIdx = 0
-
-    for (let row = 0; row < lines.length; row++) {
-      const line = lines[row]
-      for (let col = 0; col < line.length; col++) {
-        const ch = line[col]
-        const cx = col * charW + charW / 2
-        const cy = row * charH + charH / 2
-        const dist = Math.sqrt((pointerPos.x - cx) ** 2 + (pointerPos.y - cy) ** 2)
-
-        if (dist < hoverRadius && ch !== " " && ch !== "\t") {
-          // Closer = more likely to be affected
-          const strength = (1 - dist / hoverRadius) * hoverIntensity
-          if (rng() < strength * 0.6) {
-            affected.set(flatIdx, GLITCH_CHARS[Math.floor(rng() * GLITCH_CHARS.length)])
-          } else {
-            rng() // consume to keep RNG in sync
-          }
-        } else {
-          rng() // consume
-        }
-        flatIdx++
-      }
-      flatIdx++ // newline character
-    }
-
-    return affected.size > 0 ? affected : null
-  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverRadius, text, seed, hoverFrame, pointerPos, preRef])
-
-  // Hover CSS effects (global only)
   const hoverStyle = useMemo((): React.CSSProperties => {
-    if (!isHovering || hoverScope === "local") return {}
+    if (!isHovering) return {}
 
     switch (hoverEffect) {
       case "revealPulse":
@@ -702,16 +877,16 @@ function useHoverEngine(
       default:
         return {}
     }
-  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverFrame])
+  }, [isHovering, hoverEffect, hoverIntensity, hoverFrame])
 
-  return { globalHoverText, localHoverChars, hoverStyle, isHovering, pointerPos }
+  return { hoverText, hoverStyle, isHovering }
 }
 
 // ─── Style Helper ───────────────────────────────────────────────────
 
 function getTextStyle(props: AsciiFormatterProProps, effectiveFontSize: number): React.CSSProperties {
   const base: React.CSSProperties = {
-    fontFamily: FONT_MAP[props.font],
+    fontFamily: FONT_MAP[props.font] || "'Courier New', monospace",
     fontSize: effectiveFontSize,
     lineHeight: props.lineHeight,
     letterSpacing: props.letterSpacing,
@@ -719,10 +894,10 @@ function getTextStyle(props: AsciiFormatterProProps, effectiveFontSize: number):
     textAlign: props.textAlign,
     margin: 0,
     padding: 0,
+    width: "100%",
+    height: "100%",
     boxSizing: "border-box",
-    wordBreak: "keep-all",
-    overflowWrap: "normal",
-    tabSize: 4,
+    color: props.color,
   }
 
   if (props.fillType === "solid") {
@@ -823,6 +998,9 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     // dev harness — allow animations
   }
 
+  // Load Google Fonts on first render
+  useEffect(() => { loadGoogleFonts() }, [])
+
   const active = !isCanvas && appearEffect !== "none"
   const containerRef = useRef<HTMLDivElement>(null)
   const preRef = useRef<HTMLPreElement>(null)
@@ -866,22 +1044,39 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     retriggerOnHover,
   })
 
-  // Auto-fit
-  const autoFit = fontSizingMode === "auto"
-  const scale = useAutoFit(containerRef, preRef, autoFit, [text, fontSize, props.lineHeight, props.letterSpacing])
-  const effectiveFontSize = fontSize
-
-  // Hover engine (only when appear effect is done or always-on)
-  const { globalHoverText, localHoverChars, hoverStyle, isHovering: hoverActive } = useHoverEngine(
+  // Auto-fit font sizing (original approach: compute a font size, not a scale transform)
+  const fontFamily = FONT_MAP[props.font] || "'Courier New', monospace"
+  const autoFontSize = useAutoFitFontSize(
     containerRef,
-    preRef,
-    isCanvas ? "none" : hoverEffect,
-    hoverScope,
-    hoverRadius,
+    text,
+    fontFamily,
+    fontSize,
+    props.letterSpacing,
+    fontSizingMode === "auto"
+  )
+  const effectiveFontSize = autoFontSize
+
+  // Determine whether the appear effect has completed
+  const effectCompleted =
+    appearEffect === "none" || progress >= 1
+
+  // ── Hover: local (character-level, event-delegation) ──
+  const localHoverActive = hoverEffect !== "none"
+    && hoverScope === "local"
+    && effectCompleted
+    && !isCanvas
+    && (hoverEffect === "glitch" || hoverEffect === "scramble")
+  const hoverGlitchHook = useHoverGlitch(text, localHoverActive, hoverRadius, 350, 60)
+
+  // ── Hover: global (CSS + text replacement) ──
+  const globalHoverActive = hoverEffect !== "none" && hoverScope === "global" && !isCanvas
+  const { hoverText: globalHoverText, hoverStyle, isHovering: globalHovering } = useGlobalHoverEffect(
+    containerRef,
+    globalHoverActive ? hoverEffect : "none",
     hoverIntensity,
     text,
     seed,
-    !isCanvas
+    globalHoverActive
   )
 
   // ── Compute display text and styles ──
@@ -938,39 +1133,10 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     return { displayText, outerStyle, innerStyle, scanLine }
   }, [active, appearEffect, text, progress, direction, seed, frameCount, intensity, jitter, stagger, staggerAmount, cursorBlink])
 
-  // Apply hover text override when hovering (and appear effect is complete)
-  const canHover = progress >= 1 || !active
-  const finalText = hoverActive && globalHoverText !== null && canHover
+  // Apply global hover text override when hovering (and appear effect is complete)
+  const displayText = globalHovering && globalHoverText !== null && effectCompleted
     ? globalHoverText
     : textEffects.displayText
-
-  // Build local-hover aware content: if local hover is active, render per-character spans
-  const useLocalRender = hoverActive && localHoverChars !== null && canHover
-  const renderedContent = useMemo(() => {
-    if (!useLocalRender || !localHoverChars) return null
-
-    // Render characters individually, applying hover replacements
-    const baseText = textEffects.displayText
-    const elements: React.ReactNode[] = []
-    let flatIdx = 0
-
-    for (let i = 0; i < baseText.length; i++) {
-      const ch = baseText[i]
-      const replacement = localHoverChars.get(flatIdx)
-      if (replacement !== undefined) {
-        elements.push(
-          <span key={i} style={{ color: "inherit", opacity: 0.85 }}>
-            {replacement}
-          </span>
-        )
-      } else {
-        elements.push(ch)
-      }
-      flatIdx++
-    }
-
-    return elements
-  }, [useLocalRender, localHoverChars, textEffects.displayText])
 
   // Hidden text for typing effect (layout stability)
   const typingHidden = active && appearEffect === "typing"
@@ -979,11 +1145,19 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
 
   // RGB split + jitter (active during glitch/interference effects or hover glitch)
   const isGlitchActive = (active && (appearEffect === "glitch" || appearEffect === "interference") && progress < 1)
-    || (hoverActive && (hoverEffect === "glitch" || hoverEffect === "scramble"))
+    || (globalHovering && (hoverEffect === "glitch" || hoverEffect === "scramble"))
   const rgbStyle = getRgbSplitStyle(rgbSplit, glitchDirection, isGlitchActive)
   const jitterStyle = getJitterStyle(jitter, glitchDirection, frameCount, isGlitchActive)
 
   const textStyle = getTextStyle(props, effectiveFontSize)
+
+  // Build content: local hover uses span-wrapped chars, otherwise plain text
+  let content: React.ReactNode
+  if (localHoverActive) {
+    content = renderHoverGlitchContent(displayText, hoverGlitchHook.overrides)
+  } else {
+    content = displayText
+  }
 
   return (
     <div
@@ -995,7 +1169,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
         height: "100%",
         position: "relative",
         ...textEffects.outerStyle,
-        ...hoverStyle,
+        ...(globalHoverActive ? hoverStyle : {}),
       }}
     >
       <pre
@@ -1005,13 +1179,11 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
           ...textEffects.innerStyle,
           ...rgbStyle,
           ...jitterStyle,
-          width: "max-content",
-          ...(autoFit
-            ? { transform: `scale(${scale})`, transformOrigin: "top left" }
-            : {}),
         }}
+        onMouseMove={localHoverActive ? hoverGlitchHook.handleMouseMove : undefined}
+        onMouseLeave={localHoverActive ? hoverGlitchHook.handleMouseLeave : undefined}
       >
-        {useLocalRender ? renderedContent : finalText}
+        {content}
         {typingHidden && (
           <span style={{ visibility: "hidden" }}>{typingHidden}</span>
         )}
@@ -1062,7 +1234,7 @@ AsciiFormatterPro.defaultProps = {
   // Interaction
   hoverEffect: "none" as HoverEffect,
   hoverScope: "global" as HoverScope,
-  hoverRadius: 80,
+  hoverRadius: 3,
   hoverIntensity: 0.5,
   retriggerOnHover: false,
 }
@@ -1096,8 +1268,11 @@ addPropertyControls(AsciiFormatterPro, {
     type: ControlType.Enum,
     title: "Font",
     defaultValue: "courier",
-    options: ["courier", "consolas", "firacode", "jetbrains", "spacemono", "ibmplex"],
-    optionTitles: ["Courier New", "Consolas", "Fira Code", "JetBrains Mono", "Space Mono", "IBM Plex Mono"],
+    options: Object.keys(FONT_LIST),
+    optionTitles: Object.values(FONT_LIST).map((d) => {
+      const match = d.family.match(/^'([^']+)'/)
+      return match ? match[1] : d.family.split(",")[0].trim()
+    }),
   },
   textAlign: {
     type: ControlType.Enum,
@@ -1356,11 +1531,10 @@ addPropertyControls(AsciiFormatterPro, {
   hoverRadius: {
     type: ControlType.Number,
     title: "Hover Radius",
-    defaultValue: 80,
-    min: 20,
-    max: 300,
-    step: 5,
-    unit: "px",
+    defaultValue: 3,
+    min: 1,
+    max: 10,
+    step: 1,
     hidden: (p: P) => p.hoverEffect === "none" || p.hoverScope !== "local" || p.hoverEffect === "revealPulse" || p.hoverEffect === "flicker",
   },
   hoverIntensity: {

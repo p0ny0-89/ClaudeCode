@@ -34,7 +34,7 @@ const ROBOT_ASCII = `    ┌─────┐
     │     │
    ═╧═   ═╧═`
 
-type Font = "courier" | "consolas" | "firacode" | "jetbrains" | "spacemono" | "ibmplex"
+type Font = string
 type FillType = "solid" | "linear" | "radial"
 type AppearEffect = "none" | "fade" | "reveal" | "typing" | "glitch" | "scramble" | "scan" | "boot" | "interference"
 type Trigger = "mount" | "hover" | "viewport"
@@ -91,7 +91,7 @@ export default function App() {
   // Interaction
   const [hoverEffect, setHoverEffect] = useState<HoverEffect>("none")
   const [hoverScope, setHoverScope] = useState<HoverScope>("global")
-  const [hoverRadius, setHoverRadius] = useState(80)
+  const [hoverRadius, setHoverRadius] = useState(3)
   const [hoverIntensity, setHoverIntensity] = useState(0.5)
   const [retriggerOnHover, setRetriggerOnHover] = useState(false)
 
@@ -156,12 +156,45 @@ export default function App() {
 
         <label style={{ ...S.label, marginTop: 8 }}>Font</label>
         <select value={font} onChange={(e) => setFont(e.target.value as Font)} style={S.input}>
-          <option value="courier">Courier New</option>
-          <option value="consolas">Consolas</option>
-          <option value="firacode">Fira Code</option>
-          <option value="jetbrains">JetBrains Mono</option>
-          <option value="spacemono">Space Mono</option>
-          <option value="ibmplex">IBM Plex Mono</option>
+          <optgroup label="Monospace">
+            <option value="courier">Courier New</option>
+            <option value="consolas">Consolas</option>
+            <option value="firacode">Fira Code</option>
+            <option value="jetbrains">JetBrains Mono</option>
+            <option value="sourcecodepro">Source Code Pro</option>
+            <option value="ubuntumono">Ubuntu Mono</option>
+            <option value="robotomono">Roboto Mono</option>
+            <option value="ibmplexmono">IBM Plex Mono</option>
+            <option value="spacemono">Space Mono</option>
+            <option value="inconsolata">Inconsolata</option>
+          </optgroup>
+          <optgroup label="Sans-Serif">
+            <option value="inter">Inter</option>
+            <option value="roboto">Roboto</option>
+            <option value="opensans">Open Sans</option>
+            <option value="lato">Lato</option>
+            <option value="montserrat">Montserrat</option>
+            <option value="poppins">Poppins</option>
+            <option value="nunito">Nunito</option>
+            <option value="raleway">Raleway</option>
+            <option value="arial">Arial</option>
+            <option value="helvetica">Helvetica</option>
+            <option value="verdana">Verdana</option>
+          </optgroup>
+          <optgroup label="Serif">
+            <option value="georgia">Georgia</option>
+            <option value="timesnewroman">Times New Roman</option>
+            <option value="playfair">Playfair Display</option>
+            <option value="merriweather">Merriweather</option>
+            <option value="lora">Lora</option>
+            <option value="ptserif">PT Serif</option>
+          </optgroup>
+          <optgroup label="Display">
+            <option value="orbitron">Orbitron</option>
+            <option value="pressstart">Press Start 2P</option>
+            <option value="vt323">VT323</option>
+            <option value="silkscreen">Silkscreen</option>
+          </optgroup>
         </select>
 
         <label style={{ ...S.label, marginTop: 8 }}>Align</label>
@@ -372,8 +405,8 @@ export default function App() {
 
                 {hoverScope === "local" && (
                   <>
-                    <label style={{ ...S.label, marginTop: 8 }}>Hover Radius: {hoverRadius}px</label>
-                    <input type="range" min={20} max={300} step={5} value={hoverRadius} onChange={(e) => setHoverRadius(Number(e.target.value))} style={{ width: "100%" }} />
+                    <label style={{ ...S.label, marginTop: 8 }}>Hover Radius: {hoverRadius}</label>
+                    <input type="range" min={1} max={10} step={1} value={hoverRadius} onChange={(e) => setHoverRadius(Number(e.target.value))} style={{ width: "100%" }} />
                   </>
                 )}
               </>
