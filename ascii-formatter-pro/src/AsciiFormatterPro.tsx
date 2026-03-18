@@ -12,7 +12,9 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-type Font = string
+// Font is a Framer font object from ControlType.Font (native picker).
+// In dev harness it's a plain object with { fontFamily, fontWeight? }.
+type Font = Record<string, any>
 type FillType = "solid" | "linear" | "radial"
 type AppearEffect =
   | "none"
@@ -80,81 +82,9 @@ interface AsciiFormatterProProps {
   style?: React.CSSProperties
 }
 
-// ─── Font Definitions ───────────────────────────────────────────────
-// Grouped by category; monospace fonts listed first for ASCII art use.
-// Fonts marked with `google: true` are loaded on-demand via Google Fonts.
-
-interface FontDef {
-  family: string
-  google?: boolean
-  category: "monospace" | "sans-serif" | "serif" | "display"
-}
-
-const FONT_LIST: Record<string, FontDef> = {
-  // ── Monospace ──
-  "courier":       { family: "'Courier New', Courier, monospace", category: "monospace" },
-  "consolas":      { family: "'Consolas', monospace", category: "monospace" },
-  "firacode":      { family: "'Fira Code', monospace", google: true, category: "monospace" },
-  "jetbrains":     { family: "'JetBrains Mono', monospace", google: true, category: "monospace" },
-  "sourcecodepro": { family: "'Source Code Pro', monospace", google: true, category: "monospace" },
-  "ubuntumono":    { family: "'Ubuntu Mono', monospace", google: true, category: "monospace" },
-  "robotomono":    { family: "'Roboto Mono', monospace", google: true, category: "monospace" },
-  "ibmplexmono":   { family: "'IBM Plex Mono', monospace", google: true, category: "monospace" },
-  "spacemono":     { family: "'Space Mono', monospace", google: true, category: "monospace" },
-  "inconsolata":   { family: "'Inconsolata', monospace", google: true, category: "monospace" },
-  // ── Sans-Serif ──
-  "inter":         { family: "'Inter', sans-serif", google: true, category: "sans-serif" },
-  "roboto":        { family: "'Roboto', sans-serif", google: true, category: "sans-serif" },
-  "opensans":      { family: "'Open Sans', sans-serif", google: true, category: "sans-serif" },
-  "lato":          { family: "'Lato', sans-serif", google: true, category: "sans-serif" },
-  "montserrat":    { family: "'Montserrat', sans-serif", google: true, category: "sans-serif" },
-  "poppins":       { family: "'Poppins', sans-serif", google: true, category: "sans-serif" },
-  "nunito":        { family: "'Nunito', sans-serif", google: true, category: "sans-serif" },
-  "raleway":       { family: "'Raleway', sans-serif", google: true, category: "sans-serif" },
-  "arial":         { family: "Arial, Helvetica, sans-serif", category: "sans-serif" },
-  "helvetica":     { family: "Helvetica, Arial, sans-serif", category: "sans-serif" },
-  "verdana":       { family: "Verdana, Geneva, sans-serif", category: "sans-serif" },
-  // ── Serif ──
-  "georgia":       { family: "Georgia, 'Times New Roman', serif", category: "serif" },
-  "timesnewroman": { family: "'Times New Roman', Times, serif", category: "serif" },
-  "playfair":      { family: "'Playfair Display', serif", google: true, category: "serif" },
-  "merriweather":  { family: "'Merriweather', serif", google: true, category: "serif" },
-  "lora":          { family: "'Lora', serif", google: true, category: "serif" },
-  "ptserif":       { family: "'PT Serif', serif", google: true, category: "serif" },
-  // ── Display ──
-  "orbitron":      { family: "'Orbitron', sans-serif", google: true, category: "display" },
-  "pressstart":    { family: "'Press Start 2P', monospace", google: true, category: "display" },
-  "vt323":         { family: "'VT323', monospace", google: true, category: "display" },
-  "silkscreen":    { family: "'Silkscreen', monospace", google: true, category: "display" },
-}
-
-// Backwards-compatible lookup: returns CSS font-family string
-const FONT_MAP: Record<string, string> = Object.fromEntries(
-  Object.entries(FONT_LIST).map(([key, def]) => [key, def.family])
-)
-
-// Google Fonts that need to be loaded
-const GOOGLE_FONT_NAMES = Object.values(FONT_LIST)
-  .filter((d) => d.google)
-  .map((d) => {
-    const match = d.family.match(/^'([^']+)'/)
-    return match ? match[1] : ""
-  })
-  .filter(Boolean)
-
-// Inject Google Fonts stylesheet once
-let googleFontsLoaded = false
-function loadGoogleFonts() {
-  if (googleFontsLoaded || typeof document === "undefined") return
-  googleFontsLoaded = true
-  const families = GOOGLE_FONT_NAMES.map((n) => n.replace(/ /g, "+")).join("&family=")
-  const link = document.createElement("link")
-  link.rel = "stylesheet"
-  link.href = `https://fonts.googleapis.com/css2?family=${families}&display=swap`
-  document.head.appendChild(link)
-}
-
 // ─── Constants ──────────────────────────────────────────────────────
+
+const DEFAULT_FONT: Font = { fontFamily: "'Courier New', Courier, monospace", fontWeight: 400 }
 
 const GLITCH_CHARS = "!@#$%^&*()_+-=[]{}|;:',.<>?/~`0123456789"
 const BLOCK_CHARS = "░▒▓█▄▀■□▪▫"
@@ -886,7 +816,7 @@ function useGlobalHoverEffect(
 
 function getTextStyle(props: AsciiFormatterProProps, effectiveFontSize: number): React.CSSProperties {
   const base: React.CSSProperties = {
-    fontFamily: FONT_MAP[props.font] || "'Courier New', monospace",
+    ...(props.font || DEFAULT_FONT),
     fontSize: effectiveFontSize,
     lineHeight: props.lineHeight,
     letterSpacing: props.letterSpacing,
@@ -894,14 +824,12 @@ function getTextStyle(props: AsciiFormatterProProps, effectiveFontSize: number):
     textAlign: props.textAlign,
     margin: 0,
     padding: 0,
-    width: "100%",
-    height: "100%",
     boxSizing: "border-box",
     color: props.color,
   }
 
   if (props.fillType === "solid") {
-    return { ...base, color: props.color }
+    return { ...base, width: "100%", height: "100%" }
   }
 
   const gradient =
@@ -998,9 +926,6 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     // dev harness — allow animations
   }
 
-  // Load Google Fonts on first render
-  useEffect(() => { loadGoogleFonts() }, [])
-
   const active = !isCanvas && appearEffect !== "none"
   const containerRef = useRef<HTMLDivElement>(null)
   const preRef = useRef<HTMLPreElement>(null)
@@ -1045,7 +970,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   })
 
   // Auto-fit font sizing (original approach: compute a font size, not a scale transform)
-  const fontFamily = FONT_MAP[props.font] || "'Courier New', monospace"
+  const fontFamily = props.font?.fontFamily || "'Courier New', Courier, monospace"
   const autoFontSize = useAutoFitFontSize(
     containerRef,
     text,
@@ -1198,12 +1123,12 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
 AsciiFormatterPro.defaultProps = {
   // Content
   text: DEFAULT_TEXT,
-  font: "courier" as Font,
+  font: DEFAULT_FONT,
   textAlign: "left" as TextAlign,
   // Typography
   fontSizingMode: "fixed" as FontSizingMode,
   fontSize: 14,
-  lineHeight: 1.2,
+  lineHeight: 1,
   letterSpacing: 0,
   preserveFormatting: true,
   // Appearance
@@ -1265,14 +1190,10 @@ addPropertyControls(AsciiFormatterPro, {
     placeholder: "Paste your ASCII art here...",
   },
   font: {
-    type: ControlType.Enum,
-    title: "Font",
-    defaultValue: "courier",
-    options: Object.keys(FONT_LIST),
-    optionTitles: Object.values(FONT_LIST).map((d) => {
-      const match = d.family.match(/^'([^']+)'/)
-      return match ? match[1] : d.family.split(",")[0].trim()
-    }),
+    //@ts-ignore — ControlType.Font is undocumented but functional in Framer
+    type: ControlType.Font,
+    controls: "basic",
+    defaultFontType: "monospace",
   },
   textAlign: {
     type: ControlType.Enum,
@@ -1304,7 +1225,7 @@ addPropertyControls(AsciiFormatterPro, {
   lineHeight: {
     type: ControlType.Number,
     title: "Line Height",
-    defaultValue: 1.2,
+    defaultValue: 1,
     min: 0.5,
     max: 4,
     step: 0.05,

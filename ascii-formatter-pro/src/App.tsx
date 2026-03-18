@@ -34,7 +34,7 @@ const ROBOT_ASCII = `    ┌─────┐
     │     │
    ═╧═   ═╧═`
 
-type Font = string
+type Font = Record<string, any>
 type FillType = "solid" | "linear" | "radial"
 type AppearEffect = "none" | "fade" | "reveal" | "typing" | "glitch" | "scramble" | "scan" | "boot" | "interference"
 type Trigger = "mount" | "hover" | "viewport"
@@ -50,13 +50,13 @@ type FontSizingMode = "fixed" | "auto"
 export default function App() {
   // Content
   const [text, setText] = useState(DEFAULT_ASCII)
-  const [font, setFont] = useState<Font>("courier")
+  const [font, setFont] = useState<Font>({ fontFamily: "'Courier New', Courier, monospace", fontWeight: 400 })
   const [textAlign, setTextAlign] = useState<TextAlign>("left")
 
   // Typography
   const [fontSizingMode, setFontSizingMode] = useState<FontSizingMode>("fixed")
   const [fontSize, setFontSize] = useState(16)
-  const [lineHeight, setLineHeight] = useState(1.2)
+  const [lineHeight, setLineHeight] = useState(1)
   const [letterSpacing, setLetterSpacing] = useState(0)
   const [preserveFormatting, setPreserveFormatting] = useState(true)
 
@@ -155,45 +155,22 @@ export default function App() {
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} style={{ ...S.input, fontFamily: "'Courier New', monospace", resize: "vertical", whiteSpace: "pre" }} />
 
         <label style={{ ...S.label, marginTop: 8 }}>Font</label>
-        <select value={font} onChange={(e) => setFont(e.target.value as Font)} style={S.input}>
+        <select value={font.fontFamily} onChange={(e) => setFont({ fontFamily: e.target.value, fontWeight: 400 })} style={S.input}>
           <optgroup label="Monospace">
-            <option value="courier">Courier New</option>
-            <option value="consolas">Consolas</option>
-            <option value="firacode">Fira Code</option>
-            <option value="jetbrains">JetBrains Mono</option>
-            <option value="sourcecodepro">Source Code Pro</option>
-            <option value="ubuntumono">Ubuntu Mono</option>
-            <option value="robotomono">Roboto Mono</option>
-            <option value="ibmplexmono">IBM Plex Mono</option>
-            <option value="spacemono">Space Mono</option>
-            <option value="inconsolata">Inconsolata</option>
+            <option value="'Courier New', Courier, monospace">Courier New</option>
+            <option value="'Consolas', monospace">Consolas</option>
+            <option value="'Fira Code', monospace">Fira Code</option>
+            <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+            <option value="'Space Mono', monospace">Space Mono</option>
           </optgroup>
           <optgroup label="Sans-Serif">
-            <option value="inter">Inter</option>
-            <option value="roboto">Roboto</option>
-            <option value="opensans">Open Sans</option>
-            <option value="lato">Lato</option>
-            <option value="montserrat">Montserrat</option>
-            <option value="poppins">Poppins</option>
-            <option value="nunito">Nunito</option>
-            <option value="raleway">Raleway</option>
-            <option value="arial">Arial</option>
-            <option value="helvetica">Helvetica</option>
-            <option value="verdana">Verdana</option>
+            <option value="Arial, Helvetica, sans-serif">Arial</option>
+            <option value="Helvetica, Arial, sans-serif">Helvetica</option>
+            <option value="Verdana, Geneva, sans-serif">Verdana</option>
           </optgroup>
           <optgroup label="Serif">
-            <option value="georgia">Georgia</option>
-            <option value="timesnewroman">Times New Roman</option>
-            <option value="playfair">Playfair Display</option>
-            <option value="merriweather">Merriweather</option>
-            <option value="lora">Lora</option>
-            <option value="ptserif">PT Serif</option>
-          </optgroup>
-          <optgroup label="Display">
-            <option value="orbitron">Orbitron</option>
-            <option value="pressstart">Press Start 2P</option>
-            <option value="vt323">VT323</option>
-            <option value="silkscreen">Silkscreen</option>
+            <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+            <option value="'Times New Roman', Times, serif">Times New Roman</option>
           </optgroup>
         </select>
 
