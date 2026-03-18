@@ -31,7 +31,7 @@ type RepeatMode = "once" | "loop" | "pingPong"
 type StaggerMode = "none" | "byChar" | "byLine"
 type RevealDirection = "left" | "right" | "top" | "bottom" | "centerOut" | "random"
 type GlitchDirection = "horizontal" | "vertical" | "both"
-type HoverEffect = "none" | "glitch" | "scramble" | "revealPulse" | "flicker"
+type HoverEffect = "none" | "glitch" | "scramble" | "displace" | "flicker"
 type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
@@ -712,6 +712,32 @@ function renderHoverGlitchContent(
   return nodes
 }
 
+/**
+ * Renders text with per-line horizontal displacement.
+ * Each line is wrapped in a <div> with translateX for the offset.
+ */
+function renderDisplacedLines(
+  text: string,
+  offsets: number[]
+): React.ReactNode {
+  const lines = text.split("\n")
+  return lines.map((line, i) => {
+    const offset = offsets[i] || 0
+    return (
+      <div
+        key={i}
+        style={
+          offset !== 0
+            ? { transform: `translateX(${offset}px)`, willChange: "transform" }
+            : undefined
+        }
+      >
+        {line}
+      </div>
+    )
+  })
+}
+
 // ─── Global Hover Effects (CSS-based) ───────────────────────────────
 
 function useGlobalHoverEffect(
@@ -791,17 +817,21 @@ function useGlobalHoverEffect(
     }
   }, [isHovering, hoverEffect, hoverIntensity, text, seed, hoverFrame])
 
+  // Per-line displacement offsets (px) for displace hover effect
+  const displaceOffsets = useMemo((): number[] | null => {
+    if (!isHovering || hoverEffect !== "displace") return null
+    const lines = text.split("\n")
+    const rng = createRng(seed + hoverFrame * 1279)
+    return lines.map(() => {
+      return Math.round((rng() - 0.5) * hoverIntensity * 30)
+    })
+  }, [isHovering, hoverEffect, hoverIntensity, text, seed, hoverFrame])
+
   const hoverStyle = useMemo((): React.CSSProperties => {
     if (!isHovering) return {}
 
     switch (hoverEffect) {
-      case "revealPulse":
-        return {
-          filter: `brightness(${1 + hoverIntensity * 1.5}) contrast(${1 + hoverIntensity * 0.2})`,
-          transition: "filter 0.2s ease-out",
-        }
       case "flicker": {
-        // At ~15fps tick rate, toggle every 2 frames (~130ms on/off cycle)
         const on = hoverFrame % 2 === 0
         return { opacity: on ? 1 : 1 - hoverIntensity * 0.6 }
       }
@@ -810,7 +840,7 @@ function useGlobalHoverEffect(
     }
   }, [isHovering, hoverEffect, hoverIntensity, hoverFrame])
 
-  return { hoverText, hoverStyle, isHovering }
+  return { hoverText, hoverStyle, displaceOffsets, isHovering }
 }
 
 // ─── Style Helper ───────────────────────────────────────────────────
@@ -995,10 +1025,10 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const hoverGlitchHook = useHoverGlitch(text, localHoverActive, hoverRadius, 350, 60)
 
   // ── Hover: global (CSS + text replacement) ──
-  // revealPulse and flicker are always global (CSS-based, no per-char variant)
-  const isCssOnlyHover = hoverEffect === "revealPulse" || hoverEffect === "flicker"
+  // flicker and displace are always global (no per-char variant)
+  const isCssOnlyHover = hoverEffect === "flicker" || hoverEffect === "displace"
   const globalHoverActive = hoverEffect !== "none" && (hoverScope === "global" || isCssOnlyHover) && !isCanvas
-  const { hoverText: globalHoverText, hoverStyle, isHovering: globalHovering } = useGlobalHoverEffect(
+  const { hoverText: globalHoverText, hoverStyle, displaceOffsets, isHovering: globalHovering } = useGlobalHoverEffect(
     containerRef,
     globalHoverActive ? hoverEffect : "none",
     hoverIntensity,
@@ -1079,10 +1109,12 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
 
   const textStyle = getTextStyle(props, effectiveFontSize)
 
-  // Build content: local hover uses span-wrapped chars, otherwise plain text
+  // Build content: local hover uses span-wrapped chars, displace uses per-line divs
   let content: React.ReactNode
   if (localHoverActive) {
     content = renderHoverGlitchContent(displayText, hoverGlitchHook.overrides)
+  } else if (displaceOffsets && globalHovering && effectCompleted) {
+    content = renderDisplacedLines(displayText, displaceOffsets)
   } else {
     content = displayText
   }
@@ -1440,8 +1472,8 @@ addPropertyControls(AsciiFormatterPro, {
     type: ControlType.Enum,
     title: "Hover Effect",
     defaultValue: "none",
-    options: ["none", "glitch", "scramble", "revealPulse", "flicker"],
-    optionTitles: ["None", "Glitch", "Scramble", "Reveal Pulse", "Flicker"],
+    options: ["none", "glitch", "scramble", "displace", "flicker"],
+    optionTitles: ["None", "Glitch", "Scramble", "Displace", "Flicker"],
   },
   hoverScope: {
     type: ControlType.Enum,
@@ -1450,7 +1482,7 @@ addPropertyControls(AsciiFormatterPro, {
     options: ["global", "local"],
     optionTitles: ["Global", "Characters"],
     displaySegmentedControl: true,
-    hidden: (p: P) => p.hoverEffect === "none" || p.hoverEffect === "revealPulse" || p.hoverEffect === "flicker",
+    hidden: (p: P) => p.hoverEffect === "none" || p.hoverEffect === "displace" || p.hoverEffect === "flicker",
   },
   hoverRadius: {
     type: ControlType.Number,
@@ -1459,7 +1491,7 @@ addPropertyControls(AsciiFormatterPro, {
     min: 1,
     max: 10,
     step: 1,
-    hidden: (p: P) => p.hoverEffect === "none" || p.hoverScope !== "local" || p.hoverEffect === "revealPulse" || p.hoverEffect === "flicker",
+    hidden: (p: P) => p.hoverEffect === "none" || p.hoverScope !== "local" || p.hoverEffect === "displace" || p.hoverEffect === "flicker",
   },
   hoverIntensity: {
     type: ControlType.Number,

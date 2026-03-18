@@ -42,7 +42,7 @@ type RepeatMode = "once" | "loop" | "pingPong"
 type StaggerMode = "none" | "byChar" | "byLine"
 type RevealDirection = "left" | "right" | "top" | "bottom" | "centerOut" | "random"
 type GlitchDirection = "horizontal" | "vertical" | "both"
-type HoverEffect = "none" | "glitch" | "scramble" | "revealPulse" | "flicker"
+type HoverEffect = "none" | "glitch" | "scramble" | "displace" | "flicker"
 type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
@@ -366,7 +366,7 @@ export default function App() {
           <option value="none">None</option>
           <option value="glitch">Glitch</option>
           <option value="scramble">Scramble</option>
-          <option value="revealPulse">Reveal Pulse</option>
+          <option value="displace">Displace</option>
           <option value="flicker">Flicker</option>
         </select>
 
