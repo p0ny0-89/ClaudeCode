@@ -1508,6 +1508,7 @@ addPropertyControls(AsciiFormatterPro, {
     defaultValue: false,
     enabledTitle: "On",
     disabledTitle: "Off",
-    hidden: (p: P) => p.hoverEffect === "none" && p.trigger !== "hover",
+    // Only relevant when the appear effect uses hover as its trigger
+    hidden: (p: P) => p.trigger !== "hover" || p.appearEffect === "none",
   },
 })
