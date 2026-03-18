@@ -797,12 +797,13 @@ function useGlobalHoverEffect(
     switch (hoverEffect) {
       case "revealPulse":
         return {
-          filter: `brightness(${1 + hoverIntensity * 0.5})`,
-          transition: "filter 0.15s ease-out",
+          filter: `brightness(${1 + hoverIntensity * 1.5}) contrast(${1 + hoverIntensity * 0.2})`,
+          transition: "filter 0.2s ease-out",
         }
       case "flicker": {
-        const on = Math.floor(hoverFrame / 3) % 2 === 0
-        return { opacity: on ? 1 : 1 - hoverIntensity * 0.4 }
+        // At ~15fps tick rate, toggle every 2 frames (~130ms on/off cycle)
+        const on = hoverFrame % 2 === 0
+        return { opacity: on ? 1 : 1 - hoverIntensity * 0.6 }
       }
       default:
         return {}
@@ -994,7 +995,9 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const hoverGlitchHook = useHoverGlitch(text, localHoverActive, hoverRadius, 350, 60)
 
   // ── Hover: global (CSS + text replacement) ──
-  const globalHoverActive = hoverEffect !== "none" && hoverScope === "global" && !isCanvas
+  // revealPulse and flicker are always global (CSS-based, no per-char variant)
+  const isCssOnlyHover = hoverEffect === "revealPulse" || hoverEffect === "flicker"
+  const globalHoverActive = hoverEffect !== "none" && (hoverScope === "global" || isCssOnlyHover) && !isCanvas
   const { hoverText: globalHoverText, hoverStyle, isHovering: globalHovering } = useGlobalHoverEffect(
     containerRef,
     globalHoverActive ? hoverEffect : "none",
