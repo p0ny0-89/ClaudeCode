@@ -76,6 +76,7 @@ interface AsciiFormatterProProps {
   hoverEffect: HoverEffect
   hoverScope: HoverScope
   hoverRadius: number
+  hoverFalloff: number
   hoverIntensity: number
   retriggerOnHover: boolean
   // Framer
@@ -787,6 +788,7 @@ function useGlobalHoverEffect(
   hoverEffect: HoverEffect,
   hoverScope: HoverScope,
   hoverRadius: number,
+  hoverFalloff: number,
   hoverIntensity: number,
   text: string,
   seed: number,
@@ -908,15 +910,17 @@ function useGlobalHoverEffect(
     const maxPx = hoverIntensity * 150
     const waveFreq = 0.8
     const falloffRadius = lh * 6
+    // sigma: hoverFalloff 0 = sharp edge (0.15), 1 = very soft (0.9)
+    const sigma = falloffRadius * (0.15 + hoverFalloff * 0.75)
 
     return lines.map((_, i) => {
       const lineCenterY = i * lh + lh / 2
       const dist = Math.abs(lineCenterY - py)
-      const falloff = Math.exp(-(dist * dist) / (2 * (falloffRadius * 0.45) ** 2))
+      const falloff = Math.exp(-(dist * dist) / (2 * sigma * sigma))
       const wave = Math.sin(time + (dist / lh) * waveFreq * Math.PI)
       return Math.round(wave * falloff * maxPx)
     })
-  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, text, hoverFrame, preRef])
+  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverFalloff, text, hoverFrame, preRef])
 
   // Per-character displacement offsets (local displace mode).
   // Each character near the cursor gets an individual horizontal shift.
@@ -938,6 +942,8 @@ function useGlobalHoverEffect(
     const maxPx = hoverIntensity * 150
     const radiusPx = hoverRadius * charW // convert char-units to px
     const waveFreq = 0.6
+    // sigma: hoverFalloff 0 = sharp edge (0.15), 1 = very soft (0.9)
+    const sigma = radiusPx * (0.15 + hoverFalloff * 0.75)
 
     const lines = text.split("\n")
     const totalChars = text.length // including newlines
@@ -951,8 +957,8 @@ function useGlobalHoverEffect(
         const cy = row * lh + lh / 2
         const dist = Math.sqrt((cx - px) ** 2 + (cy - py) ** 2)
 
-        if (dist < radiusPx) {
-          const falloff = Math.exp(-(dist * dist) / (2 * (radiusPx * 0.45) ** 2))
+        if (dist < radiusPx * 2) { // extend check beyond radius for soft falloff
+          const falloff = Math.exp(-(dist * dist) / (2 * sigma * sigma))
           const wave = Math.sin(time + (dist / charW) * waveFreq * Math.PI)
           offsets[idx] = Math.round(wave * falloff * maxPx)
         }
@@ -962,7 +968,7 @@ function useGlobalHoverEffect(
     }
 
     return { offsets, charW, lineH: lh }
-  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverRadius, text, hoverFrame, preRef])
+  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverFalloff, hoverRadius, text, hoverFrame, preRef])
 
   const hoverStyle = useMemo((): React.CSSProperties => {
     if (!isHovering) return {}
@@ -1081,6 +1087,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     hoverEffect,
     hoverScope,
     hoverRadius,
+    hoverFalloff,
     hoverIntensity,
     retriggerOnHover,
     style,
@@ -1171,6 +1178,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     globalHoverActive ? hoverEffect : "none",
     hoverScope,
     hoverRadius,
+    hoverFalloff,
     hoverIntensity,
     text,
     seed,
@@ -1347,6 +1355,7 @@ AsciiFormatterPro.defaultProps = {
   hoverEffect: "none" as HoverEffect,
   hoverScope: "global" as HoverScope,
   hoverRadius: 3,
+  hoverFalloff: 0.3,
   hoverIntensity: 0.5,
   retriggerOnHover: false,
 }
@@ -1644,6 +1653,16 @@ addPropertyControls(AsciiFormatterPro, {
     max: 20,
     step: 1,
     hidden: (p: P) => p.hoverEffect === "none" || p.hoverScope !== "local" || p.hoverEffect === "flicker",
+  },
+  hoverFalloff: {
+    type: ControlType.Number,
+    title: "Falloff",
+    defaultValue: 0.3,
+    min: 0,
+    max: 1,
+    step: 0.05,
+    // Show for displace (both scopes) since it controls the edge softness
+    hidden: (p: P) => p.hoverEffect !== "displace",
   },
   hoverIntensity: {
     type: ControlType.Number,

@@ -92,6 +92,7 @@ export default function App() {
   const [hoverEffect, setHoverEffect] = useState<HoverEffect>("none")
   const [hoverScope, setHoverScope] = useState<HoverScope>("global")
   const [hoverRadius, setHoverRadius] = useState(3)
+  const [hoverFalloff, setHoverFalloff] = useState(0.3)
   const [hoverIntensity, setHoverIntensity] = useState(0.5)
   const [retriggerOnHover, setRetriggerOnHover] = useState(false)
 
@@ -105,7 +106,7 @@ export default function App() {
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
     direction, repeatDelay, loopCount,
     intensity, frequency, seed, jitter, rgbSplit, glitchDirection, cursorBlink,
-    hoverEffect, hoverScope, hoverRadius, hoverIntensity, retriggerOnHover,
+    hoverEffect, hoverScope, hoverRadius, hoverFalloff, hoverIntensity, retriggerOnHover,
   }
 
   const S: Record<string, React.CSSProperties> = {
@@ -386,6 +387,13 @@ export default function App() {
                     <input type="range" min={1} max={20} step={1} value={hoverRadius} onChange={(e) => setHoverRadius(Number(e.target.value))} style={{ width: "100%" }} />
                   </>
                 )}
+              </>
+            )}
+
+            {hoverEffect === "displace" && (
+              <>
+                <label style={{ ...S.label, marginTop: 8 }}>Falloff: {hoverFalloff}</label>
+                <input type="range" min={0} max={1} step={0.05} value={hoverFalloff} onChange={(e) => setHoverFalloff(Number(e.target.value))} style={{ width: "100%" }} />
               </>
             )}
 
