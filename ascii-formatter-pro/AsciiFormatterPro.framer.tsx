@@ -263,49 +263,34 @@ function useAutoFitFontSize(
   fontFamily: string,
   maxFontSize: number,
   letterSpacing: number,
-  lineHeight: number,
   enabled: boolean
 ): number {
   const [computedSize, setComputedSize] = useState(maxFontSize)
   const fontFamilyRef = useRef(fontFamily)
   fontFamilyRef.current = fontFamily
 
-  const { longestLineLen, lineCount } = useMemo(() => {
+  const longestLineLen = useMemo(() => {
     const lines = text.split("\n")
-    return {
-      longestLineLen: Math.max(...lines.map((l) => l.length), 1),
-      lineCount: lines.length,
-    }
+    return Math.max(...lines.map((l) => l.length), 1)
   }, [text])
 
   const calculate = useCallback(() => {
     const el = containerRef.current
     if (!el) return
     const containerWidth = el.clientWidth
-    const containerHeight = el.clientHeight
     if (containerWidth <= 0) return
 
     const charWidthAtRef = getCharWidth(fontFamilyRef.current)
     if (charWidthAtRef <= 0) return
 
     // Width-based: font size that fits the longest line horizontally
-    const widthBased =
+    const raw =
       (containerWidth / longestLineLen - letterSpacing) *
       (REF_SIZE / charWidthAtRef)
 
-    // Height-based: font size that fits all lines vertically
-    const lh = lineHeight > 0 ? lineHeight : 1
-    const heightBased = containerHeight > 0 && lineCount > 0
-      ? containerHeight / (lineCount * lh)
-      : Infinity
-
-    const raw = Math.min(widthBased, heightBased)
-    // Cap at maxFontSize: auto-fit only scales DOWN to fit, never UP.
-    // Scaling up creates feedback loops with FIT-sized parent containers
-    // (parent FITs to content → content grows → parent grows → repeat).
-    const clamped = Math.max(1, Math.min(raw, maxFontSize))
+    const clamped = Math.max(1, Math.min(raw, 500))
     setComputedSize((prev) => prev === clamped ? prev : clamped)
-  }, [containerRef, longestLineLen, lineCount, letterSpacing, lineHeight, maxFontSize])
+  }, [containerRef, longestLineLen, letterSpacing])
 
   useEffect(() => {
     if (!enabled) {
@@ -1076,7 +1061,6 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     fontFamily,
     fontSize,
     props.letterSpacing,
-    props.lineHeight,
     fontSizingMode === "auto"
   )
   const effectiveFontSize = autoFontSize
