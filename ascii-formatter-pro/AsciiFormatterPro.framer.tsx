@@ -739,12 +739,54 @@ function renderDisplacedLines(
   })
 }
 
+/**
+ * Renders text with per-character horizontal displacement.
+ * Each character is wrapped in an inline-block span with translateX.
+ * Newlines are preserved as line breaks.
+ */
+function renderLocalDisplacedChars(
+  text: string,
+  offsets: Float32Array
+): React.ReactNode {
+  const nodes: React.ReactNode[] = []
+  let idx = 0
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === "\n") {
+      nodes.push("\n")
+      idx++
+      continue
+    }
+    const offset = offsets[idx] || 0
+    if (offset !== 0) {
+      nodes.push(
+        <span
+          key={i}
+          style={{
+            display: "inline-block",
+            transform: `translateX(${offset}px)`,
+            willChange: "transform",
+          }}
+        >
+          {ch}
+        </span>
+      )
+    } else {
+      nodes.push(ch)
+    }
+    idx++
+  }
+  return nodes
+}
+
 // ─── Global Hover Effects (CSS-based) ───────────────────────────────
 
 function useGlobalHoverEffect(
   containerRef: React.RefObject<HTMLDivElement | null>,
   preRef: React.RefObject<HTMLPreElement | null>,
   hoverEffect: HoverEffect,
+  hoverScope: HoverScope,
+  hoverRadius: number,
   hoverIntensity: number,
   text: string,
   seed: number,
@@ -752,6 +794,7 @@ function useGlobalHoverEffect(
 ) {
   const [isHovering, setIsHovering] = useState(false)
   const [hoverFrame, setHoverFrame] = useState(0)
+  const pointerX = useRef(-1)
   const pointerY = useRef(-1)
 
   useEffect(() => {
@@ -760,9 +803,10 @@ function useGlobalHoverEffect(
     if (!el) return
 
     const enter = () => setIsHovering(true)
-    const leave = () => { setIsHovering(false); pointerY.current = -1 }
+    const leave = () => { setIsHovering(false); pointerX.current = -1; pointerY.current = -1 }
     const move = (e: PointerEvent) => {
       const rect = el.getBoundingClientRect()
+      pointerX.current = e.clientX - rect.left
       pointerY.current = e.clientY - rect.top
     }
 
@@ -846,11 +890,10 @@ function useGlobalHoverEffect(
     }
   }, [isHovering, hoverEffect, hoverIntensity, text, seed, hoverFrame])
 
-  // Per-line displacement offsets (px) for displace hover effect.
-  // Creates a sine-wave ripple centered on the cursor Y position,
-  // with smooth gaussian falloff — lines near cursor displace most.
+  // Per-line displacement offsets (global displace mode).
+  // Creates a sine-wave ripple centered on cursor Y, gaussian falloff.
   const displaceOffsets = useMemo((): number[] | null => {
-    if (!isHovering || hoverEffect !== "displace") return null
+    if (!isHovering || hoverEffect !== "displace" || hoverScope === "local") return null
 
     const pre = preRef.current
     if (!pre) return null
@@ -861,24 +904,65 @@ function useGlobalHoverEffect(
     const lines = text.split("\n")
     const py = pointerY.current
 
-    const time = hoverFrame * 0.15 // wave phase advances with time
-    const maxPx = hoverIntensity * 150 // max displacement in px
-    const waveFreq = 0.8 // how tight the wave ripples are
-    const falloffRadius = lh * 6 // lines within ~6 line-heights are affected
+    const time = hoverFrame * 0.15
+    const maxPx = hoverIntensity * 150
+    const waveFreq = 0.8
+    const falloffRadius = lh * 6
 
     return lines.map((_, i) => {
       const lineCenterY = i * lh + lh / 2
       const dist = Math.abs(lineCenterY - py)
-
-      // Gaussian-ish falloff: 1 at cursor, ~0 at falloffRadius
       const falloff = Math.exp(-(dist * dist) / (2 * (falloffRadius * 0.45) ** 2))
-
-      // Sine wave: ripples outward from cursor, phase advances with time
       const wave = Math.sin(time + (dist / lh) * waveFreq * Math.PI)
-
       return Math.round(wave * falloff * maxPx)
     })
-  }, [isHovering, hoverEffect, hoverIntensity, text, hoverFrame, preRef])
+  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, text, hoverFrame, preRef])
+
+  // Per-character displacement offsets (local displace mode).
+  // Each character near the cursor gets an individual horizontal shift.
+  const localDisplaceData = useMemo((): { offsets: Float32Array; charW: number; lineH: number } | null => {
+    if (!isHovering || hoverEffect !== "displace" || hoverScope !== "local") return null
+    if (pointerX.current < 0) return null
+
+    const pre = preRef.current
+    if (!pre) return null
+
+    const cs = getComputedStyle(pre)
+    const fSize = parseFloat(cs.fontSize) || 14
+    const lh = parseFloat(cs.lineHeight) || fSize
+    const charW = fSize * 0.6 // monospace approx
+
+    const px = pointerX.current
+    const py = pointerY.current
+    const time = hoverFrame * 0.15
+    const maxPx = hoverIntensity * 150
+    const radiusPx = hoverRadius * charW // convert char-units to px
+    const waveFreq = 0.6
+
+    const lines = text.split("\n")
+    const totalChars = text.length // including newlines
+    const offsets = new Float32Array(totalChars)
+    let idx = 0
+
+    for (let row = 0; row < lines.length; row++) {
+      const line = lines[row]
+      for (let col = 0; col < line.length; col++) {
+        const cx = col * charW + charW / 2
+        const cy = row * lh + lh / 2
+        const dist = Math.sqrt((cx - px) ** 2 + (cy - py) ** 2)
+
+        if (dist < radiusPx) {
+          const falloff = Math.exp(-(dist * dist) / (2 * (radiusPx * 0.45) ** 2))
+          const wave = Math.sin(time + (dist / charW) * waveFreq * Math.PI)
+          offsets[idx] = Math.round(wave * falloff * maxPx)
+        }
+        idx++
+      }
+      idx++ // newline
+    }
+
+    return { offsets, charW, lineH: lh }
+  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverRadius, text, hoverFrame, preRef])
 
   const hoverStyle = useMemo((): React.CSSProperties => {
     if (!isHovering) return {}
@@ -893,7 +977,7 @@ function useGlobalHoverEffect(
     }
   }, [isHovering, hoverEffect, hoverIntensity, hoverFrame])
 
-  return { hoverText, hoverStyle, displaceOffsets, isHovering }
+  return { hoverText, hoverStyle, displaceOffsets, localDisplaceData, isHovering }
 }
 
 // ─── Style Helper ───────────────────────────────────────────────────
@@ -1081,10 +1165,12 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   // flicker and displace are always global (no per-char variant)
   const isCssOnlyHover = hoverEffect === "flicker" || hoverEffect === "displace"
   const globalHoverActive = hoverEffect !== "none" && (hoverScope === "global" || isCssOnlyHover) && !isCanvas
-  const { hoverText: globalHoverText, hoverStyle, displaceOffsets, isHovering: globalHovering } = useGlobalHoverEffect(
+  const { hoverText: globalHoverText, hoverStyle, displaceOffsets, localDisplaceData, isHovering: globalHovering } = useGlobalHoverEffect(
     containerRef,
     preRef,
     globalHoverActive ? hoverEffect : "none",
+    hoverScope,
+    hoverRadius,
     hoverIntensity,
     text,
     seed,
@@ -1172,12 +1258,14 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
 
   const textStyle = getTextStyle(props, effectiveFontSize)
 
-  // Build content: local hover uses span-wrapped chars, displace uses per-line divs
+  // Build content: local hover uses span-wrapped chars, displace uses per-line/per-char
   let content: React.ReactNode
   if (localHoverActive) {
     content = renderHoverGlitchContent(displayText, hoverGlitchHook.overrides)
   } else if (displaceOffsets && globalHovering && effectCompleted) {
     content = renderDisplacedLines(displayText, displaceOffsets)
+  } else if (localDisplaceData && globalHovering && effectCompleted) {
+    content = renderLocalDisplacedChars(displayText, localDisplaceData.offsets)
   } else {
     content = displayText
   }
@@ -1546,16 +1634,16 @@ addPropertyControls(AsciiFormatterPro, {
     options: ["global", "local"],
     optionTitles: ["Global", "Characters"],
     displaySegmentedControl: true,
-    hidden: (p: P) => p.hoverEffect === "none" || p.hoverEffect === "displace" || p.hoverEffect === "flicker",
+    hidden: (p: P) => p.hoverEffect === "none" || p.hoverEffect === "flicker",
   },
   hoverRadius: {
     type: ControlType.Number,
     title: "Hover Radius",
     defaultValue: 3,
     min: 1,
-    max: 10,
+    max: 20,
     step: 1,
-    hidden: (p: P) => p.hoverEffect === "none" || p.hoverScope !== "local" || p.hoverEffect === "displace" || p.hoverEffect === "flicker",
+    hidden: (p: P) => p.hoverEffect === "none" || p.hoverScope !== "local" || p.hoverEffect === "flicker",
   },
   hoverIntensity: {
     type: ControlType.Number,

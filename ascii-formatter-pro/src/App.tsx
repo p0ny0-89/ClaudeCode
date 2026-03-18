@@ -372,7 +372,7 @@ export default function App() {
 
         {hoverEffect !== "none" && (
           <>
-            {(hoverEffect === "glitch" || hoverEffect === "scramble") && (
+            {(hoverEffect === "glitch" || hoverEffect === "scramble" || hoverEffect === "displace") && (
               <>
                 <label style={{ ...S.label, marginTop: 8 }}>Hover Scope</label>
                 <div style={S.segWrap}>
@@ -383,14 +383,14 @@ export default function App() {
                 {hoverScope === "local" && (
                   <>
                     <label style={{ ...S.label, marginTop: 8 }}>Hover Radius: {hoverRadius}</label>
-                    <input type="range" min={1} max={10} step={1} value={hoverRadius} onChange={(e) => setHoverRadius(Number(e.target.value))} style={{ width: "100%" }} />
+                    <input type="range" min={1} max={20} step={1} value={hoverRadius} onChange={(e) => setHoverRadius(Number(e.target.value))} style={{ width: "100%" }} />
                   </>
                 )}
               </>
             )}
 
             <label style={{ ...S.label, marginTop: 8 }}>Hover Intensity: {hoverIntensity}</label>
-            <input type="range" min={0} max={1} step={0.05} value={hoverIntensity} onChange={(e) => setHoverIntensity(Number(e.target.value))} style={{ width: "100%" }} />
+            <input type="range" min={0} max={3} step={0.05} value={hoverIntensity} onChange={(e) => setHoverIntensity(Number(e.target.value))} style={{ width: "100%" }} />
           </>
         )}
 
