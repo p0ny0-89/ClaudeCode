@@ -300,9 +300,12 @@ function useAutoFitFontSize(
       : Infinity
 
     const raw = Math.min(widthBased, heightBased)
-    const clamped = Math.max(1, Math.min(raw, 500))
-    setComputedSize(clamped)
-  }, [containerRef, longestLineLen, lineCount, letterSpacing, lineHeight])
+    // Cap at maxFontSize: auto-fit only scales DOWN to fit, never UP.
+    // Scaling up creates feedback loops with FIT-sized parent containers
+    // (parent FITs to content → content grows → parent grows → repeat).
+    const clamped = Math.max(1, Math.min(raw, maxFontSize))
+    setComputedSize((prev) => prev === clamped ? prev : clamped)
+  }, [containerRef, longestLineLen, lineCount, letterSpacing, lineHeight, maxFontSize])
 
   useEffect(() => {
     if (!enabled) {
