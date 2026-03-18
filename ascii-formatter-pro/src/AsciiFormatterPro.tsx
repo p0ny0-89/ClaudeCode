@@ -1186,11 +1186,12 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     <div
       ref={containerRef}
       style={{
-        ...style,
         overflow: "hidden",
         width: "100%",
         height: "100%",
         position: "relative",
+        // Framer's style LAST so it can override width/height for FIT parents
+        ...style,
         ...textEffects.outerStyle,
         ...(globalHoverActive ? hoverStyle : {}),
       }}
