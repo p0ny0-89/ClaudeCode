@@ -862,7 +862,7 @@ function useGlobalHoverEffect(
     const py = pointerY.current
 
     const time = hoverFrame * 0.15 // wave phase advances with time
-    const maxPx = hoverIntensity * 20 // max displacement in px
+    const maxPx = hoverIntensity * 150 // max displacement in px
     const waveFreq = 0.8 // how tight the wave ripples are
     const falloffRadius = lh * 6 // lines within ~6 line-heights are affected
 
@@ -1562,7 +1562,7 @@ addPropertyControls(AsciiFormatterPro, {
     title: "Hover Intensity",
     defaultValue: 0.5,
     min: 0,
-    max: 1,
+    max: 3,
     step: 0.05,
     hidden: (p: P) => p.hoverEffect === "none",
   },
