@@ -855,13 +855,13 @@ function getTextStyle(props: AsciiFormatterProProps, effectiveFontSize: number):
     textAlign: props.textAlign,
     margin: 0,
     padding: 0,
+    width: "100%",
+    height: "100%",
     boxSizing: "border-box",
     color: props.color,
   }
 
-  if (props.fillType === "solid") {
-    return { ...base, width: "100%", height: "100%" }
-  }
+  if (props.fillType === "solid") return base
 
   const gradient =
     props.fillType === "linear"
@@ -1096,10 +1096,19 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     ? globalHoverText
     : textEffects.displayText
 
-  // Hidden text for typing effect (layout stability)
-  const typingHidden = active && appearEffect === "typing"
-    ? computeTyping(text, progress, stagger, staggerAmount).hidden
-    : ""
+  // Hidden text for layout stability (typing + boot)
+  // Keeps the pre's dimensions stable as content progressively reveals
+  let layoutHidden = ""
+  if (active && progress < 1) {
+    if (appearEffect === "typing") {
+      layoutHidden = computeTyping(text, progress, stagger, staggerAmount).hidden
+    } else if (appearEffect === "boot") {
+      // Boot reveals lines/chars progressively — hide the remaining text
+      const visible = textEffects.displayText.replace(/▌$/, "") // strip cursor
+      const remaining = text.slice(visible.length)
+      if (remaining) layoutHidden = remaining
+    }
+  }
 
   // RGB split + jitter (active during glitch/interference effects or hover glitch)
   const isGlitchActive = (active && (appearEffect === "glitch" || appearEffect === "interference") && progress < 1)
@@ -1144,8 +1153,8 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
         onMouseLeave={localHoverActive ? hoverGlitchHook.handleMouseLeave : undefined}
       >
         {content}
-        {typingHidden && (
-          <span style={{ visibility: "hidden" }}>{typingHidden}</span>
+        {layoutHidden && (
+          <span style={{ visibility: "hidden" }}>{layoutHidden}</span>
         )}
       </pre>
       {textEffects.scanLine && (
