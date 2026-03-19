@@ -57,7 +57,6 @@ interface AsciiFormatterProProps {
   autoPlaySpeed: number
   frameTransition: FrameTransition
   transitionDuration: number
-  normalizeFrameSize: boolean
   pauseOnHover: boolean
   // Typography
   fontSizingMode: FontSizingMode
@@ -1315,7 +1314,6 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     autoPlaySpeed,
     frameTransition,
     transitionDuration,
-    normalizeFrameSize,
     pauseOnHover,
     fontSizingMode,
     fontSize,
@@ -1367,9 +1365,9 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   }, [isSequence, text, frame1, frame2, frame3, frame4, frame5, frame6, numFrames])
 
   const frames = useMemo(() => {
-    if (!isSequence || !normalizeFrameSize) return rawFrames
+    if (!isSequence) return rawFrames
     return normalizeFrames(rawFrames)
-  }, [isSequence, normalizeFrameSize, rawFrames])
+  }, [isSequence, rawFrames])
 
   // Animation frame counter for text-manipulation effects
   useEffect(() => {
@@ -1647,7 +1645,6 @@ AsciiFormatterPro.defaultProps = {
   autoPlaySpeed: 1,
   frameTransition: "scramble" as FrameTransition,
   transitionDuration: 0.3,
-  normalizeFrameSize: true,
   pauseOnHover: false,
   // Typography
   fontSizingMode: "fixed" as FontSizingMode,
@@ -1927,15 +1924,6 @@ addPropertyControls(AsciiFormatterPro, {
     unit: "s",
     hidden: (p: P) => isSingle(p) || p.frameTransition === "cut",
   },
-  normalizeFrameSize: {
-    type: ControlType.Boolean,
-    title: "Normalize Size",
-    defaultValue: true,
-    enabledTitle: "On",
-    disabledTitle: "Off",
-    hidden: isSingle,
-  },
-
   // ━━━ Animation ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   appearEffect: {
     type: ControlType.Enum,

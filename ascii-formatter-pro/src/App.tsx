@@ -69,7 +69,6 @@ export default function App() {
   const [autoPlaySpeed, setAutoPlaySpeed] = useState(1)
   const [frameTransition, setFrameTransition] = useState<FrameTransition>("scramble")
   const [transitionDuration, setTransitionDuration] = useState(0.3)
-  const [normalizeFrameSize, setNormalizeFrameSize] = useState(true)
   const [pauseOnHover, setPauseOnHover] = useState(false)
 
   // Typography
@@ -122,7 +121,7 @@ export default function App() {
     contentMode, text, font, textAlign,
     frame1, frame2, frame3, frame4, frame5, frame6,
     frameCount: numFrames, playbackMode, autoPlaySpeed, frameTransition,
-    transitionDuration, normalizeFrameSize, pauseOnHover,
+    transitionDuration, pauseOnHover,
     fontSizingMode, fontSize, lineHeight, letterSpacing, preserveFormatting,
     fillType, color, gradientStart, gradientEnd, gradientAngle,
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
@@ -245,11 +244,6 @@ export default function App() {
               </>
             )}
 
-            <label style={{ ...S.label, marginTop: 8 }}>Normalize Size</label>
-            <div style={S.segWrap}>
-              <button style={seg(normalizeFrameSize)} onClick={() => setNormalizeFrameSize(true)}>On</button>
-              <button style={seg(!normalizeFrameSize)} onClick={() => setNormalizeFrameSize(false)}>Off</button>
-            </div>
           </>
         )}
 
