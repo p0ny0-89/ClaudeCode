@@ -1809,6 +1809,7 @@ addPropertyControls(AsciiFormatterPro, {
   fontSizingMode: {
     type: ControlType.Enum,
     title: "Sizing Mode",
+    description: "Auto Fit scales text to fill the container. Requires Fixed or Fill dimensions on the frame — won't work with Fit sizing.",
     defaultValue: "fixed",
     options: ["fixed", "auto"],
     optionTitles: ["Fixed", "Auto Fit"],
