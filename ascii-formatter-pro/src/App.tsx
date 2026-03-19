@@ -76,7 +76,6 @@ export default function App() {
   const [fontSize, setFontSize] = useState(16)
   const [lineHeight, setLineHeight] = useState(1)
   const [letterSpacing, setLetterSpacing] = useState(0)
-  const [preserveFormatting, setPreserveFormatting] = useState(true)
 
   // Appearance
   const [fillType, setFillType] = useState<FillType>("solid")
@@ -122,7 +121,7 @@ export default function App() {
     frame1, frame2, frame3, frame4, frame5, frame6,
     frameCount: numFrames, playbackMode, autoPlaySpeed, frameTransition,
     transitionDuration, pauseOnHover,
-    fontSizingMode, fontSize, lineHeight, letterSpacing, preserveFormatting,
+    fontSizingMode, fontSize, lineHeight, letterSpacing,
     fillType, color, gradientStart, gradientEnd, gradientAngle,
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
     direction, repeatDelay, loopCount,
@@ -291,12 +290,6 @@ export default function App() {
 
         <label style={{ ...S.label, marginTop: 8 }}>Letter Spacing: {letterSpacing}px</label>
         <input type="range" min={-5} max={20} step={0.5} value={letterSpacing} onChange={(e) => setLetterSpacing(Number(e.target.value))} style={{ width: "100%" }} />
-
-        <label style={{ ...S.label, marginTop: 8 }}>Preserve Formatting</label>
-        <div style={S.segWrap}>
-          <button style={seg(preserveFormatting)} onClick={() => setPreserveFormatting(true)}>On</button>
-          <button style={seg(!preserveFormatting)} onClick={() => setPreserveFormatting(false)}>Off</button>
-        </div>
 
         {/* Appearance */}
         <div style={S.section}>Appearance</div>

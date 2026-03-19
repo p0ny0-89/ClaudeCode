@@ -63,7 +63,6 @@ interface AsciiFormatterProProps {
   fontSize: number
   lineHeight: number
   letterSpacing: number
-  preserveFormatting: boolean
   // Appearance
   fillType: FillType
   color: string
@@ -1236,7 +1235,7 @@ function getTextStyle(props: AsciiFormatterProProps, effectiveFontSize: number):
     fontSize: effectiveFontSize,
     lineHeight: props.lineHeight,
     letterSpacing: props.letterSpacing,
-    whiteSpace: props.preserveFormatting ? "pre" : "pre-wrap",
+    whiteSpace: "pre",
     textAlign: props.textAlign,
     margin: 0,
     padding: 0,
@@ -1651,7 +1650,6 @@ AsciiFormatterPro.defaultProps = {
   fontSize: 14,
   lineHeight: 1,
   letterSpacing: 0,
-  preserveFormatting: true,
   // Appearance
   fillType: "solid" as FillType,
   color: "#00FF41",
@@ -1830,13 +1828,6 @@ addPropertyControls(AsciiFormatterPro, {
     max: 20,
     step: 0.5,
     unit: "px",
-  },
-  preserveFormatting: {
-    type: ControlType.Boolean,
-    title: "Preserve Format",
-    defaultValue: true,
-    enabledTitle: "On",
-    disabledTitle: "Off",
   },
 
   // ━━━ Appearance ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
