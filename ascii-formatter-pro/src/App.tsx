@@ -48,8 +48,6 @@ type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type ContentMode = "single" | "sequence"
 type PlaybackMode = "autoPlay" | "hover" | "viewport"
-type FrameTransition = "cut" | "fade" | "scramble"
-
 export default function App() {
   // Content
   const [contentMode, setContentMode] = useState<ContentMode>("single")
@@ -67,8 +65,6 @@ export default function App() {
   const [numFrames, setNumFrames] = useState(3)
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("autoPlay")
   const [autoPlaySpeed, setAutoPlaySpeed] = useState(1)
-  const [frameTransition, setFrameTransition] = useState<FrameTransition>("scramble")
-  const [transitionDuration, setTransitionDuration] = useState(0.3)
   const [pauseOnHover, setPauseOnHover] = useState(false)
 
   // Typography
@@ -119,8 +115,8 @@ export default function App() {
   const allProps = {
     contentMode, text, font, textAlign,
     frame1, frame2, frame3, frame4, frame5, frame6,
-    frameCount: numFrames, playbackMode, autoPlaySpeed, frameTransition,
-    transitionDuration, pauseOnHover,
+    frameCount: numFrames, playbackMode, autoPlaySpeed,
+    pauseOnHover,
     fontSizingMode, fontSize, lineHeight, letterSpacing,
     fillType, color, gradientStart, gradientEnd, gradientAngle,
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
@@ -227,21 +223,6 @@ export default function App() {
               </>
             )}
 
-            <div style={S.section}>Frame Transition</div>
-
-            <label style={S.label}>Transition</label>
-            <div style={S.segWrap}>
-              {(["cut", "fade", "scramble"] as FrameTransition[]).map((t) => (
-                <button key={t} style={seg(frameTransition === t)} onClick={() => setFrameTransition(t)}>{t}</button>
-              ))}
-            </div>
-
-            {frameTransition !== "cut" && (
-              <>
-                <label style={{ ...S.label, marginTop: 8 }}>Duration: {transitionDuration}s</label>
-                <input type="range" min={0.05} max={3} step={0.05} value={transitionDuration} onChange={(e) => setTransitionDuration(Number(e.target.value))} style={{ width: "100%" }} />
-              </>
-            )}
 
           </>
         )}
@@ -326,8 +307,8 @@ export default function App() {
 
         <label style={S.label}>Appear Effect</label>
         <select value={appearEffect} onChange={(e) => setAppearEffect(e.target.value as AppearEffect)} style={S.input}>
-          <option value="none">None</option>
-          <option value="fade">Fade In</option>
+          <option value="none">Instant</option>
+          <option value="fade">Fade</option>
           <option value="reveal">Directional Reveal</option>
           <option value="typing">Typing</option>
           <option value="glitch">Glitch</option>

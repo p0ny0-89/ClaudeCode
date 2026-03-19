@@ -55,8 +55,6 @@ interface AsciiFormatterProProps {
   frameCount: number
   playbackMode: PlaybackMode
   autoPlaySpeed: number
-  frameTransition: FrameTransition
-  transitionDuration: number
   pauseOnHover: boolean
   // Typography
   fontSizingMode: FontSizingMode
@@ -364,8 +362,7 @@ function useSequencePlayback(config: {
   frameCount: number
   playbackMode: PlaybackMode
   autoPlaySpeed: number
-  transitionDuration: number
-  frameTransition: FrameTransition
+  appearEffect: AppearEffect
   pauseOnHover: boolean
   containerRef: React.RefObject<HTMLDivElement | null>
 }) {
@@ -374,11 +371,19 @@ function useSequencePlayback(config: {
     frameCount,
     playbackMode,
     autoPlaySpeed,
-    transitionDuration,
-    frameTransition,
+    appearEffect,
     pauseOnHover,
     containerRef,
   } = config
+
+  // Derive frame transition from appearEffect:
+  // - "none" → instant cut, "fade" → fade, "scramble" → scramble
+  // - all other effects → scramble (most visually interesting)
+  const frameTransition: FrameTransition =
+    appearEffect === "none" ? "cut"
+    : appearEffect === "fade" ? "fade"
+    : "scramble"
+  const transitionDuration = 0.3 // fixed internal duration
 
   const [activeFrame, setActiveFrame] = useState(0)
   // Transition progress: 0 = showing current frame, 1 = fully transitioned to next
@@ -506,7 +511,7 @@ function useSequencePlayback(config: {
     return () => { running = false }
   }, [transProgress, frameTransition, transitionDuration])
 
-  return { activeFrame, prevFrame, transProgress }
+  return { activeFrame, prevFrame, transProgress, frameTransition }
 }
 
 // ─── Effect Computers ───────────────────────────────────────────────
@@ -1311,8 +1316,6 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     frameCount: numFrames,
     playbackMode,
     autoPlaySpeed,
-    frameTransition,
-    transitionDuration,
     pauseOnHover,
     fontSizingMode,
     fontSize,
@@ -1399,8 +1402,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     frameCount: frames.length,
     playbackMode,
     autoPlaySpeed,
-    transitionDuration,
-    frameTransition,
+    appearEffect,
     pauseOnHover,
     containerRef,
   })
@@ -1418,12 +1420,12 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     const prevText = frames[seq.prevFrame] || ""
     const nextText = frames[seq.activeFrame] || ""
 
-    if (frameTransition === "scramble") {
+    if (seq.frameTransition === "scramble") {
       return computeScrambleTransition(prevText, nextText, seq.transProgress, seed, frameCount)
     }
     // fade + cut: text switches immediately, opacity handles the blend
     return nextText
-  }, [seqTransitioning, seqText, frames, seq.prevFrame, seq.activeFrame, frameTransition, seq.transProgress, seed, frameCount])
+  }, [seqTransitioning, seqText, frames, seq.prevFrame, seq.activeFrame, seq.frameTransition, seq.transProgress, seed, frameCount])
 
   // Playback engine
   const { progress } = usePlayback({
@@ -1572,7 +1574,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const textStyle = getTextStyle(props, effectiveFontSize)
 
   // Sequence fade transition style
-  const seqFadeStyle: React.CSSProperties = seqTransitioning && frameTransition === "fade"
+  const seqFadeStyle: React.CSSProperties = seqTransitioning && seq.frameTransition === "fade"
     ? { opacity: seq.transProgress, transition: "none" }
     : {}
 
@@ -1642,8 +1644,6 @@ AsciiFormatterPro.defaultProps = {
   frameCount: 2,
   playbackMode: "autoPlay" as PlaybackMode,
   autoPlaySpeed: 1,
-  frameTransition: "scramble" as FrameTransition,
-  transitionDuration: 0.3,
   pauseOnHover: false,
   // Typography
   fontSizingMode: "fixed" as FontSizingMode,
@@ -1896,32 +1896,13 @@ addPropertyControls(AsciiFormatterPro, {
     hidden: (p: P) => isSingle(p) || p.playbackMode !== "autoPlay",
   },
 
-  // ━━━ Frame Transition ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  frameTransition: {
-    type: ControlType.Enum,
-    title: "Transition",
-    defaultValue: "scramble",
-    options: ["cut", "fade", "scramble"],
-    optionTitles: ["Cut", "Fade", "Scramble"],
-    hidden: isSingle,
-  },
-  transitionDuration: {
-    type: ControlType.Number,
-    title: "Trans. Duration",
-    defaultValue: 0.3,
-    min: 0.05,
-    max: 3,
-    step: 0.05,
-    unit: "s",
-    hidden: (p: P) => isSingle(p) || p.frameTransition === "cut",
-  },
   // ━━━ Animation ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   appearEffect: {
     type: ControlType.Enum,
     title: "Appear Effect",
     defaultValue: "none",
     options: ["none", "fade", "reveal", "typing", "glitch", "scramble", "scan", "boot", "interference"],
-    optionTitles: ["None", "Fade In", "Directional Reveal", "Typing", "Glitch", "Scramble In", "Scan Reveal", "Boot Sequence", "Interference"],
+    optionTitles: ["Instant", "Fade", "Directional Reveal", "Typing", "Glitch", "Scramble In", "Scan Reveal", "Boot Sequence", "Interference"],
   },
   trigger: {
     type: ControlType.Enum,
