@@ -47,7 +47,7 @@ type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type ContentMode = "single" | "sequence"
-type PlaybackMode = "manual" | "autoPlay" | "hover" | "viewport"
+type PlaybackMode = "autoPlay" | "hover" | "viewport"
 type FrameTransition = "cut" | "fade" | "scramble"
 
 export default function App() {
@@ -70,7 +70,7 @@ export default function App() {
   const [frameTransition, setFrameTransition] = useState<FrameTransition>("scramble")
   const [transitionDuration, setTransitionDuration] = useState(0.3)
   const [normalizeFrameSize, setNormalizeFrameSize] = useState(true)
-  const [currentFrame, setCurrentFrame] = useState(1)
+  const [pauseOnHover, setPauseOnHover] = useState(false)
 
   // Typography
   const [fontSizingMode, setFontSizingMode] = useState<FontSizingMode>("fixed")
@@ -122,7 +122,7 @@ export default function App() {
     contentMode, text, font, textAlign,
     frame1, frame2, frame3, frame4, frame5, frame6,
     frameCount: numFrames, playbackMode, autoPlaySpeed, frameTransition,
-    transitionDuration, normalizeFrameSize, currentFrame,
+    transitionDuration, normalizeFrameSize, pauseOnHover,
     fontSizingMode, fontSize, lineHeight, letterSpacing, preserveFormatting,
     fillType, color, gradientStart, gradientEnd, gradientAngle,
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
@@ -211,23 +211,21 @@ export default function App() {
 
             <label style={S.label}>Playback Mode</label>
             <select value={playbackMode} onChange={(e) => setPlaybackMode(e.target.value as PlaybackMode)} style={S.input}>
-              <option value="manual">Manual</option>
               <option value="autoPlay">Auto Play</option>
               <option value="hover">Hover</option>
               <option value="viewport">Viewport Enter</option>
             </select>
 
-            {playbackMode === "manual" && (
-              <>
-                <label style={{ ...S.label, marginTop: 8 }}>Current Frame: {currentFrame}</label>
-                <input type="range" min={1} max={numFrames} step={1} value={currentFrame} onChange={(e) => setCurrentFrame(Number(e.target.value))} style={{ width: "100%" }} />
-              </>
-            )}
+            <label style={{ ...S.label, marginTop: 8 }}>Speed: {autoPlaySpeed}s</label>
+            <input type="range" min={0.1} max={10} step={0.1} value={autoPlaySpeed} onChange={(e) => setAutoPlaySpeed(Number(e.target.value))} style={{ width: "100%" }} />
 
-            {playbackMode !== "manual" && (
+            {playbackMode === "autoPlay" && (
               <>
-                <label style={{ ...S.label, marginTop: 8 }}>Speed: {autoPlaySpeed}s</label>
-                <input type="range" min={0.1} max={10} step={0.1} value={autoPlaySpeed} onChange={(e) => setAutoPlaySpeed(Number(e.target.value))} style={{ width: "100%" }} />
+                <label style={{ ...S.label, marginTop: 8 }}>Pause on Hover</label>
+                <div style={S.segWrap}>
+                  <button style={seg(pauseOnHover)} onClick={() => setPauseOnHover(true)}>On</button>
+                  <button style={seg(!pauseOnHover)} onClick={() => setPauseOnHover(false)}>Off</button>
+                </div>
               </>
             )}
 

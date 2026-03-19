@@ -36,7 +36,7 @@ type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type ContentMode = "single" | "sequence"
-type PlaybackMode = "manual" | "autoPlay" | "hover" | "viewport"
+type PlaybackMode = "autoPlay" | "hover" | "viewport"
 type FrameTransition = "cut" | "fade" | "scramble"
 
 interface AsciiFormatterProProps {
@@ -58,7 +58,7 @@ interface AsciiFormatterProProps {
   frameTransition: FrameTransition
   transitionDuration: number
   normalizeFrameSize: boolean
-  currentFrame: number
+  pauseOnHover: boolean
   // Typography
   fontSizingMode: FontSizingMode
   fontSize: number
@@ -368,7 +368,7 @@ function useSequencePlayback(config: {
   autoPlaySpeed: number
   transitionDuration: number
   frameTransition: FrameTransition
-  currentFrame: number
+  pauseOnHover: boolean
   containerRef: React.RefObject<HTMLDivElement | null>
 }) {
   const {
@@ -378,7 +378,7 @@ function useSequencePlayback(config: {
     autoPlaySpeed,
     transitionDuration,
     frameTransition,
-    currentFrame,
+    pauseOnHover,
     containerRef,
   } = config
 
@@ -390,19 +390,31 @@ function useSequencePlayback(config: {
   const viewportTriggered = useRef(false)
   const hoverActiveRef = useRef(false)
   const autoTimerRef = useRef(0)
+  const [paused, setPaused] = useState(false)
 
   const maxFrame = Math.max(frameCount - 1, 0)
 
-  // Clamp manual frame
+  // Pause on hover (for autoPlay mode)
   useEffect(() => {
-    if (!enabled || playbackMode !== "manual") return
-    setActiveFrame(Math.min(Math.max(currentFrame - 1, 0), maxFrame))
-    setTransProgress(1)
-  }, [enabled, playbackMode, currentFrame, maxFrame])
+    if (!enabled || playbackMode !== "autoPlay" || !pauseOnHover) return
+    const el = containerRef.current
+    if (!el) return
+
+    const enter = () => setPaused(true)
+    const leave = () => setPaused(false)
+
+    el.addEventListener("pointerenter", enter)
+    el.addEventListener("pointerleave", leave)
+    return () => {
+      el.removeEventListener("pointerenter", enter)
+      el.removeEventListener("pointerleave", leave)
+      setPaused(false)
+    }
+  }, [enabled, playbackMode, pauseOnHover, containerRef])
 
   // Auto play
   useEffect(() => {
-    if (!enabled || playbackMode !== "autoPlay") return
+    if (!enabled || playbackMode !== "autoPlay" || paused) return
 
     const intervalMs = autoPlaySpeed * 1000
     const advance = () => {
@@ -417,7 +429,7 @@ function useSequencePlayback(config: {
 
     autoTimerRef.current = window.setInterval(advance, intervalMs)
     return () => window.clearInterval(autoTimerRef.current)
-  }, [enabled, playbackMode, autoPlaySpeed, maxFrame])
+  }, [enabled, playbackMode, autoPlaySpeed, maxFrame, paused])
 
   // Hover mode
   useEffect(() => {
@@ -1309,7 +1321,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     frameTransition,
     transitionDuration,
     normalizeFrameSize,
-    currentFrame,
+    pauseOnHover,
     fontSizingMode,
     fontSize,
     appearEffect,
@@ -1397,7 +1409,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     autoPlaySpeed,
     transitionDuration,
     frameTransition,
-    currentFrame,
+    pauseOnHover,
     containerRef,
   })
 
@@ -1641,7 +1653,7 @@ AsciiFormatterPro.defaultProps = {
   frameTransition: "cut" as FrameTransition,
   transitionDuration: 0.3,
   normalizeFrameSize: true,
-  currentFrame: 1,
+  pauseOnHover: false,
   // Typography
   fontSizingMode: "fixed" as FontSizingMode,
   fontSize: 14,
@@ -1878,19 +1890,9 @@ addPropertyControls(AsciiFormatterPro, {
     type: ControlType.Enum,
     title: "Playback",
     defaultValue: "autoPlay",
-    options: ["manual", "autoPlay", "hover", "viewport"],
-    optionTitles: ["Manual", "Auto Play", "Hover", "Viewport Enter"],
+    options: ["autoPlay", "hover", "viewport"],
+    optionTitles: ["Auto Play", "Hover", "Viewport Enter"],
     hidden: isSingle,
-  },
-  currentFrame: {
-    type: ControlType.Number,
-    title: "Current Frame",
-    defaultValue: 1,
-    min: 1,
-    max: 6,
-    step: 1,
-    displayStepper: true,
-    hidden: (p: P) => isSingle(p) || p.playbackMode !== "manual",
   },
   autoPlaySpeed: {
     type: ControlType.Number,
@@ -1900,7 +1902,15 @@ addPropertyControls(AsciiFormatterPro, {
     max: 10,
     step: 0.1,
     unit: "s",
-    hidden: (p: P) => isSingle(p) || p.playbackMode === "manual",
+    hidden: isSingle,
+  },
+  pauseOnHover: {
+    type: ControlType.Boolean,
+    title: "Pause on Hover",
+    defaultValue: false,
+    enabledTitle: "On",
+    disabledTitle: "Off",
+    hidden: (p: P) => isSingle(p) || p.playbackMode !== "autoPlay",
   },
 
   // ━━━ Frame Transition ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
