@@ -394,6 +394,22 @@ function useSequencePlayback(config: {
 
   const maxFrame = Math.max(frameCount - 1, 0)
 
+  // Shared advance: for "cut" transitions, skip the transProgress=0 intermediate
+  // render to avoid a 1-frame flash/lag
+  const advanceFrame = useCallback(() => {
+    setActiveFrame((prev) => {
+      const next = (prev + 1) % (maxFrame + 1)
+      setPrevFrame(prev)
+      if (frameTransition === "cut") {
+        setTransProgress(1)
+      } else {
+        setTransProgress(0)
+        transStartRef.current = performance.now()
+      }
+      return next
+    })
+  }, [maxFrame, frameTransition])
+
   // Pause on hover (for autoPlay mode)
   useEffect(() => {
     if (!enabled || playbackMode !== "autoPlay" || !pauseOnHover) return
@@ -417,19 +433,9 @@ function useSequencePlayback(config: {
     if (!enabled || playbackMode !== "autoPlay" || paused) return
 
     const intervalMs = autoPlaySpeed * 1000
-    const advance = () => {
-      setActiveFrame((prev) => {
-        const next = (prev + 1) % (maxFrame + 1)
-        setPrevFrame(prev)
-        setTransProgress(0)
-        transStartRef.current = performance.now()
-        return next
-      })
-    }
-
-    autoTimerRef.current = window.setInterval(advance, intervalMs)
+    autoTimerRef.current = window.setInterval(advanceFrame, intervalMs)
     return () => window.clearInterval(autoTimerRef.current)
-  }, [enabled, playbackMode, autoPlaySpeed, maxFrame, paused])
+  }, [enabled, playbackMode, autoPlaySpeed, maxFrame, paused, advanceFrame])
 
   // Hover mode
   useEffect(() => {
@@ -439,13 +445,7 @@ function useSequencePlayback(config: {
 
     const enter = () => {
       hoverActiveRef.current = true
-      setActiveFrame((prev) => {
-        const next = (prev + 1) % (maxFrame + 1)
-        setPrevFrame(prev)
-        setTransProgress(0)
-        transStartRef.current = performance.now()
-        return next
-      })
+      advanceFrame()
     }
     const leave = () => {
       hoverActiveRef.current = false
@@ -457,7 +457,7 @@ function useSequencePlayback(config: {
       el.removeEventListener("pointerenter", enter)
       el.removeEventListener("pointerleave", leave)
     }
-  }, [enabled, playbackMode, maxFrame, containerRef])
+  }, [enabled, playbackMode, maxFrame, containerRef, advanceFrame])
 
   // Viewport mode
   useEffect(() => {
@@ -477,12 +477,7 @@ function useSequencePlayback(config: {
               window.clearInterval(advanceInterval)
               return
             }
-            setActiveFrame((prev) => {
-              setPrevFrame(prev)
-              setTransProgress(0)
-              transStartRef.current = performance.now()
-              return frame
-            })
+            advanceFrame()
           }, autoPlaySpeed * 1000)
         }
       },
@@ -1650,7 +1645,7 @@ AsciiFormatterPro.defaultProps = {
   frameCount: 2,
   playbackMode: "autoPlay" as PlaybackMode,
   autoPlaySpeed: 1,
-  frameTransition: "cut" as FrameTransition,
+  frameTransition: "scramble" as FrameTransition,
   transitionDuration: 0.3,
   normalizeFrameSize: true,
   pauseOnHover: false,
@@ -1917,7 +1912,7 @@ addPropertyControls(AsciiFormatterPro, {
   frameTransition: {
     type: ControlType.Enum,
     title: "Transition",
-    defaultValue: "cut",
+    defaultValue: "scramble",
     options: ["cut", "fade", "scramble"],
     optionTitles: ["Cut", "Fade", "Scramble"],
     hidden: isSingle,
