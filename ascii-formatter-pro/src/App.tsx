@@ -46,12 +46,31 @@ type HoverEffect = "none" | "glitch" | "scramble" | "displace" | "flicker"
 type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
+type ContentMode = "single" | "sequence"
+type PlaybackMode = "manual" | "autoPlay" | "hover" | "viewport"
+type FrameTransition = "cut" | "fade" | "scramble"
 
 export default function App() {
   // Content
+  const [contentMode, setContentMode] = useState<ContentMode>("single")
   const [text, setText] = useState(DEFAULT_ASCII)
   const [font, setFont] = useState<Font>({ fontFamily: "'Courier New', Courier, monospace", fontWeight: 400 })
   const [textAlign, setTextAlign] = useState<TextAlign>("left")
+
+  // Sequence
+  const [frame1, setFrame1] = useState(DEFAULT_ASCII)
+  const [frame2, setFrame2] = useState(SKULL_ASCII)
+  const [frame3, setFrame3] = useState(CIRCUIT_ASCII)
+  const [frame4, setFrame4] = useState("")
+  const [frame5, setFrame5] = useState("")
+  const [frame6, setFrame6] = useState("")
+  const [numFrames, setNumFrames] = useState(3)
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("autoPlay")
+  const [autoPlaySpeed, setAutoPlaySpeed] = useState(1)
+  const [frameTransition, setFrameTransition] = useState<FrameTransition>("scramble")
+  const [transitionDuration, setTransitionDuration] = useState(0.3)
+  const [normalizeFrameSize, setNormalizeFrameSize] = useState(true)
+  const [currentFrame, setCurrentFrame] = useState(1)
 
   // Typography
   const [fontSizingMode, setFontSizingMode] = useState<FontSizingMode>("fixed")
@@ -100,7 +119,10 @@ export default function App() {
   const [replayKey, setReplayKey] = useState(0)
 
   const allProps = {
-    text, font, textAlign,
+    contentMode, text, font, textAlign,
+    frame1, frame2, frame3, frame4, frame5, frame6,
+    frameCount: numFrames, playbackMode, autoPlaySpeed, frameTransition,
+    transitionDuration, normalizeFrameSize, currentFrame,
     fontSizingMode, fontSize, lineHeight, letterSpacing, preserveFormatting,
     fillType, color, gradientStart, gradientEnd, gradientAngle,
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
@@ -138,22 +160,100 @@ export default function App() {
       <div style={{ width: 290, background: "#222", padding: 16, overflowY: "auto", borderLeft: "1px solid #333" }}>
         <h3 style={{ color: "#fff", fontSize: 14, margin: "0 0 16px" }}>AsciiFormatterPro</h3>
 
-        {/* Presets */}
-        <label style={S.label}>Presets</label>
-        <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
-          {[
-            { label: "Cat", value: DEFAULT_ASCII },
-            { label: "Skull", value: SKULL_ASCII },
-            { label: "Circuit", value: CIRCUIT_ASCII },
-            { label: "Robot", value: ROBOT_ASCII },
-          ].map((p) => (
-            <button key={p.label} onClick={() => setText(p.value)} style={{ ...S.input, cursor: "pointer", flex: "1 1 60px", textAlign: "center" }}>{p.label}</button>
-          ))}
+        {/* Content Mode */}
+        <label style={S.label}>Mode</label>
+        <div style={S.segWrap}>
+          <button style={seg(contentMode === "single")} onClick={() => setContentMode("single")}>Single Frame</button>
+          <button style={seg(contentMode === "sequence")} onClick={() => setContentMode("sequence")}>Sequence</button>
         </div>
 
-        {/* Content */}
-        <label style={S.label}>ASCII Art</label>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} style={{ ...S.input, fontFamily: "'Courier New', monospace", resize: "vertical", whiteSpace: "pre" }} />
+        {/* Presets (single mode) */}
+        {contentMode === "single" && (
+          <>
+            <label style={{ ...S.label, marginTop: 8 }}>Presets</label>
+            <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
+              {[
+                { label: "Cat", value: DEFAULT_ASCII },
+                { label: "Skull", value: SKULL_ASCII },
+                { label: "Circuit", value: CIRCUIT_ASCII },
+                { label: "Robot", value: ROBOT_ASCII },
+              ].map((p) => (
+                <button key={p.label} onClick={() => setText(p.value)} style={{ ...S.input, cursor: "pointer", flex: "1 1 60px", textAlign: "center" }}>{p.label}</button>
+              ))}
+            </div>
+
+            <label style={S.label}>ASCII Art</label>
+            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} style={{ ...S.input, fontFamily: "'Courier New', monospace", resize: "vertical", whiteSpace: "pre" }} />
+          </>
+        )}
+
+        {/* Sequence mode */}
+        {contentMode === "sequence" && (
+          <>
+            <label style={{ ...S.label, marginTop: 8 }}>Frames: {numFrames}</label>
+            <input type="range" min={2} max={6} step={1} value={numFrames} onChange={(e) => setNumFrames(Number(e.target.value))} style={{ width: "100%" }} />
+
+            {[
+              { label: "Frame 1", val: frame1, set: setFrame1 },
+              { label: "Frame 2", val: frame2, set: setFrame2 },
+              { label: "Frame 3", val: frame3, set: setFrame3 },
+              { label: "Frame 4", val: frame4, set: setFrame4 },
+              { label: "Frame 5", val: frame5, set: setFrame5 },
+              { label: "Frame 6", val: frame6, set: setFrame6 },
+            ].slice(0, numFrames).map((f, i) => (
+              <div key={i}>
+                <label style={{ ...S.label, marginTop: 8 }}>{f.label}</label>
+                <textarea value={f.val} onChange={(e) => f.set(e.target.value)} rows={4} style={{ ...S.input, fontFamily: "'Courier New', monospace", resize: "vertical", whiteSpace: "pre" }} />
+              </div>
+            ))}
+
+            <div style={S.section}>Sequence Playback</div>
+
+            <label style={S.label}>Playback Mode</label>
+            <select value={playbackMode} onChange={(e) => setPlaybackMode(e.target.value as PlaybackMode)} style={S.input}>
+              <option value="manual">Manual</option>
+              <option value="autoPlay">Auto Play</option>
+              <option value="hover">Hover</option>
+              <option value="viewport">Viewport Enter</option>
+            </select>
+
+            {playbackMode === "manual" && (
+              <>
+                <label style={{ ...S.label, marginTop: 8 }}>Current Frame: {currentFrame}</label>
+                <input type="range" min={1} max={numFrames} step={1} value={currentFrame} onChange={(e) => setCurrentFrame(Number(e.target.value))} style={{ width: "100%" }} />
+              </>
+            )}
+
+            {playbackMode !== "manual" && (
+              <>
+                <label style={{ ...S.label, marginTop: 8 }}>Speed: {autoPlaySpeed}s</label>
+                <input type="range" min={0.1} max={10} step={0.1} value={autoPlaySpeed} onChange={(e) => setAutoPlaySpeed(Number(e.target.value))} style={{ width: "100%" }} />
+              </>
+            )}
+
+            <div style={S.section}>Frame Transition</div>
+
+            <label style={S.label}>Transition</label>
+            <div style={S.segWrap}>
+              {(["cut", "fade", "scramble"] as FrameTransition[]).map((t) => (
+                <button key={t} style={seg(frameTransition === t)} onClick={() => setFrameTransition(t)}>{t}</button>
+              ))}
+            </div>
+
+            {frameTransition !== "cut" && (
+              <>
+                <label style={{ ...S.label, marginTop: 8 }}>Duration: {transitionDuration}s</label>
+                <input type="range" min={0.05} max={3} step={0.05} value={transitionDuration} onChange={(e) => setTransitionDuration(Number(e.target.value))} style={{ width: "100%" }} />
+              </>
+            )}
+
+            <label style={{ ...S.label, marginTop: 8 }}>Normalize Size</label>
+            <div style={S.segWrap}>
+              <button style={seg(normalizeFrameSize)} onClick={() => setNormalizeFrameSize(true)}>On</button>
+              <button style={seg(!normalizeFrameSize)} onClick={() => setNormalizeFrameSize(false)}>Off</button>
+            </div>
+          </>
+        )}
 
         <label style={{ ...S.label, marginTop: 8 }}>Font</label>
         <select value={font.fontFamily} onChange={(e) => setFont({ fontFamily: e.target.value, fontWeight: 400 })} style={S.input}>

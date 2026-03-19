@@ -35,12 +35,30 @@ type HoverEffect = "none" | "glitch" | "scramble" | "displace" | "flicker"
 type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
+type ContentMode = "single" | "sequence"
+type PlaybackMode = "manual" | "autoPlay" | "hover" | "viewport"
+type FrameTransition = "cut" | "fade" | "scramble"
 
 interface AsciiFormatterProProps {
   // Content
   text: string
   font: Font
   textAlign: TextAlign
+  // Sequence
+  contentMode: ContentMode
+  frame1: string
+  frame2: string
+  frame3: string
+  frame4: string
+  frame5: string
+  frame6: string
+  frameCount: number
+  playbackMode: PlaybackMode
+  autoPlaySpeed: number
+  frameTransition: FrameTransition
+  transitionDuration: number
+  normalizeFrameSize: boolean
+  currentFrame: number
   // Typography
   fontSizingMode: FontSizingMode
   fontSize: number
@@ -315,6 +333,175 @@ function useAutoFitFontSize(
   }, [enabled, calculate, containerRef, maxFontSize])
 
   return enabled ? computedSize : maxFontSize
+}
+
+// ─── Frame Normalization ─────────────────────────────────────────────
+// Pads all frames to the same width/height so transitions don't cause layout shifts.
+
+function normalizeFrames(frames: string[]): string[] {
+  let maxWidth = 0
+  let maxHeight = 0
+
+  const parsed = frames.map((f) => {
+    const lines = f.split("\n")
+    maxHeight = Math.max(maxHeight, lines.length)
+    for (const line of lines) maxWidth = Math.max(maxWidth, line.length)
+    return lines
+  })
+
+  return parsed.map((lines) => {
+    const padded: string[] = []
+    for (let i = 0; i < maxHeight; i++) {
+      const line = lines[i] || ""
+      padded.push(line + " ".repeat(maxWidth - line.length))
+    }
+    return padded.join("\n")
+  })
+}
+
+// ─── Sequence Playback ──────────────────────────────────────────────
+
+function useSequencePlayback(config: {
+  enabled: boolean
+  frameCount: number
+  playbackMode: PlaybackMode
+  autoPlaySpeed: number
+  transitionDuration: number
+  frameTransition: FrameTransition
+  currentFrame: number
+  containerRef: React.RefObject<HTMLDivElement | null>
+}) {
+  const {
+    enabled,
+    frameCount,
+    playbackMode,
+    autoPlaySpeed,
+    transitionDuration,
+    frameTransition,
+    currentFrame,
+    containerRef,
+  } = config
+
+  const [activeFrame, setActiveFrame] = useState(0)
+  // Transition progress: 0 = showing current frame, 1 = fully transitioned to next
+  const [transProgress, setTransProgress] = useState(1)
+  const [prevFrame, setPrevFrame] = useState(0)
+  const transStartRef = useRef(0)
+  const viewportTriggered = useRef(false)
+  const hoverActiveRef = useRef(false)
+  const autoTimerRef = useRef(0)
+
+  const maxFrame = Math.max(frameCount - 1, 0)
+
+  // Clamp manual frame
+  useEffect(() => {
+    if (!enabled || playbackMode !== "manual") return
+    setActiveFrame(Math.min(Math.max(currentFrame - 1, 0), maxFrame))
+    setTransProgress(1)
+  }, [enabled, playbackMode, currentFrame, maxFrame])
+
+  // Auto play
+  useEffect(() => {
+    if (!enabled || playbackMode !== "autoPlay") return
+
+    const intervalMs = autoPlaySpeed * 1000
+    const advance = () => {
+      setActiveFrame((prev) => {
+        const next = (prev + 1) % (maxFrame + 1)
+        setPrevFrame(prev)
+        setTransProgress(0)
+        transStartRef.current = performance.now()
+        return next
+      })
+    }
+
+    autoTimerRef.current = window.setInterval(advance, intervalMs)
+    return () => window.clearInterval(autoTimerRef.current)
+  }, [enabled, playbackMode, autoPlaySpeed, maxFrame])
+
+  // Hover mode
+  useEffect(() => {
+    if (!enabled || playbackMode !== "hover") return
+    const el = containerRef.current
+    if (!el) return
+
+    const enter = () => {
+      hoverActiveRef.current = true
+      setActiveFrame((prev) => {
+        const next = (prev + 1) % (maxFrame + 1)
+        setPrevFrame(prev)
+        setTransProgress(0)
+        transStartRef.current = performance.now()
+        return next
+      })
+    }
+    const leave = () => {
+      hoverActiveRef.current = false
+    }
+
+    el.addEventListener("pointerenter", enter)
+    el.addEventListener("pointerleave", leave)
+    return () => {
+      el.removeEventListener("pointerenter", enter)
+      el.removeEventListener("pointerleave", leave)
+    }
+  }, [enabled, playbackMode, maxFrame, containerRef])
+
+  // Viewport mode
+  useEffect(() => {
+    if (!enabled || playbackMode !== "viewport") return
+    const el = containerRef.current
+    if (!el) return
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !viewportTriggered.current) {
+          viewportTriggered.current = true
+          // Start auto-advancing through all frames
+          let frame = 0
+          const advanceInterval = window.setInterval(() => {
+            frame++
+            if (frame > maxFrame) {
+              window.clearInterval(advanceInterval)
+              return
+            }
+            setActiveFrame((prev) => {
+              setPrevFrame(prev)
+              setTransProgress(0)
+              transStartRef.current = performance.now()
+              return frame
+            })
+          }, autoPlaySpeed * 1000)
+        }
+      },
+      { threshold: 0.15 }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [enabled, playbackMode, maxFrame, autoPlaySpeed, containerRef])
+
+  // Transition animation
+  useEffect(() => {
+    if (transProgress >= 1) return
+    if (frameTransition === "cut") {
+      setTransProgress(1)
+      return
+    }
+
+    let running = true
+    const durMs = transitionDuration * 1000
+    const tick = (now: number) => {
+      if (!running) return
+      const elapsed = now - transStartRef.current
+      const p = Math.min(elapsed / durMs, 1)
+      setTransProgress(p)
+      if (p < 1) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+    return () => { running = false }
+  }, [transProgress, frameTransition, transitionDuration])
+
+  return { activeFrame, prevFrame, transProgress }
 }
 
 // ─── Effect Computers ───────────────────────────────────────────────
@@ -986,6 +1173,55 @@ function useGlobalHoverEffect(
   return { hoverText, hoverStyle, displaceOffsets, localDisplaceData, isHovering }
 }
 
+// ─── Scramble Transition ─────────────────────────────────────────────
+// Blends two text frames via character-level scramble: chars from prevText
+// scramble through random glitch chars and resolve to nextText.
+function computeScrambleTransition(
+  prevText: string,
+  nextText: string,
+  progress: number,
+  seed: number,
+  frameCount: number
+): string {
+  // Pad to same length
+  const maxLen = Math.max(prevText.length, nextText.length)
+  const prev = prevText.padEnd(maxLen)
+  const next = nextText.padEnd(maxLen)
+
+  const rng = createRng(seed + 9973)
+  // Build resolve order
+  const indices: number[] = []
+  for (let i = 0; i < maxLen; i++) {
+    if (next[i] !== " " || prev[i] !== " ") indices.push(i)
+  }
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[indices[i], indices[j]] = [indices[j], indices[i]]
+  }
+
+  const resolveCount = Math.floor(progress * indices.length)
+  const resolved = new Set(indices.slice(0, resolveCount))
+
+  const frameRng = createRng(seed + frameCount * 4517)
+  const chars: string[] = []
+
+  for (let i = 0; i < maxLen; i++) {
+    if (prev[i] === "\n" || next[i] === "\n") {
+      chars.push("\n")
+      continue
+    }
+    if (resolved.has(i)) {
+      chars.push(next[i])
+    } else if (prev[i] === " " && next[i] === " ") {
+      chars.push(" ")
+    } else {
+      chars.push(GLITCH_CHARS[Math.floor(frameRng() * GLITCH_CHARS.length)])
+    }
+  }
+
+  return chars.join("")
+}
+
 // ─── Style Helper ───────────────────────────────────────────────────
 
 function getTextStyle(props: AsciiFormatterProProps, effectiveFontSize: number): React.CSSProperties {
@@ -1065,6 +1301,15 @@ function getJitterStyle(
 export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const {
     text,
+    contentMode,
+    frame1, frame2, frame3, frame4, frame5, frame6,
+    frameCount: numFrames,
+    playbackMode,
+    autoPlaySpeed,
+    frameTransition,
+    transitionDuration,
+    normalizeFrameSize,
+    currentFrame,
     fontSizingMode,
     fontSize,
     appearEffect,
@@ -1106,6 +1351,19 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const preRef = useRef<HTMLPreElement>(null)
   const [frameCount, setFrameCount] = useState(0)
 
+  // ── Sequence mode: build frames array ──
+  const isSequence = contentMode === "sequence"
+  const allFrameInputs = [frame1, frame2, frame3, frame4, frame5, frame6]
+  const rawFrames = useMemo(() => {
+    if (!isSequence) return [text]
+    return allFrameInputs.slice(0, numFrames).map((f) => f || "")
+  }, [isSequence, text, frame1, frame2, frame3, frame4, frame5, frame6, numFrames])
+
+  const frames = useMemo(() => {
+    if (!isSequence || !normalizeFrameSize) return rawFrames
+    return normalizeFrames(rawFrames)
+  }, [isSequence, normalizeFrameSize, rawFrames])
+
   // Animation frame counter for text-manipulation effects
   useEffect(() => {
     if (!active && hoverEffect === "none") return
@@ -1131,6 +1389,38 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     return () => { running = false }
   }, [active, hoverEffect, frequency])
 
+  // Sequence playback
+  const seq = useSequencePlayback({
+    enabled: isSequence && !isCanvas,
+    frameCount: frames.length,
+    playbackMode,
+    autoPlaySpeed,
+    transitionDuration,
+    frameTransition,
+    currentFrame,
+    containerRef,
+  })
+
+  // Resolve the active text from sequence or single mode
+  const seqText = useMemo(() => {
+    if (!isSequence) return text
+    return frames[seq.activeFrame] || frames[0] || ""
+  }, [isSequence, text, frames, seq.activeFrame])
+
+  // During a transition, compute blended/transitioning text
+  const seqTransitioning = isSequence && seq.transProgress < 1
+  const seqDisplayText = useMemo(() => {
+    if (!seqTransitioning) return seqText
+    const prevText = frames[seq.prevFrame] || ""
+    const nextText = frames[seq.activeFrame] || ""
+
+    if (frameTransition === "scramble") {
+      return computeScrambleTransition(prevText, nextText, seq.transProgress, seed, frameCount)
+    }
+    // fade + cut: text switches immediately, opacity handles the blend
+    return nextText
+  }, [seqTransitioning, seqText, frames, seq.prevFrame, seq.activeFrame, frameTransition, seq.transProgress, seed, frameCount])
+
   // Playback engine
   const { progress } = usePlayback({
     enabled: active,
@@ -1144,11 +1434,22 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     retriggerOnHover,
   })
 
+  // For auto-fit, use the longest frame text for stable sizing
+  const autoFitText = useMemo(() => {
+    if (!isSequence) return seqDisplayText
+    // Use longest frame for consistent sizing across transitions
+    let longest = ""
+    for (const f of frames) {
+      if (f.length > longest.length) longest = f
+    }
+    return longest || seqDisplayText
+  }, [isSequence, frames, seqDisplayText])
+
   // Auto-fit font sizing (original approach: compute a font size, not a scale transform)
   const fontFamily = props.font?.fontFamily || "'Courier New', Courier, monospace"
   const autoFontSize = useAutoFitFontSize(
     containerRef,
-    text,
+    autoFitText,
     fontFamily,
     fontSize,
     props.letterSpacing,
@@ -1166,7 +1467,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     && effectCompleted
     && !isCanvas
     && (hoverEffect === "glitch" || hoverEffect === "scramble")
-  const hoverGlitchHook = useHoverGlitch(text, localHoverActive, hoverRadius, 350, 60)
+  const hoverGlitchHook = useHoverGlitch(seqDisplayText, localHoverActive, hoverRadius, 350, 60)
 
   // ── Hover: global (CSS + text replacement) ──
   // flicker and displace are always global (no per-char variant)
@@ -1180,7 +1481,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     hoverRadius,
     hoverFalloff,
     hoverIntensity,
-    text,
+    seqDisplayText,
     seed,
     globalHoverActive
   )
@@ -1188,9 +1489,9 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   // ── Compute display text and styles ──
 
   const textEffects = useMemo(() => {
-    if (!active) return { displayText: text, outerStyle: {} as React.CSSProperties, innerStyle: {} as React.CSSProperties, scanLine: null as React.CSSProperties | null }
+    if (!active) return { displayText: seqDisplayText, outerStyle: {} as React.CSSProperties, innerStyle: {} as React.CSSProperties, scanLine: null as React.CSSProperties | null }
 
-    let displayText = text
+    let displayText = seqDisplayText
     const outerStyle: React.CSSProperties = {}
     const innerStyle: React.CSSProperties = {}
     let scanLine: React.CSSProperties | null = null
@@ -1205,17 +1506,17 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
         break
 
       case "typing": {
-        const typed = computeTyping(text, progress, stagger, staggerAmount)
+        const typed = computeTyping(seqDisplayText, progress, stagger, staggerAmount)
         displayText = typed.visible
         break
       }
 
       case "glitch":
-        displayText = computeGlitch(text, progress, intensity, seed, frameCount)
+        displayText = computeGlitch(seqDisplayText, progress, intensity, seed, frameCount)
         break
 
       case "scramble":
-        displayText = computeScramble(text, progress, seed, frameCount)
+        displayText = computeScramble(seqDisplayText, progress, seed, frameCount)
         break
 
       case "scan": {
@@ -1226,18 +1527,18 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
       }
 
       case "boot":
-        displayText = computeBoot(text, progress, cursorBlink, stagger, frameCount)
+        displayText = computeBoot(seqDisplayText, progress, cursorBlink, stagger, frameCount)
         break
 
       case "interference": {
-        const result = computeInterference(text, progress, intensity, jitter, seed, frameCount)
+        const result = computeInterference(seqDisplayText, progress, intensity, jitter, seed, frameCount)
         displayText = result.text
         break
       }
     }
 
     return { displayText, outerStyle, innerStyle, scanLine }
-  }, [active, appearEffect, text, progress, direction, seed, frameCount, intensity, jitter, stagger, staggerAmount, cursorBlink])
+  }, [active, appearEffect, seqDisplayText, progress, direction, seed, frameCount, intensity, jitter, stagger, staggerAmount, cursorBlink])
 
   // Apply global hover text override when hovering (and appear effect is complete)
   const displayText = globalHovering && globalHoverText !== null && effectCompleted
@@ -1249,11 +1550,11 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   let layoutHidden = ""
   if (active && progress < 1) {
     if (appearEffect === "typing") {
-      layoutHidden = computeTyping(text, progress, stagger, staggerAmount).hidden
+      layoutHidden = computeTyping(seqDisplayText, progress, stagger, staggerAmount).hidden
     } else if (appearEffect === "boot") {
       // Boot reveals lines/chars progressively — hide the remaining text
       const visible = textEffects.displayText.replace(/▌$/, "") // strip cursor
-      const remaining = text.slice(visible.length)
+      const remaining = seqDisplayText.slice(visible.length)
       if (remaining) layoutHidden = remaining
     }
   }
@@ -1265,6 +1566,11 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const jitterStyle = getJitterStyle(jitter, glitchDirection, frameCount, isGlitchActive)
 
   const textStyle = getTextStyle(props, effectiveFontSize)
+
+  // Sequence fade transition style
+  const seqFadeStyle: React.CSSProperties = seqTransitioning && frameTransition === "fade"
+    ? { opacity: seq.transProgress, transition: "none" }
+    : {}
 
   // Build content: local hover uses span-wrapped chars, displace uses per-line/per-char
   let content: React.ReactNode
@@ -1299,6 +1605,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
           ...textEffects.innerStyle,
           ...rgbStyle,
           ...jitterStyle,
+          ...seqFadeStyle,
         }}
         onMouseMove={localHoverActive ? hoverGlitchHook.handleMouseMove : undefined}
         onMouseLeave={localHoverActive ? hoverGlitchHook.handleMouseLeave : undefined}
@@ -1320,6 +1627,21 @@ AsciiFormatterPro.defaultProps = {
   text: DEFAULT_TEXT,
   font: DEFAULT_FONT,
   textAlign: "left" as TextAlign,
+  // Sequence
+  contentMode: "single" as ContentMode,
+  frame1: DEFAULT_TEXT,
+  frame2: "",
+  frame3: "",
+  frame4: "",
+  frame5: "",
+  frame6: "",
+  frameCount: 2,
+  playbackMode: "autoPlay" as PlaybackMode,
+  autoPlaySpeed: 1,
+  frameTransition: "cut" as FrameTransition,
+  transitionDuration: 0.3,
+  normalizeFrameSize: true,
+  currentFrame: 1,
   // Typography
   fontSizingMode: "fixed" as FontSizingMode,
   fontSize: 14,
@@ -1365,6 +1687,8 @@ AsciiFormatterPro.defaultProps = {
 // Helper types for conditional visibility
 type P = AsciiFormatterProProps
 
+const isSingle = (p: P) => p.contentMode !== "sequence"
+const isSeq = (p: P) => p.contentMode === "sequence"
 const isEffectNone = (p: P) => p.appearEffect === "none"
 const isGlitchLike = (p: P) =>
   p.appearEffect === "glitch" || p.appearEffect === "interference"
@@ -1378,13 +1702,83 @@ const hasStagger = (p: P) => isTextBased(p)
 
 addPropertyControls(AsciiFormatterPro, {
   // ━━━ Content ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  contentMode: {
+    type: ControlType.Enum,
+    title: "Mode",
+    defaultValue: "single",
+    options: ["single", "sequence"],
+    optionTitles: ["Single Frame", "Sequence"],
+    displaySegmentedControl: true,
+  },
   text: {
     type: ControlType.String,
     title: "ASCII Art",
     defaultValue: DEFAULT_TEXT,
     displayTextArea: true,
     placeholder: "Paste your ASCII art here...",
+    hidden: isSeq,
   },
+  // Sequence frame inputs
+  frameCount: {
+    type: ControlType.Number,
+    title: "Frames",
+    defaultValue: 2,
+    min: 2,
+    max: 6,
+    step: 1,
+    displayStepper: true,
+    hidden: isSingle,
+  },
+  frame1: {
+    type: ControlType.String,
+    title: "Frame 1",
+    defaultValue: DEFAULT_TEXT,
+    displayTextArea: true,
+    placeholder: "Frame 1 ASCII art...",
+    hidden: isSingle,
+  },
+  frame2: {
+    type: ControlType.String,
+    title: "Frame 2",
+    defaultValue: "",
+    displayTextArea: true,
+    placeholder: "Frame 2 ASCII art...",
+    hidden: (p: P) => isSingle(p) || p.frameCount < 2,
+  },
+  frame3: {
+    type: ControlType.String,
+    title: "Frame 3",
+    defaultValue: "",
+    displayTextArea: true,
+    placeholder: "Frame 3 ASCII art...",
+    hidden: (p: P) => isSingle(p) || p.frameCount < 3,
+  },
+  frame4: {
+    type: ControlType.String,
+    title: "Frame 4",
+    defaultValue: "",
+    displayTextArea: true,
+    placeholder: "Frame 4 ASCII art...",
+    hidden: (p: P) => isSingle(p) || p.frameCount < 4,
+  },
+  frame5: {
+    type: ControlType.String,
+    title: "Frame 5",
+    defaultValue: "",
+    displayTextArea: true,
+    placeholder: "Frame 5 ASCII art...",
+    hidden: (p: P) => isSingle(p) || p.frameCount < 5,
+  },
+  frame6: {
+    type: ControlType.String,
+    title: "Frame 6",
+    defaultValue: "",
+    displayTextArea: true,
+    placeholder: "Frame 6 ASCII art...",
+    hidden: (p: P) => isSingle(p) || p.frameCount < 6,
+  },
+
+  // ━━━ Typography ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   font: {
     //@ts-ignore — ControlType.Font is undocumented but functional in Framer
     type: ControlType.Font,
@@ -1399,8 +1793,6 @@ addPropertyControls(AsciiFormatterPro, {
     optionTitles: ["Left", "Center", "Right"],
     displaySegmentedControl: true,
   },
-
-  // ━━━ Typography ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   fontSizingMode: {
     type: ControlType.Enum,
     title: "Sizing Mode",
@@ -1479,6 +1871,64 @@ addPropertyControls(AsciiFormatterPro, {
     step: 1,
     unit: "deg",
     hidden: (p: P) => p.fillType !== "linear",
+  },
+
+  // ━━━ Sequence ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  playbackMode: {
+    type: ControlType.Enum,
+    title: "Playback",
+    defaultValue: "autoPlay",
+    options: ["manual", "autoPlay", "hover", "viewport"],
+    optionTitles: ["Manual", "Auto Play", "Hover", "Viewport Enter"],
+    hidden: isSingle,
+  },
+  currentFrame: {
+    type: ControlType.Number,
+    title: "Current Frame",
+    defaultValue: 1,
+    min: 1,
+    max: 6,
+    step: 1,
+    displayStepper: true,
+    hidden: (p: P) => isSingle(p) || p.playbackMode !== "manual",
+  },
+  autoPlaySpeed: {
+    type: ControlType.Number,
+    title: "Speed",
+    defaultValue: 1,
+    min: 0.1,
+    max: 10,
+    step: 0.1,
+    unit: "s",
+    hidden: (p: P) => isSingle(p) || p.playbackMode === "manual",
+  },
+
+  // ━━━ Frame Transition ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  frameTransition: {
+    type: ControlType.Enum,
+    title: "Transition",
+    defaultValue: "cut",
+    options: ["cut", "fade", "scramble"],
+    optionTitles: ["Cut", "Fade", "Scramble"],
+    hidden: isSingle,
+  },
+  transitionDuration: {
+    type: ControlType.Number,
+    title: "Trans. Duration",
+    defaultValue: 0.3,
+    min: 0.05,
+    max: 3,
+    step: 0.05,
+    unit: "s",
+    hidden: (p: P) => isSingle(p) || p.frameTransition === "cut",
+  },
+  normalizeFrameSize: {
+    type: ControlType.Boolean,
+    title: "Normalize Size",
+    defaultValue: true,
+    enabledTitle: "On",
+    disabledTitle: "Off",
+    hidden: isSingle,
   },
 
   // ━━━ Animation ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1661,7 +2111,6 @@ addPropertyControls(AsciiFormatterPro, {
     min: 0,
     max: 1,
     step: 0.05,
-    // Show for displace (both scopes) since it controls the edge softness
     hidden: (p: P) => p.hoverEffect !== "displace",
   },
   hoverIntensity: {
@@ -1679,7 +2128,6 @@ addPropertyControls(AsciiFormatterPro, {
     defaultValue: false,
     enabledTitle: "On",
     disabledTitle: "Off",
-    // Only relevant when the appear effect uses hover as its trigger
     hidden: (p: P) => p.trigger !== "hover" || p.appearEffect === "none",
   },
 })
