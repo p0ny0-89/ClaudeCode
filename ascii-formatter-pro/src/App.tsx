@@ -56,13 +56,7 @@ export default function App() {
   const [textAlign, setTextAlign] = useState<TextAlign>("left")
 
   // Sequence
-  const [frame1, setFrame1] = useState(DEFAULT_ASCII)
-  const [frame2, setFrame2] = useState(SKULL_ASCII)
-  const [frame3, setFrame3] = useState(CIRCUIT_ASCII)
-  const [frame4, setFrame4] = useState("")
-  const [frame5, setFrame5] = useState("")
-  const [frame6, setFrame6] = useState("")
-  const [numFrames, setNumFrames] = useState(3)
+  const [frames, setFrames] = useState<string[]>([DEFAULT_ASCII, SKULL_ASCII, CIRCUIT_ASCII])
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("autoPlay")
   const [autoPlaySpeed, setAutoPlaySpeed] = useState(1)
   const [pauseOnHover, setPauseOnHover] = useState(false)
@@ -114,8 +108,7 @@ export default function App() {
 
   const allProps = {
     contentMode, text, font, textAlign,
-    frame1, frame2, frame3, frame4, frame5, frame6,
-    frameCount: numFrames, playbackMode, autoPlaySpeed,
+    frames, playbackMode, autoPlaySpeed,
     pauseOnHover,
     fontSizingMode, fontSize, lineHeight, letterSpacing,
     fillType, color, gradientStart, gradientEnd, gradientAngle,
@@ -184,22 +177,35 @@ export default function App() {
         {/* Sequence mode */}
         {contentMode === "sequence" && (
           <>
-            <label style={{ ...S.label, marginTop: 8 }}>Frames: {numFrames}</label>
-            <input type="range" min={2} max={6} step={1} value={numFrames} onChange={(e) => setNumFrames(Number(e.target.value))} style={{ width: "100%" }} />
+            <label style={{ ...S.label, marginTop: 8 }}>Frames ({frames.length})</label>
 
-            {[
-              { label: "Frame 1", val: frame1, set: setFrame1 },
-              { label: "Frame 2", val: frame2, set: setFrame2 },
-              { label: "Frame 3", val: frame3, set: setFrame3 },
-              { label: "Frame 4", val: frame4, set: setFrame4 },
-              { label: "Frame 5", val: frame5, set: setFrame5 },
-              { label: "Frame 6", val: frame6, set: setFrame6 },
-            ].slice(0, numFrames).map((f, i) => (
-              <div key={i}>
-                <label style={{ ...S.label, marginTop: 8 }}>{f.label}</label>
-                <textarea value={f.val} onChange={(e) => f.set(e.target.value)} rows={4} style={{ ...S.input, fontFamily: "'Courier New', monospace", resize: "vertical", whiteSpace: "pre" }} />
+            {frames.map((frame, i) => (
+              <div key={i} style={{ position: "relative", marginTop: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                  <label style={{ ...S.label, margin: 0 }}>Frame {i + 1}</label>
+                  {frames.length > 2 && (
+                    <button
+                      onClick={() => setFrames((prev) => prev.filter((_, j) => j !== i))}
+                      style={{ background: "none", border: "none", color: "#f44", cursor: "pointer", fontSize: 14, padding: "0 4px", lineHeight: 1 }}
+                      title="Remove frame"
+                    >×</button>
+                  )}
+                </div>
+                <textarea
+                  value={frame}
+                  onChange={(e) => setFrames((prev) => prev.map((f, j) => j === i ? e.target.value : f))}
+                  rows={4}
+                  style={{ ...S.input, fontFamily: "'Courier New', monospace", resize: "vertical", whiteSpace: "pre" }}
+                />
               </div>
             ))}
+
+            {frames.length < 6 && (
+              <button
+                onClick={() => setFrames((prev) => [...prev, ""])}
+                style={{ ...S.input, marginTop: 8, cursor: "pointer", textAlign: "center", background: "#2a2a2a", color: "#999", border: "1px dashed #555" }}
+              >+ Add Frame</button>
+            )}
 
             <div style={S.section}>Sequence Playback</div>
 

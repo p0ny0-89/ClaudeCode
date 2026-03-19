@@ -46,13 +46,7 @@ interface AsciiFormatterProProps {
   textAlign: TextAlign
   // Sequence
   contentMode: ContentMode
-  frame1: string
-  frame2: string
-  frame3: string
-  frame4: string
-  frame5: string
-  frame6: string
-  frameCount: number
+  frames: string[]
   playbackMode: PlaybackMode
   autoPlaySpeed: number
   pauseOnHover: boolean
@@ -1310,8 +1304,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const {
     text,
     contentMode,
-    frame1, frame2, frame3, frame4, frame5, frame6,
-    frameCount: numFrames,
+    frames: framesProp,
     playbackMode,
     autoPlaySpeed,
     pauseOnHover,
@@ -1358,11 +1351,11 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
 
   // ── Sequence mode: build frames array ──
   const isSequence = contentMode === "sequence"
-  const allFrameInputs = [frame1, frame2, frame3, frame4, frame5, frame6]
   const rawFrames = useMemo(() => {
     if (!isSequence) return [text]
-    return allFrameInputs.slice(0, numFrames).map((f) => f || "")
-  }, [isSequence, text, frame1, frame2, frame3, frame4, frame5, frame6, numFrames])
+    if (!framesProp || framesProp.length === 0) return [text]
+    return framesProp.map((f) => f || "")
+  }, [isSequence, text, framesProp])
 
   const frames = useMemo(() => {
     if (!isSequence) return rawFrames
@@ -1693,13 +1686,7 @@ AsciiFormatterPro.defaultProps = {
   textAlign: "left" as TextAlign,
   // Sequence
   contentMode: "single" as ContentMode,
-  frame1: DEFAULT_TEXT,
-  frame2: "",
-  frame3: "",
-  frame4: "",
-  frame5: "",
-  frame6: "",
-  frameCount: 2,
+  frames: [DEFAULT_TEXT, ""],
   playbackMode: "autoPlay" as PlaybackMode,
   autoPlaySpeed: 1,
   pauseOnHover: false,
@@ -1778,64 +1765,19 @@ addPropertyControls(AsciiFormatterPro, {
     placeholder: "Paste your ASCII art here...",
     hidden: isSeq,
   },
-  // Sequence frame inputs
-  frameCount: {
-    type: ControlType.Number,
+  // Sequence frames (array with per-item add/remove/reorder)
+  frames: {
+    type: ControlType.Array,
     title: "Frames",
-    defaultValue: 2,
-    min: 2,
-    max: 6,
-    step: 1,
-    displayStepper: true,
+    defaultValue: [DEFAULT_TEXT, ""],
+    maxCount: 6,
     hidden: isSingle,
-  },
-  frame1: {
-    type: ControlType.String,
-    title: "Frame 1",
-    defaultValue: DEFAULT_TEXT,
-    displayTextArea: true,
-    placeholder: "Frame 1 ASCII art...",
-    hidden: isSingle,
-  },
-  frame2: {
-    type: ControlType.String,
-    title: "Frame 2",
-    defaultValue: "",
-    displayTextArea: true,
-    placeholder: "Frame 2 ASCII art...",
-    hidden: (p: P) => isSingle(p) || p.frameCount < 2,
-  },
-  frame3: {
-    type: ControlType.String,
-    title: "Frame 3",
-    defaultValue: "",
-    displayTextArea: true,
-    placeholder: "Frame 3 ASCII art...",
-    hidden: (p: P) => isSingle(p) || p.frameCount < 3,
-  },
-  frame4: {
-    type: ControlType.String,
-    title: "Frame 4",
-    defaultValue: "",
-    displayTextArea: true,
-    placeholder: "Frame 4 ASCII art...",
-    hidden: (p: P) => isSingle(p) || p.frameCount < 4,
-  },
-  frame5: {
-    type: ControlType.String,
-    title: "Frame 5",
-    defaultValue: "",
-    displayTextArea: true,
-    placeholder: "Frame 5 ASCII art...",
-    hidden: (p: P) => isSingle(p) || p.frameCount < 5,
-  },
-  frame6: {
-    type: ControlType.String,
-    title: "Frame 6",
-    defaultValue: "",
-    displayTextArea: true,
-    placeholder: "Frame 6 ASCII art...",
-    hidden: (p: P) => isSingle(p) || p.frameCount < 6,
+    control: {
+      type: ControlType.String,
+      defaultValue: "",
+      displayTextArea: true,
+      placeholder: "ASCII art...",
+    },
   },
 
   // ━━━ Typography ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
