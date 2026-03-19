@@ -37,7 +37,7 @@ type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type ContentMode = "single" | "sequence"
 type PlaybackMode = "autoPlay" | "hover" | "viewport"
-type FrameTransition = "cut" | "fade" | "scramble"
+// FrameTransition type removed — appearEffect now drives frame transitions directly
 
 interface AsciiFormatterProProps {
   // Content
@@ -376,14 +376,12 @@ function useSequencePlayback(config: {
     containerRef,
   } = config
 
-  // Derive frame transition from appearEffect:
-  // - "none" → instant cut, "fade" → fade, "scramble" → scramble
-  // - all other effects → scramble (most visually interesting)
-  const frameTransition: FrameTransition =
-    appearEffect === "none" ? "cut"
-    : appearEffect === "fade" ? "fade"
-    : "scramble"
-  const transitionDuration = 0.3 // fixed internal duration
+  // Transition duration varies by effect type
+  const transitionDuration =
+    appearEffect === "none" ? 0
+    : appearEffect === "fade" ? 0.3
+    : appearEffect === "typing" || appearEffect === "boot" ? 0.6
+    : 0.4 // reveal, glitch, scramble, scan, interference
 
   const [activeFrame, setActiveFrame] = useState(0)
   // Transition progress: 0 = showing current frame, 1 = fully transitioned to next
@@ -397,13 +395,13 @@ function useSequencePlayback(config: {
 
   const maxFrame = Math.max(frameCount - 1, 0)
 
-  // Shared advance: for "cut" transitions, skip the transProgress=0 intermediate
+  // Shared advance: for "none" (instant), skip the transProgress=0 intermediate
   // render to avoid a 1-frame flash/lag
   const advanceFrame = useCallback(() => {
     setActiveFrame((prev) => {
       const next = (prev + 1) % (maxFrame + 1)
       setPrevFrame(prev)
-      if (frameTransition === "cut") {
+      if (appearEffect === "none") {
         setTransProgress(1)
       } else {
         setTransProgress(0)
@@ -411,7 +409,7 @@ function useSequencePlayback(config: {
       }
       return next
     })
-  }, [maxFrame, frameTransition])
+  }, [maxFrame, appearEffect])
 
   // Pause on hover (for autoPlay mode)
   useEffect(() => {
@@ -493,7 +491,7 @@ function useSequencePlayback(config: {
   // Transition animation
   useEffect(() => {
     if (transProgress >= 1) return
-    if (frameTransition === "cut") {
+    if (appearEffect === "none") {
       setTransProgress(1)
       return
     }
@@ -509,9 +507,9 @@ function useSequencePlayback(config: {
     }
     requestAnimationFrame(tick)
     return () => { running = false }
-  }, [transProgress, frameTransition, transitionDuration])
+  }, [transProgress, appearEffect, transitionDuration])
 
-  return { activeFrame, prevFrame, transProgress, frameTransition }
+  return { activeFrame, prevFrame, transProgress, appearEffect }
 }
 
 // ─── Effect Computers ───────────────────────────────────────────────
@@ -1413,19 +1411,46 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     return frames[seq.activeFrame] || frames[0] || ""
   }, [isSequence, text, frames, seq.activeFrame])
 
-  // During a transition, compute blended/transitioning text
+  // During a transition, compute blended/transitioning text using the appear effect
   const seqTransitioning = isSequence && seq.transProgress < 1
   const seqDisplayText = useMemo(() => {
     if (!seqTransitioning) return seqText
     const prevText = frames[seq.prevFrame] || ""
     const nextText = frames[seq.activeFrame] || ""
+    const p = seq.transProgress
 
-    if (seq.frameTransition === "scramble") {
-      return computeScrambleTransition(prevText, nextText, seq.transProgress, seed, frameCount)
+    switch (seq.appearEffect) {
+      case "none":
+        // Instant: show next text immediately
+        return nextText
+
+      case "fade":
+      case "reveal":
+      case "scan":
+        // CSS-based effects: text switches to next, styles handle the visual transition
+        return nextText
+
+      case "typing": {
+        const typed = computeTyping(nextText, p, stagger, staggerAmount)
+        return typed.visible
+      }
+
+      case "glitch":
+        return computeGlitch(nextText, p, intensity, seed, frameCount)
+
+      case "scramble":
+        return computeScrambleTransition(prevText, nextText, p, seed, frameCount)
+
+      case "boot":
+        return computeBoot(nextText, p, cursorBlink, stagger, frameCount)
+
+      case "interference":
+        return computeInterference(nextText, p, intensity, jitter, seed, frameCount).text
+
+      default:
+        return nextText
     }
-    // fade + cut: text switches immediately, opacity handles the blend
-    return nextText
-  }, [seqTransitioning, seqText, frames, seq.prevFrame, seq.activeFrame, seq.frameTransition, seq.transProgress, seed, frameCount])
+  }, [seqTransitioning, seqText, frames, seq.prevFrame, seq.activeFrame, seq.appearEffect, seq.transProgress, seed, frameCount, stagger, staggerAmount, intensity, jitter, cursorBlink])
 
   // Playback engine
   const { progress } = usePlayback({
@@ -1558,25 +1583,57 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     if (appearEffect === "typing") {
       layoutHidden = computeTyping(seqDisplayText, progress, stagger, staggerAmount).hidden
     } else if (appearEffect === "boot") {
-      // Boot reveals lines/chars progressively — hide the remaining text
       const visible = textEffects.displayText.replace(/▌$/, "") // strip cursor
       const remaining = seqDisplayText.slice(visible.length)
+      if (remaining) layoutHidden = remaining
+    }
+  }
+  // Also stabilize layout during sequence transitions with typing/boot
+  if (seqTransitioning && !layoutHidden) {
+    const nextText = frames[seq.activeFrame] || ""
+    if (seq.appearEffect === "typing") {
+      layoutHidden = computeTyping(nextText, seq.transProgress, stagger, staggerAmount).hidden
+    } else if (seq.appearEffect === "boot") {
+      const visible = seqDisplayText.replace(/▌$/, "")
+      const remaining = nextText.slice(visible.length)
       if (remaining) layoutHidden = remaining
     }
   }
 
   // RGB split + jitter (active during glitch/interference effects or hover glitch)
   const isGlitchActive = (active && (appearEffect === "glitch" || appearEffect === "interference") && progress < 1)
+    || (seqTransitioning && (seq.appearEffect === "glitch" || seq.appearEffect === "interference"))
     || (globalHovering && (hoverEffect === "glitch" || hoverEffect === "scramble"))
   const rgbStyle = getRgbSplitStyle(rgbSplit, glitchDirection, isGlitchActive)
   const jitterStyle = getJitterStyle(jitter, glitchDirection, frameCount, isGlitchActive)
 
   const textStyle = getTextStyle(props, effectiveFontSize)
 
-  // Sequence fade transition style
-  const seqFadeStyle: React.CSSProperties = seqTransitioning && seq.frameTransition === "fade"
-    ? { opacity: seq.transProgress, transition: "none" }
-    : {}
+  // Sequence transition styles (CSS-based effects: fade, reveal, scan)
+  const seqTransOuter: React.CSSProperties = useMemo(() => {
+    if (!seqTransitioning) return {}
+    const p = seq.transProgress
+    switch (seq.appearEffect) {
+      case "reveal":
+        return computeReveal(p, direction, seed)
+      case "scan":
+        return computeScan(p, direction).clip
+      default:
+        return {}
+    }
+  }, [seqTransitioning, seq.transProgress, seq.appearEffect, direction, seed])
+
+  const seqTransInner: React.CSSProperties = useMemo(() => {
+    if (!seqTransitioning) return {}
+    if (seq.appearEffect === "fade") return { opacity: seq.transProgress, transition: "none" }
+    return {}
+  }, [seqTransitioning, seq.transProgress, seq.appearEffect])
+
+  // Scan line during sequence transition
+  const seqScanLine: React.CSSProperties | null = useMemo(() => {
+    if (!seqTransitioning || seq.appearEffect !== "scan") return null
+    return computeScan(seq.transProgress, direction).scanLineStyle
+  }, [seqTransitioning, seq.transProgress, seq.appearEffect, direction])
 
   // Build content: local hover uses span-wrapped chars, displace uses per-line/per-char
   let content: React.ReactNode
@@ -1601,6 +1658,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
         // Framer's style LAST so it can override width/height for FIT parents
         ...style,
         ...textEffects.outerStyle,
+        ...seqTransOuter,
         ...(globalHoverActive ? hoverStyle : {}),
       }}
     >
@@ -1611,7 +1669,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
           ...textEffects.innerStyle,
           ...rgbStyle,
           ...jitterStyle,
-          ...seqFadeStyle,
+          ...seqTransInner,
         }}
         onMouseMove={localHoverActive ? hoverGlitchHook.handleMouseMove : undefined}
         onMouseLeave={localHoverActive ? hoverGlitchHook.handleMouseLeave : undefined}
@@ -1621,8 +1679,8 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
           <span style={{ visibility: "hidden" }}>{layoutHidden}</span>
         )}
       </pre>
-      {textEffects.scanLine && (
-        <div style={textEffects.scanLine} />
+      {(textEffects.scanLine || seqScanLine) && (
+        <div style={textEffects.scanLine || seqScanLine!} />
       )}
     </div>
   )
