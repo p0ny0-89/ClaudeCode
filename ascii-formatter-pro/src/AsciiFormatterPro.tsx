@@ -272,34 +272,44 @@ function useAutoFitFontSize(
   fontFamily: string,
   maxFontSize: number,
   letterSpacing: number,
+  lineHeight: number,
   enabled: boolean
 ): number {
   const [computedSize, setComputedSize] = useState(maxFontSize)
   const fontFamilyRef = useRef(fontFamily)
   fontFamilyRef.current = fontFamily
 
-  const longestLineLen = useMemo(() => {
+  const { longestLineLen, lineCount } = useMemo(() => {
     const lines = text.split("\n")
-    return Math.max(...lines.map((l) => l.length), 1)
+    return {
+      longestLineLen: Math.max(...lines.map((l) => l.length), 1),
+      lineCount: Math.max(lines.length, 1),
+    }
   }, [text])
 
   const calculate = useCallback(() => {
     const el = containerRef.current
     if (!el) return
     const containerWidth = el.clientWidth
-    if (containerWidth <= 0) return
+    const containerHeight = el.clientHeight
+    if (containerWidth <= 0 || containerHeight <= 0) return
 
     const charWidthAtRef = getCharWidth(fontFamilyRef.current)
     if (charWidthAtRef <= 0) return
 
     // Width-based: font size that fits the longest line horizontally
-    const raw =
+    const widthBased =
       (containerWidth / longestLineLen - letterSpacing) *
       (REF_SIZE / charWidthAtRef)
 
+    // Height-based: font size that fits all lines vertically
+    const heightBased = containerHeight / (lineCount * lineHeight)
+
+    // Use the smaller to fit both dimensions
+    const raw = Math.min(widthBased, heightBased)
     const clamped = Math.max(1, Math.min(raw, 500))
     setComputedSize((prev) => prev === clamped ? prev : clamped)
-  }, [containerRef, longestLineLen, letterSpacing])
+  }, [containerRef, longestLineLen, lineCount, letterSpacing, lineHeight])
 
   useEffect(() => {
     if (!enabled) {
@@ -1477,6 +1487,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     fontFamily,
     fontSize,
     props.letterSpacing,
+    props.lineHeight,
     fontSizingMode === "auto"
   )
   const effectiveFontSize = autoFontSize
