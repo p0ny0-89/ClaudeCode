@@ -916,16 +916,14 @@ function renderHoverGlitchContent(
 }
 
 /**
- * Renders text with per-line displacement (horizontal or vertical).
- * Each line is wrapped in a <div> with translateX or translateY for the offset.
+ * Renders text with per-line horizontal displacement.
+ * Each line is wrapped in a <div> with translateX for the offset.
  */
 function renderDisplacedLines(
   text: string,
-  offsets: number[],
-  direction: DisplaceDirection = "horizontal"
+  offsets: number[]
 ): React.ReactNode {
   const lines = text.split("\n")
-  const axis = direction === "vertical" ? "translateY" : "translateX"
   return lines.map((line, i) => {
     const offset = offsets[i] || 0
     return (
@@ -933,7 +931,7 @@ function renderDisplacedLines(
         key={i}
         style={
           offset !== 0
-            ? { transform: `${axis}(${offset}px)`, willChange: "transform" }
+            ? { transform: `translateX(${offset}px)`, willChange: "transform" }
             : undefined
         }
       >
@@ -941,6 +939,47 @@ function renderDisplacedLines(
       </div>
     )
   })
+}
+
+/**
+ * Renders text with per-column vertical displacement.
+ * Each character is wrapped in an inline-block span with translateY
+ * based on its column's offset. Creates a column-wave effect.
+ */
+function renderDisplacedColumns(
+  text: string,
+  columnOffsets: number[]
+): React.ReactNode {
+  const lines = text.split("\n")
+  return lines.map((line, row) => (
+    <div key={row}>
+      {line.length === 0
+        ? "\u00A0" // preserve empty line height
+        : Array.from(line).map((ch, col) => {
+            const offset = columnOffsets[col] || 0
+            if (offset !== 0) {
+              return (
+                <span
+                  key={col}
+                  style={{
+                    display: "inline-block",
+                    transform: `translateY(${offset}px)`,
+                    willChange: "transform",
+                  }}
+                >
+                  {ch}
+                </span>
+              )
+            }
+            // No offset — render plain char (but still inline-block to keep grid alignment)
+            return (
+              <span key={col} style={{ display: "inline-block" }}>
+                {ch}
+              </span>
+            )
+          })}
+    </div>
+  ))
 }
 
 /**
@@ -1096,10 +1135,11 @@ function useGlobalHoverEffect(
     }
   }, [isHovering, hoverEffect, hoverIntensity, text, seed, hoverFrame])
 
-  // Per-line displacement offsets (global displace mode).
+  // Per-line horizontal displacement offsets (global displace, horizontal mode).
   // Creates a sine-wave ripple centered on cursor Y, gaussian falloff.
   const displaceOffsets = useMemo((): number[] | null => {
     if (!isHovering || hoverEffect !== "displace" || hoverScope === "local") return null
+    if (displaceDirection === "vertical") return null // handled by column offsets
 
     const pre = preRef.current
     if (!pre) return null
@@ -1124,7 +1164,42 @@ function useGlobalHoverEffect(
       const wave = Math.sin(time + (dist / lh) * waveFreq * Math.PI)
       return Math.round(wave * falloff * maxPx)
     })
-  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverFalloff, text, hoverFrame, preRef])
+  }, [isHovering, hoverEffect, hoverScope, displaceDirection, hoverIntensity, hoverFalloff, text, hoverFrame, preRef])
+
+  // Per-column vertical displacement offsets (global displace, vertical mode).
+  // Creates a sine-wave ripple centered on cursor X, gaussian falloff.
+  // Each column of characters shifts up/down independently.
+  const displaceColumnOffsets = useMemo((): number[] | null => {
+    if (!isHovering || hoverEffect !== "displace" || hoverScope === "local") return null
+    if (displaceDirection !== "vertical") return null
+
+    const pre = preRef.current
+    if (!pre) return null
+
+    const cs = getComputedStyle(pre)
+    const fSize = parseFloat(cs.fontSize) || 14
+    const charW = fSize * 0.6 // monospace approx
+    const lines = text.split("\n")
+    const maxCols = Math.max(...lines.map((l) => l.length))
+    const px = pointerX.current
+
+    const time = hoverFrame * 0.15
+    const maxPx = hoverIntensity * 150
+    const waveFreq = 0.8
+    const falloffRadius = charW * 15
+    // sigma: hoverFalloff 0 = sharp edge (0.15), 1 = very soft (0.9)
+    const sigma = falloffRadius * (0.15 + hoverFalloff * 0.75)
+
+    const offsets: number[] = []
+    for (let col = 0; col < maxCols; col++) {
+      const colCenterX = col * charW + charW / 2
+      const dist = Math.abs(colCenterX - px)
+      const falloff = Math.exp(-(dist * dist) / (2 * sigma * sigma))
+      const wave = Math.sin(time + (dist / charW) * waveFreq * Math.PI)
+      offsets.push(Math.round(wave * falloff * maxPx))
+    }
+    return offsets
+  }, [isHovering, hoverEffect, hoverScope, displaceDirection, hoverIntensity, hoverFalloff, text, hoverFrame, preRef])
 
   // Per-character displacement offsets (local displace mode).
   // Each character near the cursor gets an individual horizontal shift.
@@ -1187,7 +1262,7 @@ function useGlobalHoverEffect(
     }
   }, [isHovering, hoverEffect, hoverIntensity, hoverFrame])
 
-  return { hoverText, hoverStyle, displaceOffsets, displaceDirection, localDisplaceData, isHovering }
+  return { hoverText, hoverStyle, displaceOffsets, displaceColumnOffsets, localDisplaceData, isHovering }
 }
 
 // ─── Scramble Transition ─────────────────────────────────────────────
@@ -1513,7 +1588,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   // flicker and displace are always global (no per-char variant)
   const isCssOnlyHover = hoverEffect === "flicker" || hoverEffect === "displace"
   const globalHoverActive = hoverEffect !== "none" && (hoverScope === "global" || isCssOnlyHover) && !isCanvas
-  const { hoverText: globalHoverText, hoverStyle, displaceOffsets, displaceDirection: displDir, localDisplaceData, isHovering: globalHovering } = useGlobalHoverEffect(
+  const { hoverText: globalHoverText, hoverStyle, displaceOffsets, displaceColumnOffsets, localDisplaceData, isHovering: globalHovering } = useGlobalHoverEffect(
     containerRef,
     preRef,
     globalHoverActive ? hoverEffect : "none",
@@ -1650,7 +1725,9 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   if (localHoverActive) {
     content = renderHoverGlitchContent(displayText, hoverGlitchHook.overrides)
   } else if (displaceOffsets && globalHovering && effectCompleted) {
-    content = renderDisplacedLines(displayText, displaceOffsets, displDir)
+    content = renderDisplacedLines(displayText, displaceOffsets)
+  } else if (displaceColumnOffsets && globalHovering && effectCompleted) {
+    content = renderDisplacedColumns(displayText, displaceColumnOffsets)
   } else if (localDisplaceData && globalHovering && effectCompleted) {
     content = renderLocalDisplacedChars(displayText, localDisplaceData.offsets)
   } else {
