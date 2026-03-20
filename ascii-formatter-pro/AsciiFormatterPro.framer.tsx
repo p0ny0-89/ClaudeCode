@@ -33,6 +33,7 @@ type RevealDirection = "left" | "right" | "top" | "bottom" | "centerOut" | "rand
 type GlitchDirection = "horizontal" | "vertical" | "both"
 type HoverEffect = "none" | "glitch" | "scramble" | "displace" | "flicker"
 type HoverScope = "global" | "local"
+type DisplaceDirection = "horizontal" | "vertical"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type ContentMode = "single" | "sequence"
@@ -83,6 +84,7 @@ interface AsciiFormatterProProps {
   // Interaction
   hoverEffect: HoverEffect
   hoverScope: HoverScope
+  displaceDirection: DisplaceDirection
   hoverRadius: number
   hoverFalloff: number
   hoverIntensity: number
@@ -914,14 +916,16 @@ function renderHoverGlitchContent(
 }
 
 /**
- * Renders text with per-line horizontal displacement.
- * Each line is wrapped in a <div> with translateX for the offset.
+ * Renders text with per-line displacement (horizontal or vertical).
+ * Each line is wrapped in a <div> with translateX or translateY for the offset.
  */
 function renderDisplacedLines(
   text: string,
-  offsets: number[]
+  offsets: number[],
+  direction: DisplaceDirection = "horizontal"
 ): React.ReactNode {
   const lines = text.split("\n")
+  const axis = direction === "vertical" ? "translateY" : "translateX"
   return lines.map((line, i) => {
     const offset = offsets[i] || 0
     return (
@@ -929,7 +933,7 @@ function renderDisplacedLines(
         key={i}
         style={
           offset !== 0
-            ? { transform: `translateX(${offset}px)`, willChange: "transform" }
+            ? { transform: `${axis}(${offset}px)`, willChange: "transform" }
             : undefined
         }
       >
@@ -986,6 +990,7 @@ function useGlobalHoverEffect(
   preRef: React.RefObject<HTMLPreElement | null>,
   hoverEffect: HoverEffect,
   hoverScope: HoverScope,
+  displaceDirection: DisplaceDirection,
   hoverRadius: number,
   hoverFalloff: number,
   hoverIntensity: number,
@@ -1182,7 +1187,7 @@ function useGlobalHoverEffect(
     }
   }, [isHovering, hoverEffect, hoverIntensity, hoverFrame])
 
-  return { hoverText, hoverStyle, displaceOffsets, localDisplaceData, isHovering }
+  return { hoverText, hoverStyle, displaceOffsets, displaceDirection, localDisplaceData, isHovering }
 }
 
 // ─── Scramble Transition ─────────────────────────────────────────────
@@ -1508,11 +1513,12 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   // flicker and displace are always global (no per-char variant)
   const isCssOnlyHover = hoverEffect === "flicker" || hoverEffect === "displace"
   const globalHoverActive = hoverEffect !== "none" && (hoverScope === "global" || isCssOnlyHover) && !isCanvas
-  const { hoverText: globalHoverText, hoverStyle, displaceOffsets, localDisplaceData, isHovering: globalHovering } = useGlobalHoverEffect(
+  const { hoverText: globalHoverText, hoverStyle, displaceOffsets, displaceDirection: displDir, localDisplaceData, isHovering: globalHovering } = useGlobalHoverEffect(
     containerRef,
     preRef,
     globalHoverActive ? hoverEffect : "none",
     hoverScope,
+    props.displaceDirection || "horizontal",
     hoverRadius,
     hoverFalloff,
     hoverIntensity,
@@ -1644,7 +1650,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   if (localHoverActive) {
     content = renderHoverGlitchContent(displayText, hoverGlitchHook.overrides)
   } else if (displaceOffsets && globalHovering && effectCompleted) {
-    content = renderDisplacedLines(displayText, displaceOffsets)
+    content = renderDisplacedLines(displayText, displaceOffsets, displDir)
   } else if (localDisplaceData && globalHovering && effectCompleted) {
     content = renderLocalDisplacedChars(displayText, localDisplaceData.offsets)
   } else {
@@ -1734,6 +1740,7 @@ AsciiFormatterPro.defaultProps = {
   // Interaction
   hoverEffect: "none" as HoverEffect,
   hoverScope: "global" as HoverScope,
+  displaceDirection: "horizontal" as DisplaceDirection,
   hoverRadius: 3,
   hoverFalloff: 0.3,
   hoverIntensity: 0.5,
@@ -2071,6 +2078,15 @@ addPropertyControls(AsciiFormatterPro, {
     optionTitles: ["Global", "Characters"],
     displaySegmentedControl: true,
     hidden: (p: P) => p.hoverEffect === "none" || p.hoverEffect === "flicker",
+  },
+  displaceDirection: {
+    type: ControlType.Enum,
+    title: "Direction",
+    defaultValue: "horizontal",
+    options: ["horizontal", "vertical"],
+    optionTitles: ["Horizontal", "Vertical"],
+    displaySegmentedControl: true,
+    hidden: (p: P) => p.hoverEffect !== "displace" || p.hoverScope === "local",
   },
   hoverRadius: {
     type: ControlType.Number,
