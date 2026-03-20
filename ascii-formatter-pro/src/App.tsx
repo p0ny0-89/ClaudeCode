@@ -372,7 +372,7 @@ export default function App() {
             <div style={S.segWrap}>
               {(["once", "loop", "pingPong"] as RepeatMode[]).map((r) => (
                 <button key={r} style={seg(repeatMode === r)} onClick={() => setRepeatMode(r)}>
-                  {r === "once" ? "Once" : r === "loop" ? "Loop" : "Ping-Pong"}
+                  {r === "once" ? "Once" : r === "loop" ? "Constant" : "Ping-Pong"}
                 </button>
               ))}
             </div>

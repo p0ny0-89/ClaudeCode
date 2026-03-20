@@ -369,6 +369,8 @@ function useSequencePlayback(config: {
   playbackMode: PlaybackMode
   autoPlaySpeed: number
   appearEffect: AppearEffect
+  repeatMode: RepeatMode
+  initialAppearDone: boolean
   pauseOnHover: boolean
   containerRef: React.RefObject<HTMLDivElement | null>
 }) {
@@ -378,15 +380,26 @@ function useSequencePlayback(config: {
     playbackMode,
     autoPlaySpeed,
     appearEffect,
+    repeatMode,
+    initialAppearDone,
     pauseOnHover,
     containerRef,
   } = config
 
+  // When "Play Once" and initial appear is done, simplify frame transitions:
+  //   none → none (instant), fade → fade, everything else → scramble
+  const effectiveEffect: AppearEffect =
+    repeatMode === "once" && initialAppearDone
+      ? (appearEffect === "none" ? "none"
+        : appearEffect === "fade" ? "fade"
+        : "scramble")
+      : appearEffect
+
   // Transition duration varies by effect type
   const transitionDuration =
-    appearEffect === "none" ? 0
-    : appearEffect === "fade" ? 0.3
-    : appearEffect === "typing" || appearEffect === "boot" ? 0.6
+    effectiveEffect === "none" ? 0
+    : effectiveEffect === "fade" ? 0.3
+    : effectiveEffect === "typing" || effectiveEffect === "boot" ? 0.6
     : 0.4 // reveal, glitch, scramble, scan, interference
 
   const [activeFrame, setActiveFrame] = useState(0)
@@ -407,7 +420,7 @@ function useSequencePlayback(config: {
     setActiveFrame((prev) => {
       const next = (prev + 1) % (maxFrame + 1)
       setPrevFrame(prev)
-      if (appearEffect === "none") {
+      if (effectiveEffect === "none") {
         setTransProgress(1)
       } else {
         setTransProgress(0)
@@ -415,7 +428,7 @@ function useSequencePlayback(config: {
       }
       return next
     })
-  }, [maxFrame, appearEffect])
+  }, [maxFrame, effectiveEffect])
 
   // Pause on hover (for autoPlay mode)
   useEffect(() => {
@@ -497,7 +510,7 @@ function useSequencePlayback(config: {
   // Transition animation
   useEffect(() => {
     if (transProgress >= 1) return
-    if (appearEffect === "none") {
+    if (effectiveEffect === "none") {
       setTransProgress(1)
       return
     }
@@ -513,9 +526,9 @@ function useSequencePlayback(config: {
     }
     requestAnimationFrame(tick)
     return () => { running = false }
-  }, [transProgress, appearEffect, transitionDuration])
+  }, [transProgress, effectiveEffect, transitionDuration])
 
-  return { activeFrame, prevFrame, transProgress, appearEffect }
+  return { activeFrame, prevFrame, transProgress, appearEffect: effectiveEffect }
 }
 
 // ─── Effect Computers ───────────────────────────────────────────────
@@ -1477,6 +1490,22 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     return () => { running = false }
   }, [active, hoverEffect, frequency])
 
+  // Playback engine (appear effect progress) — must come before useSequencePlayback
+  // so we can derive initialAppearDone for simplified frame transitions
+  const { progress } = usePlayback({
+    enabled: active,
+    duration,
+    delay,
+    repeatMode,
+    repeatDelay,
+    loopCount,
+    trigger,
+    containerRef,
+    retriggerOnHover,
+  })
+
+  const initialAppearDone = appearEffect === "none" || progress >= 1
+
   // Sequence playback
   const seq = useSequencePlayback({
     enabled: isSequence && !isCanvas,
@@ -1484,6 +1513,8 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     playbackMode,
     autoPlaySpeed,
     appearEffect,
+    repeatMode,
+    initialAppearDone,
     pauseOnHover,
     containerRef,
   })
@@ -1534,19 +1565,6 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
         return nextText
     }
   }, [seqTransitioning, seqText, frames, seq.prevFrame, seq.activeFrame, seq.appearEffect, seq.transProgress, seed, frameCount, stagger, staggerAmount, intensity, jitter, cursorBlink])
-
-  // Playback engine
-  const { progress } = usePlayback({
-    enabled: active,
-    duration,
-    delay,
-    repeatMode,
-    repeatDelay,
-    loopCount,
-    trigger,
-    containerRef,
-    retriggerOnHover,
-  })
 
   // For auto-fit, use the longest frame text for stable sizing
   const autoFitText = useMemo(() => {
@@ -2049,7 +2067,7 @@ addPropertyControls(AsciiFormatterPro, {
     title: "Repeat",
     defaultValue: "once",
     options: ["once", "loop", "pingPong"],
-    optionTitles: ["Play Once", "Loop", "Ping-Pong"],
+    optionTitles: ["Play Once", "Constant", "Ping-Pong"],
     hidden: isEffectNone,
   },
   repeatDelay: {
