@@ -1865,7 +1865,7 @@ addPropertyControls(AsciiFormatterPro, {
     type: ControlType.Array,
     title: "Frames",
     defaultValue: [DEFAULT_TEXT, ""],
-    maxCount: 6,
+    maxCount: 15,
     hidden: isSingle,
     control: {
       type: ControlType.String,
