@@ -37,7 +37,7 @@ type DisplaceDirection = "horizontal" | "vertical"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type ContentMode = "single" | "sequence"
-type PlaybackMode = "autoPlay" | "hover" | "viewport"
+type PlaybackMode = "autoPlay" | "hover" | "viewport" | "hoverPlay"
 // FrameTransition type removed — appearEffect now drives frame transitions directly
 
 interface AsciiFormatterProProps {
@@ -472,6 +472,37 @@ function useSequencePlayback(config: {
       el.removeEventListener("pointerleave", leave)
     }
   }, [enabled, playbackMode, maxFrame, containerRef, advanceFrame])
+
+  // Hover Play mode: play sequence on hover, reset to frame 0 on leave
+  const hoverPlayTimerRef = useRef(0)
+  useEffect(() => {
+    if (!enabled || playbackMode !== "hoverPlay") return
+    const el = containerRef.current
+    if (!el) return
+
+    const enter = () => {
+      hoverActiveRef.current = true
+      advanceFrame()
+      const intervalMs = autoPlaySpeed * 1000
+      hoverPlayTimerRef.current = window.setInterval(advanceFrame, intervalMs)
+    }
+    const leave = () => {
+      hoverActiveRef.current = false
+      window.clearInterval(hoverPlayTimerRef.current)
+      // Reset to frame 0
+      setActiveFrame(0)
+      setPrevFrame(0)
+      setTransProgress(1)
+    }
+
+    el.addEventListener("pointerenter", enter)
+    el.addEventListener("pointerleave", leave)
+    return () => {
+      el.removeEventListener("pointerenter", enter)
+      el.removeEventListener("pointerleave", leave)
+      window.clearInterval(hoverPlayTimerRef.current)
+    }
+  }, [enabled, playbackMode, autoPlaySpeed, containerRef, advanceFrame])
 
   // Viewport mode
   useEffect(() => {
@@ -2028,6 +2059,7 @@ addPropertyControls(AsciiFormatterPro, {
   frames: {
     type: ControlType.Array,
     title: "Frames",
+    description: "Enter multiple ASCII frames in order for sequence playback.",
     defaultValue: [DEFAULT_TEXT, ""],
     maxCount: 15,
     hidden: isSingle,
@@ -2103,8 +2135,8 @@ addPropertyControls(AsciiFormatterPro, {
     type: ControlType.Enum,
     title: "Playback",
     defaultValue: "autoPlay",
-    options: ["autoPlay", "hover", "viewport"],
-    optionTitles: ["Auto Play", "Hover", "Viewport Enter"],
+    options: ["autoPlay", "hoverPlay", "hover", "viewport"],
+    optionTitles: ["Auto Play", "Hover Play", "Hover", "Viewport Enter"],
     hidden: isSingle,
   },
   autoPlaySpeed: {

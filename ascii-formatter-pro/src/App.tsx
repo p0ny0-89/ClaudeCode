@@ -47,7 +47,7 @@ type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type ContentMode = "single" | "sequence"
-type PlaybackMode = "autoPlay" | "hover" | "viewport"
+type PlaybackMode = "autoPlay" | "hover" | "viewport" | "hoverPlay"
 export default function App() {
   // Content
   const [contentMode, setContentMode] = useState<ContentMode>("single")
@@ -207,6 +207,7 @@ export default function App() {
             <label style={S.label}>Playback Mode</label>
             <select value={playbackMode} onChange={(e) => setPlaybackMode(e.target.value as PlaybackMode)} style={S.input}>
               <option value="autoPlay">Auto Play</option>
+              <option value="hoverPlay">Hover Play</option>
               <option value="hover">Hover</option>
               <option value="viewport">Viewport Enter</option>
             </select>
