@@ -35,7 +35,7 @@ const ROBOT_ASCII = `    ┌─────┐
    ═╧═   ═╧═`
 
 type Font = Record<string, any>
-type FillType = "solid" | "linear" | "radial"
+type FillType = "solid"
 type AppearEffect = "none" | "fade" | "reveal" | "typing" | "glitch" | "scramble" | "scan" | "boot" | "interference"
 type Trigger = "mount" | "hover" | "viewport"
 type RepeatMode = "once" | "loop" | "pingPong"
@@ -68,11 +68,8 @@ export default function App() {
   const [letterSpacing, setLetterSpacing] = useState(0)
 
   // Appearance
-  const [fillType, setFillType] = useState<FillType>("solid")
+  const fillType: FillType = "solid"
   const [color, setColor] = useState("#00FF41")
-  const [gradientStart, setGradientStart] = useState("#00FF41")
-  const [gradientEnd, setGradientEnd] = useState("#0080FF")
-  const [gradientAngle, setGradientAngle] = useState(90)
 
   // Animation
   const [appearEffect, setAppearEffect] = useState<AppearEffect>("none")
@@ -109,7 +106,7 @@ export default function App() {
     frames, playbackMode, autoPlaySpeed,
     pauseOnHover,
     fontSizingMode, fontSize, lineHeight, letterSpacing,
-    fillType, color, gradientStart, gradientEnd, gradientAngle,
+    fillType, color,
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
     direction, repeatDelay, loopCount,
     intensity, frequency, seed, jitter, rgbSplit, glitchDirection, cursorBlink,
@@ -279,32 +276,8 @@ export default function App() {
         {/* Appearance */}
         <div style={S.section}>Appearance</div>
 
-        <label style={S.label}>Fill Type</label>
-        <div style={S.segWrap}>
-          {(["solid", "linear", "radial"] as FillType[]).map((f) => (
-            <button key={f} style={seg(fillType === f)} onClick={() => setFillType(f)}>{f}</button>
-          ))}
-        </div>
-
-        {fillType === "solid" ? (
-          <>
-            <label style={{ ...S.label, marginTop: 8 }}>Color</label>
-            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ ...S.input, height: 32, padding: 2 }} />
-          </>
-        ) : (
-          <>
-            <label style={{ ...S.label, marginTop: 8 }}>Start Color</label>
-            <input type="color" value={gradientStart} onChange={(e) => setGradientStart(e.target.value)} style={{ ...S.input, height: 32, padding: 2 }} />
-            <label style={{ ...S.label, marginTop: 8 }}>End Color</label>
-            <input type="color" value={gradientEnd} onChange={(e) => setGradientEnd(e.target.value)} style={{ ...S.input, height: 32, padding: 2 }} />
-            {fillType === "linear" && (
-              <>
-                <label style={{ ...S.label, marginTop: 8 }}>Angle: {gradientAngle}°</label>
-                <input type="range" min={0} max={360} value={gradientAngle} onChange={(e) => setGradientAngle(Number(e.target.value))} style={{ width: "100%" }} />
-              </>
-            )}
-          </>
-        )}
+        <label style={S.label}>Color</label>
+        <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ ...S.input, height: 32, padding: 2 }} />
 
         {/* Animation */}
         <div style={S.section}>Animation</div>

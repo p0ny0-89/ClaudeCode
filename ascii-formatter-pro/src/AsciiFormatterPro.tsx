@@ -15,7 +15,7 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 // Font is a Framer font object from ControlType.Font (native picker).
 // In dev harness it's a plain object with { fontFamily, fontWeight? }.
 type Font = Record<string, any>
-type FillType = "solid" | "linear" | "radial"
+type FillType = "solid"
 type AppearEffect =
   | "none"
   | "fade"
@@ -59,9 +59,6 @@ interface AsciiFormatterProProps {
   // Appearance
   fillType: FillType
   color: string
-  gradientStart: string
-  gradientEnd: string
-  gradientAngle: number
   // Animation
   appearEffect: AppearEffect
   trigger: Trigger
@@ -1367,21 +1364,7 @@ function getTextStyle(props: AsciiFormatterProProps, effectiveFontSize: number):
     color: props.color,
   }
 
-  if (props.fillType === "solid") return base
-
-  const gradient =
-    props.fillType === "linear"
-      ? `linear-gradient(${props.gradientAngle}deg, ${props.gradientStart}, ${props.gradientEnd})`
-      : `radial-gradient(circle, ${props.gradientStart}, ${props.gradientEnd})`
-
-  return {
-    ...base,
-    background: gradient,
-    backgroundClip: "text",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-    color: "transparent",
-  }
+  return base
 }
 
 // ─── RGB Split Helper ───────────────────────────────────────────────
@@ -1865,11 +1848,8 @@ AsciiFormatterPro.defaultProps = {
   lineHeight: 1,
   letterSpacing: 0,
   // Appearance
-  fillType: "solid" as FillType,
+  fillType: "solid" as const,
   color: "#00FF41",
-  gradientStart: "#00FF41",
-  gradientEnd: "#0080FF",
-  gradientAngle: 90,
   // Animation
   appearEffect: "none" as AppearEffect,
   trigger: "mount" as Trigger,
@@ -2003,41 +1983,10 @@ addPropertyControls(AsciiFormatterPro, {
   },
 
   // ━━━ Appearance ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  fillType: {
-    type: ControlType.Enum,
-    title: "Fill Type",
-    defaultValue: "solid",
-    options: ["solid", "linear", "radial"],
-    optionTitles: ["Solid", "Linear", "Radial"],
-    displaySegmentedControl: true,
-  },
   color: {
     type: ControlType.Color,
     title: "Color",
     defaultValue: "#00FF41",
-    hidden: (p: P) => p.fillType !== "solid",
-  },
-  gradientStart: {
-    type: ControlType.Color,
-    title: "Start Color",
-    defaultValue: "#00FF41",
-    hidden: (p: P) => p.fillType === "solid",
-  },
-  gradientEnd: {
-    type: ControlType.Color,
-    title: "End Color",
-    defaultValue: "#0080FF",
-    hidden: (p: P) => p.fillType === "solid",
-  },
-  gradientAngle: {
-    type: ControlType.Number,
-    title: "Angle",
-    defaultValue: 90,
-    min: 0,
-    max: 360,
-    step: 1,
-    unit: "deg",
-    hidden: (p: P) => p.fillType !== "linear",
   },
 
   // ━━━ Sequence ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
