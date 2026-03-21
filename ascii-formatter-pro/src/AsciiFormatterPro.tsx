@@ -1956,6 +1956,7 @@ addPropertyControls(AsciiFormatterPro, {
     type: ControlType.Font,
     controls: "basic",
     defaultFontType: "monospace",
+    description: "Monospaced fonts are recommended for accurate ASCII layout.",
   },
   textAlign: {
     type: ControlType.Enum,
@@ -2077,7 +2078,7 @@ addPropertyControls(AsciiFormatterPro, {
   },
   trigger: {
     type: ControlType.Enum,
-    title: "Trigger",
+    title: "Appear Trigger",
     defaultValue: "mount",
     options: ["mount", "hover", "viewport"],
     optionTitles: ["On Mount", "On Hover", "In Viewport"],
@@ -2225,6 +2226,7 @@ addPropertyControls(AsciiFormatterPro, {
   hoverScope: {
     type: ControlType.Enum,
     title: "Hover Scope",
+    description: "Character mode is more performance-intensive, especially with dense ASCII art.",
     defaultValue: "global",
     options: ["global", "local"],
     optionTitles: ["Global", "Characters"],
