@@ -938,7 +938,7 @@ function renderDisplacedLines(
         key={i}
         style={
           offset !== 0
-            ? { transform: `translateX(${offset}px)`, willChange: "transform" }
+            ? { transform: `translateX(${offset}px)` }
             : undefined
         }
       >
@@ -971,7 +971,6 @@ function renderDisplacedColumns(
                   style={{
                     display: "inline-block",
                     transform: `translateY(${offset}px)`,
-                    willChange: "transform",
                   }}
                 >
                   {ch}
@@ -1027,7 +1026,6 @@ function renderLocalDisplacedChars(
           style={{
             display: "inline-block",
             transform: `translateX(${offset}px)`,
-            willChange: "transform",
           }}
         >
           {ch}
