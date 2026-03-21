@@ -47,7 +47,7 @@ type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type ContentMode = "single" | "sequence"
-type PlaybackMode = "autoPlay" | "hover" | "viewport" | "hoverPlay"
+type PlaybackMode = "autoPlay" | "viewport" | "hoverPlay"
 export default function App() {
   // Content
   const [contentMode, setContentMode] = useState<ContentMode>("single")
@@ -59,6 +59,7 @@ export default function App() {
   const [frames, setFrames] = useState<string[]>([DEFAULT_ASCII, SKULL_ASCII, CIRCUIT_ASCII])
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("autoPlay")
   const [autoPlaySpeed, setAutoPlaySpeed] = useState(1)
+  const [loopSequence, setLoopSequence] = useState(true)
   const [pauseOnHover, setPauseOnHover] = useState(false)
 
   // Typography
@@ -103,7 +104,7 @@ export default function App() {
 
   const allProps = {
     contentMode, text, font, textAlign,
-    frames, playbackMode, autoPlaySpeed,
+    frames, playbackMode, autoPlaySpeed, loopSequence,
     pauseOnHover,
     fontSizingMode, fontSize, lineHeight, letterSpacing,
     fillType, color,
@@ -208,12 +209,21 @@ export default function App() {
             <select value={playbackMode} onChange={(e) => setPlaybackMode(e.target.value as PlaybackMode)} style={S.input}>
               <option value="autoPlay">Auto Play</option>
               <option value="hoverPlay">Hover Play</option>
-              <option value="hover">Hover</option>
               <option value="viewport">Viewport Enter</option>
             </select>
 
             <label style={{ ...S.label, marginTop: 8 }}>Speed: {autoPlaySpeed}s</label>
             <input type="range" min={0.1} max={10} step={0.1} value={autoPlaySpeed} onChange={(e) => setAutoPlaySpeed(Number(e.target.value))} style={{ width: "100%" }} />
+
+            {playbackMode !== "hoverPlay" && (
+              <>
+                <label style={{ ...S.label, marginTop: 8 }}>Loop</label>
+                <div style={S.segWrap}>
+                  <button style={seg(loopSequence)} onClick={() => setLoopSequence(true)}>On</button>
+                  <button style={seg(!loopSequence)} onClick={() => setLoopSequence(false)}>Off</button>
+                </div>
+              </>
+            )}
 
             {playbackMode === "autoPlay" && (
               <>

@@ -37,7 +37,7 @@ type DisplaceDirection = "horizontal" | "vertical"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type ContentMode = "single" | "sequence"
-type PlaybackMode = "autoPlay" | "hover" | "viewport" | "hoverPlay"
+type PlaybackMode = "autoPlay" | "viewport" | "hoverPlay"
 // FrameTransition type removed — appearEffect now drives frame transitions directly
 
 interface AsciiFormatterProProps {
@@ -50,6 +50,7 @@ interface AsciiFormatterProProps {
   frames: string[]
   playbackMode: PlaybackMode
   autoPlaySpeed: number
+  loopSequence: boolean
   pauseOnHover: boolean
   // Typography
   fontSizingMode: FontSizingMode
@@ -362,6 +363,7 @@ function useSequencePlayback(config: {
   frameCount: number
   playbackMode: PlaybackMode
   autoPlaySpeed: number
+  loopSequence: boolean
   appearEffect: AppearEffect
   repeatMode: RepeatMode
   initialAppearDone: boolean
@@ -373,6 +375,7 @@ function useSequencePlayback(config: {
     frameCount,
     playbackMode,
     autoPlaySpeed,
+    loopSequence,
     appearEffect,
     repeatMode,
     initialAppearDone,
@@ -442,36 +445,25 @@ function useSequencePlayback(config: {
     }
   }, [enabled, playbackMode, pauseOnHover, containerRef])
 
-  // Auto play
+  // Auto play — respects loopSequence: if off, stop after one full cycle
+  const autoPlayDone = useRef(false)
   useEffect(() => {
     if (!enabled || playbackMode !== "autoPlay" || paused) return
+    autoPlayDone.current = false
 
     const intervalMs = autoPlaySpeed * 1000
-    autoTimerRef.current = window.setInterval(advanceFrame, intervalMs)
-    return () => window.clearInterval(autoTimerRef.current)
-  }, [enabled, playbackMode, autoPlaySpeed, maxFrame, paused, advanceFrame])
-
-  // Hover mode
-  useEffect(() => {
-    if (!enabled || playbackMode !== "hover") return
-    const el = containerRef.current
-    if (!el) return
-
-    const enter = () => {
-      hoverActiveRef.current = true
+    let frameIdx = 0
+    autoTimerRef.current = window.setInterval(() => {
+      frameIdx++
+      if (!loopSequence && frameIdx > maxFrame) {
+        window.clearInterval(autoTimerRef.current)
+        autoPlayDone.current = true
+        return
+      }
       advanceFrame()
-    }
-    const leave = () => {
-      hoverActiveRef.current = false
-    }
-
-    el.addEventListener("pointerenter", enter)
-    el.addEventListener("pointerleave", leave)
-    return () => {
-      el.removeEventListener("pointerenter", enter)
-      el.removeEventListener("pointerleave", leave)
-    }
-  }, [enabled, playbackMode, maxFrame, containerRef, advanceFrame])
+    }, intervalMs)
+    return () => window.clearInterval(autoTimerRef.current)
+  }, [enabled, playbackMode, autoPlaySpeed, maxFrame, paused, loopSequence, advanceFrame])
 
   // Hover Play mode: play sequence on hover, reset to frame 0 on leave
   const hoverPlayTimerRef = useRef(0)
@@ -508,7 +500,8 @@ function useSequencePlayback(config: {
     }
   }, [enabled, playbackMode, autoPlaySpeed, containerRef, advanceFrame])
 
-  // Viewport mode
+  // Viewport mode — reset on leave, re-trigger on re-enter
+  const viewportTimerRef = useRef(0)
   useEffect(() => {
     if (!enabled || playbackMode !== "viewport") return
     const el = containerRef.current
@@ -516,25 +509,34 @@ function useSequencePlayback(config: {
 
     const io = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && !viewportTriggered.current) {
-          viewportTriggered.current = true
-          // Start auto-advancing through all frames
-          let frame = 0
-          const advanceInterval = window.setInterval(() => {
-            frame++
-            if (frame > maxFrame) {
-              window.clearInterval(advanceInterval)
+        if (entry.isIntersecting) {
+          // Start playback
+          let frameIdx = 0
+          const intervalMs = autoPlaySpeed * 1000
+          viewportTimerRef.current = window.setInterval(() => {
+            frameIdx++
+            if (!loopSequence && frameIdx > maxFrame) {
+              window.clearInterval(viewportTimerRef.current)
               return
             }
             advanceFrame()
-          }, autoPlaySpeed * 1000)
+          }, intervalMs)
+        } else {
+          // Left viewport — stop and reset
+          window.clearInterval(viewportTimerRef.current)
+          setActiveFrame(0)
+          setPrevFrame(0)
+          setTransProgress(1)
         }
       },
       { threshold: 0.15 }
     )
     io.observe(el)
-    return () => io.disconnect()
-  }, [enabled, playbackMode, maxFrame, autoPlaySpeed, containerRef])
+    return () => {
+      io.disconnect()
+      window.clearInterval(viewportTimerRef.current)
+    }
+  }, [enabled, playbackMode, maxFrame, autoPlaySpeed, loopSequence, containerRef, advanceFrame])
 
   // Transition animation
   useEffect(() => {
@@ -1551,6 +1553,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     frames: framesProp,
     playbackMode,
     autoPlaySpeed,
+    loopSequence,
     pauseOnHover,
     fontSizingMode,
     fontSize,
@@ -1654,6 +1657,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     frameCount: frames.length,
     playbackMode,
     autoPlaySpeed,
+    loopSequence,
     appearEffect,
     repeatMode,
     initialAppearDone,
@@ -1990,6 +1994,7 @@ AsciiFormatterPro.defaultProps = {
   frames: [DEFAULT_TEXT, ""],
   playbackMode: "autoPlay" as PlaybackMode,
   autoPlaySpeed: 1,
+  loopSequence: true,
   pauseOnHover: false,
   // Typography
   fontSizingMode: "fixed" as FontSizingMode,
@@ -2142,8 +2147,8 @@ addPropertyControls(AsciiFormatterPro, {
     type: ControlType.Enum,
     title: "Playback",
     defaultValue: "autoPlay",
-    options: ["autoPlay", "hoverPlay", "hover", "viewport"],
-    optionTitles: ["Auto Play", "Hover Play", "Hover", "Viewport Enter"],
+    options: ["autoPlay", "hoverPlay", "viewport"],
+    optionTitles: ["Auto Play", "Hover Play", "Viewport Enter"],
   },
   autoPlaySpeed: {
     type: ControlType.Number,
@@ -2153,6 +2158,14 @@ addPropertyControls(AsciiFormatterPro, {
     max: 10,
     step: 0.1,
     unit: "s",
+  },
+  loopSequence: {
+    type: ControlType.Boolean,
+    title: "Loop",
+    defaultValue: true,
+    enabledTitle: "On",
+    disabledTitle: "Off",
+    hidden: (p: P) => p.playbackMode === "hoverPlay",
   },
   pauseOnHover: {
     type: ControlType.Boolean,
