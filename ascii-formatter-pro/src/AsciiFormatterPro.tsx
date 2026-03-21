@@ -1769,7 +1769,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     <div
       ref={containerRef}
       style={{
-        overflow: "hidden",
+        overflow: globalHovering && hoverEffect === "displace" ? "visible" : "hidden",
         width: "100%",
         height: "100%",
         position: "relative",
