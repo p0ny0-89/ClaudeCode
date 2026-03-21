@@ -997,8 +997,9 @@ function renderDisplacedColumns(
 
 /**
  * Renders text with per-character horizontal displacement.
- * Each character is wrapped in an inline-block span with translateX.
- * Newlines are preserved as line breaks.
+ * Characters with non-zero offsets get inline-block spans with translateX.
+ * Consecutive zero-offset characters are batched into single text nodes
+ * to minimize React element count.
  */
 function renderLocalDisplacedChars(
   text: string,
@@ -1006,15 +1007,26 @@ function renderLocalDisplacedChars(
 ): React.ReactNode {
   const nodes: React.ReactNode[] = []
   let idx = 0
+  let batch = "" // accumulates consecutive zero-offset chars
+
+  const flushBatch = () => {
+    if (batch) {
+      nodes.push(batch)
+      batch = ""
+    }
+  }
+
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
     if (ch === "\n") {
+      flushBatch()
       nodes.push("\n")
       idx++
       continue
     }
     const offset = offsets[idx] || 0
     if (offset !== 0) {
+      flushBatch()
       nodes.push(
         <span
           key={i}
@@ -1028,10 +1040,11 @@ function renderLocalDisplacedChars(
         </span>
       )
     } else {
-      nodes.push(ch)
+      batch += ch
     }
     idx++
   }
+  flushBatch()
   return nodes
 }
 
@@ -1054,6 +1067,17 @@ function useGlobalHoverEffect(
   const [hoverFrame, setHoverFrame] = useState(0)
   const pointerX = useRef(-1)
   const pointerY = useRef(-1)
+
+  // Cache computed style measurements to avoid getComputedStyle every frame
+  const measuredRef = useRef({ fSize: 14, lh: 14, charW: 8.4 })
+  useEffect(() => {
+    const pre = preRef.current
+    if (!pre) return
+    const cs = getComputedStyle(pre)
+    const fSize = parseFloat(cs.fontSize) || 14
+    const lh = parseFloat(cs.lineHeight) || fSize
+    measuredRef.current = { fSize, lh, charW: fSize * 0.6 }
+  }) // runs after every render — cheap read from ref, getComputedStyle only once per render cycle
 
   useEffect(() => {
     if (!enabled || hoverEffect === "none") return
@@ -1154,12 +1178,7 @@ function useGlobalHoverEffect(
     if (!isHovering || hoverEffect !== "displace" || hoverScope === "local") return null
     if (displaceDirection === "vertical") return null // handled by column offsets
 
-    const pre = preRef.current
-    if (!pre) return null
-
-    const cs = getComputedStyle(pre)
-    const fSize = parseFloat(cs.fontSize) || 14
-    const lh = parseFloat(cs.lineHeight) || fSize
+    const { lh } = measuredRef.current
     const lines = text.split("\n")
     const py = pointerY.current
 
@@ -1177,7 +1196,7 @@ function useGlobalHoverEffect(
       const wave = Math.sin(time + (dist / lh) * waveFreq * Math.PI)
       return Math.round(wave * falloff * maxPx)
     })
-  }, [isHovering, hoverEffect, hoverScope, displaceDirection, hoverIntensity, hoverFalloff, text, hoverFrame, preRef])
+  }, [isHovering, hoverEffect, hoverScope, displaceDirection, hoverIntensity, hoverFalloff, text, hoverFrame])
 
   // Per-column vertical displacement offsets (global displace, vertical mode).
   // Creates a sine-wave ripple centered on cursor X, gaussian falloff.
@@ -1186,12 +1205,7 @@ function useGlobalHoverEffect(
     if (!isHovering || hoverEffect !== "displace" || hoverScope === "local") return null
     if (displaceDirection !== "vertical") return null
 
-    const pre = preRef.current
-    if (!pre) return null
-
-    const cs = getComputedStyle(pre)
-    const fSize = parseFloat(cs.fontSize) || 14
-    const charW = fSize * 0.6 // monospace approx
+    const { charW } = measuredRef.current
     const lines = text.split("\n")
     const maxCols = Math.max(...lines.map((l) => l.length))
     const px = pointerX.current
@@ -1212,21 +1226,16 @@ function useGlobalHoverEffect(
       offsets.push(Math.round(wave * falloff * maxPx))
     }
     return offsets
-  }, [isHovering, hoverEffect, hoverScope, displaceDirection, hoverIntensity, hoverFalloff, text, hoverFrame, preRef])
+  }, [isHovering, hoverEffect, hoverScope, displaceDirection, hoverIntensity, hoverFalloff, text, hoverFrame])
 
   // Per-character displacement offsets (local displace mode).
   // Each character near the cursor gets an individual horizontal shift.
+  // Optimized: skips entire rows outside the effect radius, uses cached measurements.
   const localDisplaceData = useMemo((): { offsets: Float32Array; charW: number; lineH: number } | null => {
     if (!isHovering || hoverEffect !== "displace" || hoverScope !== "local") return null
     if (pointerX.current < 0) return null
 
-    const pre = preRef.current
-    if (!pre) return null
-
-    const cs = getComputedStyle(pre)
-    const fSize = parseFloat(cs.fontSize) || 14
-    const lh = parseFloat(cs.lineHeight) || fSize
-    const charW = fSize * 0.6 // monospace approx
+    const { lh, charW } = measuredRef.current
 
     const px = pointerX.current
     const py = pointerY.current
@@ -1236,6 +1245,9 @@ function useGlobalHoverEffect(
     const waveFreq = 0.6
     // sigma: hoverFalloff 0 = sharp edge (0.15), 1 = very soft (0.9)
     const sigma = radiusPx * (0.15 + hoverFalloff * 0.75)
+    // Pre-compute for gaussian: -1 / (2 * sigma^2)
+    const invTwoSigmaSq = -1 / (2 * sigma * sigma)
+    const effectRadius = radiusPx * 2 // extend check beyond radius for soft falloff
 
     const lines = text.split("\n")
     const totalChars = text.length // including newlines
@@ -1244,13 +1256,26 @@ function useGlobalHoverEffect(
 
     for (let row = 0; row < lines.length; row++) {
       const line = lines[row]
+      const lineCenterY = row * lh + lh / 2
+      const dy = lineCenterY - py
+      const absDy = Math.abs(dy)
+
+      // Skip entire row if too far from cursor Y — no chars in this row can be affected
+      if (absDy > effectRadius) {
+        idx += line.length + 1 // skip all chars + newline
+        continue
+      }
+
+      const dySq = dy * dy
+
       for (let col = 0; col < line.length; col++) {
         const cx = col * charW + charW / 2
-        const cy = row * lh + lh / 2
-        const dist = Math.sqrt((cx - px) ** 2 + (cy - py) ** 2)
+        const dx = cx - px
+        const distSq = dx * dx + dySq
+        const dist = Math.sqrt(distSq)
 
-        if (dist < radiusPx * 2) { // extend check beyond radius for soft falloff
-          const falloff = Math.exp(-(dist * dist) / (2 * sigma * sigma))
+        if (dist < effectRadius) {
+          const falloff = Math.exp(distSq * invTwoSigmaSq)
           const wave = Math.sin(time + (dist / charW) * waveFreq * Math.PI)
           offsets[idx] = Math.round(wave * falloff * maxPx)
         }
@@ -1260,7 +1285,7 @@ function useGlobalHoverEffect(
     }
 
     return { offsets, charW, lineH: lh }
-  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverFalloff, hoverRadius, text, hoverFrame, preRef])
+  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverFalloff, hoverRadius, text, hoverFrame])
 
   const hoverStyle = useMemo((): React.CSSProperties => {
     if (!isHovering) return {}
