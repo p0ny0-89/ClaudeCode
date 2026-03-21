@@ -1040,6 +1040,10 @@ function renderLocalDisplacedChars(
   return nodes
 }
 
+// ─── Touch Drag Constants ────────────────────────────────────────────
+const HOLD_DELAY = 300  // ms: hold duration to activate touch drag
+const HOLD_SLOP = 10    // px: max movement before hold is cancelled
+
 // ─── Global Hover Effects (CSS-based) ───────────────────────────────
 
 function useGlobalHoverEffect(
@@ -1060,6 +1064,25 @@ function useGlobalHoverEffect(
   const pointerX = useRef(-1)
   const pointerY = useRef(-1)
 
+  // Touch drag state
+  const touchCaptured = useRef(false)
+  const holdStart = useRef<{ x: number; y: number; pointerId: number; target: HTMLElement } | null>(null)
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelHold = useCallback(() => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current)
+      holdTimer.current = null
+    }
+    holdStart.current = null
+  }, [])
+
+  const activateTouch = useCallback((pointerId: number, target: HTMLElement) => {
+    target.setPointerCapture(pointerId)
+    touchCaptured.current = true
+    setIsHovering(true)
+  }, [])
+
   // Cache computed style measurements to avoid getComputedStyle every frame
   const measuredRef = useRef({ fSize: 14, lh: 14, charW: 8.4 })
   useEffect(() => {
@@ -1071,26 +1094,106 @@ function useGlobalHoverEffect(
     measuredRef.current = { fSize, lh, charW: fSize * 0.6 }
   }) // runs after every render — cheap read from ref, getComputedStyle only once per render cycle
 
+  // Pointer events: mouse hover + touch drag
   useEffect(() => {
     if (!enabled || hoverEffect === "none") return
     const el = containerRef.current
     if (!el) return
 
-    const enter = () => setIsHovering(true)
-    const leave = () => { setIsHovering(false); pointerX.current = -1; pointerY.current = -1 }
-    const move = (e: PointerEvent) => {
-      const rect = el.getBoundingClientRect()
-      pointerX.current = e.clientX - rect.left
-      pointerY.current = e.clientY - rect.top
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return
+      // Start hold-to-activate timer
+      holdStart.current = {
+        x: e.clientX,
+        y: e.clientY,
+        pointerId: e.pointerId,
+        target: e.target as HTMLElement,
+      }
+      holdTimer.current = setTimeout(() => {
+        const hs = holdStart.current
+        if (hs) activateTouch(hs.pointerId, hs.target)
+        holdTimer.current = null
+      }, HOLD_DELAY)
     }
 
-    el.addEventListener("pointerenter", enter)
-    el.addEventListener("pointerleave", leave)
-    el.addEventListener("pointermove", move)
+    const onPointerMove = (e: PointerEvent) => {
+      // Touch: check slop before activation
+      if (holdStart.current && !touchCaptured.current && e.pointerType === "touch") {
+        const dx = e.clientX - holdStart.current.x
+        const dy = e.clientY - holdStart.current.y
+        if (dx * dx + dy * dy > HOLD_SLOP * HOLD_SLOP) {
+          cancelHold()
+          return
+        }
+      }
+      // Update pointer position (works for both mouse and active touch drag)
+      if (e.pointerType !== "touch" || touchCaptured.current) {
+        const rect = el.getBoundingClientRect()
+        pointerX.current = e.clientX - rect.left
+        pointerY.current = e.clientY - rect.top
+      }
+    }
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return
+      cancelHold()
+      if (touchCaptured.current) {
+        ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+        touchCaptured.current = false
+        setIsHovering(false)
+        pointerX.current = -1
+        pointerY.current = -1
+      }
+    }
+
+    // Mouse: standard hover behavior
+    const onEnter = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return
+      setIsHovering(true)
+    }
+    const onLeave = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return
+      setIsHovering(false)
+      pointerX.current = -1
+      pointerY.current = -1
+    }
+
+    el.addEventListener("pointerdown", onPointerDown)
+    el.addEventListener("pointermove", onPointerMove)
+    el.addEventListener("pointerup", onPointerUp)
+    el.addEventListener("pointerenter", onEnter)
+    el.addEventListener("pointerleave", onLeave)
     return () => {
-      el.removeEventListener("pointerenter", enter)
-      el.removeEventListener("pointerleave", leave)
-      el.removeEventListener("pointermove", move)
+      el.removeEventListener("pointerdown", onPointerDown)
+      el.removeEventListener("pointermove", onPointerMove)
+      el.removeEventListener("pointerup", onPointerUp)
+      el.removeEventListener("pointerenter", onEnter)
+      el.removeEventListener("pointerleave", onLeave)
+      cancelHold()
+    }
+  }, [enabled, hoverEffect, containerRef, activateTouch, cancelHold])
+
+  // Block scroll, context menu, and text selection during active touch drag
+  useEffect(() => {
+    if (!enabled || hoverEffect === "none") return
+    const el = containerRef.current
+    if (!el) return
+
+    const blockMove = (e: TouchEvent) => {
+      if (touchCaptured.current) e.preventDefault()
+    }
+    const block = (e: Event) => {
+      if (touchCaptured.current) e.preventDefault()
+    }
+
+    el.addEventListener("touchmove", blockMove, { passive: false })
+    el.addEventListener("contextmenu", block)
+    el.addEventListener("selectstart", block)
+    return () => {
+      el.removeEventListener("touchmove", blockMove)
+      el.removeEventListener("contextmenu", block)
+      el.removeEventListener("selectstart", block)
+      if (holdTimer.current) clearTimeout(holdTimer.current)
     }
   }, [enabled, hoverEffect, containerRef])
 
@@ -1776,6 +1879,14 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
         // Only apply non-clip outer styles directly (e.g. hover style)
         ...(hasClip ? {} : clipStyle),
         ...(globalHoverActive ? hoverStyle : {}),
+        // Mobile touch drag: prevent text selection and tap highlights
+        ...(hoverEffect !== "none" ? {
+          userSelect: "none",
+          WebkitUserSelect: "none",
+          WebkitTouchCallout: "none",
+          WebkitTapHighlightColor: "transparent",
+          touchAction: "pan-y", // allow vertical scroll, capture horizontal
+        } as React.CSSProperties : {}),
       }}
     >
       {hasClip ? (
