@@ -475,6 +475,7 @@ function useSequencePlayback(config: {
 
   // Hover Play mode: play sequence on hover, reset to frame 0 on leave
   const hoverPlayTimerRef = useRef(0)
+  const [hoverPlaying, setHoverPlaying] = useState(false)
   useEffect(() => {
     if (!enabled || playbackMode !== "hoverPlay") return
     const el = containerRef.current
@@ -482,12 +483,14 @@ function useSequencePlayback(config: {
 
     const enter = () => {
       hoverActiveRef.current = true
+      setHoverPlaying(true)
       advanceFrame()
       const intervalMs = autoPlaySpeed * 1000
       hoverPlayTimerRef.current = window.setInterval(advanceFrame, intervalMs)
     }
     const leave = () => {
       hoverActiveRef.current = false
+      setHoverPlaying(false)
       window.clearInterval(hoverPlayTimerRef.current)
       // Reset to frame 0
       setActiveFrame(0)
@@ -501,6 +504,7 @@ function useSequencePlayback(config: {
       el.removeEventListener("pointerenter", enter)
       el.removeEventListener("pointerleave", leave)
       window.clearInterval(hoverPlayTimerRef.current)
+      setHoverPlaying(false)
     }
   }, [enabled, playbackMode, autoPlaySpeed, containerRef, advanceFrame])
 
@@ -553,7 +557,7 @@ function useSequencePlayback(config: {
     return () => { running = false }
   }, [transProgress, effectiveEffect, transitionDuration])
 
-  return { activeFrame, prevFrame, transProgress, appearEffect: effectiveEffect }
+  return { activeFrame, prevFrame, transProgress, appearEffect: effectiveEffect, hoverPlaying }
 }
 
 // ─── Effect Computers ───────────────────────────────────────────────
@@ -1655,10 +1659,12 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   })
 
   // Resolve the active text from sequence or single mode
+  // In hoverPlay mode, show single-frame text at rest, sequence frames when playing
   const seqText = useMemo(() => {
     if (!isSequence) return text
+    if (playbackMode === "hoverPlay" && !seq.hoverPlaying) return text
     return frames[seq.activeFrame] || frames[0] || ""
-  }, [isSequence, text, frames, seq.activeFrame])
+  }, [isSequence, text, frames, seq.activeFrame, playbackMode, seq.hoverPlaying])
 
   // During a transition, compute blended/transitioning text using the appear effect
   const seqTransitioning = isSequence && seq.transProgress < 1
