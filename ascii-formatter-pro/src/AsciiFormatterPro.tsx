@@ -2019,6 +2019,7 @@ addPropertyControls(AsciiFormatterPro, {
   appearEffect: {
     type: ControlType.Enum,
     title: "Appear Effect",
+    description: "In Sequence mode, this effect also applies between frames.",
     defaultValue: "none",
     options: ["none", "fade", "reveal", "typing", "glitch", "scramble", "scan", "boot", "interference"],
     optionTitles: ["Instant", "Fade", "Directional Reveal", "Typing", "Glitch", "Scramble In", "Scan Reveal", "Boot Sequence", "Interference"],
