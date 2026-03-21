@@ -1777,6 +1777,16 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     content = displayText
   }
 
+  // Merge clip-path styles (from reveal/scan effects) into a separate inner wrapper
+  // so the outer container always receives pointer events for hover/viewport triggers.
+  // clip-path clips both visuals AND hit areas, so applying it to the container
+  // would prevent hover events from firing when the element starts fully clipped.
+  const clipStyle: React.CSSProperties = {
+    ...textEffects.outerStyle,
+    ...seqTransOuter,
+  }
+  const hasClip = clipStyle.clipPath != null
+
   return (
     <div
       ref={containerRef}
@@ -1787,30 +1797,57 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
         position: "relative",
         // Framer's style LAST so it can override width/height for FIT parents
         ...style,
-        ...textEffects.outerStyle,
-        ...seqTransOuter,
+        // Only apply non-clip outer styles directly (e.g. hover style)
+        ...(hasClip ? {} : clipStyle),
         ...(globalHoverActive ? hoverStyle : {}),
       }}
     >
-      <pre
-        ref={preRef}
-        style={{
-          ...textStyle,
-          ...textEffects.innerStyle,
-          ...rgbStyle,
-          ...jitterStyle,
-          ...seqTransInner,
-        }}
-        onMouseMove={localHoverActive ? hoverGlitchHook.handleMouseMove : undefined}
-        onMouseLeave={localHoverActive ? hoverGlitchHook.handleMouseLeave : undefined}
-      >
-        {content}
-        {layoutHidden && (
-          <span style={{ visibility: "hidden" }}>{layoutHidden}</span>
-        )}
-      </pre>
-      {(textEffects.scanLine || seqScanLine) && (
-        <div style={textEffects.scanLine || seqScanLine!} />
+      {hasClip ? (
+        <div style={{ ...clipStyle, width: "100%", height: "100%", position: "relative" }}>
+          <pre
+            ref={preRef}
+            style={{
+              ...textStyle,
+              ...textEffects.innerStyle,
+              ...rgbStyle,
+              ...jitterStyle,
+              ...seqTransInner,
+            }}
+            onMouseMove={localHoverActive ? hoverGlitchHook.handleMouseMove : undefined}
+            onMouseLeave={localHoverActive ? hoverGlitchHook.handleMouseLeave : undefined}
+          >
+            {content}
+            {layoutHidden && (
+              <span style={{ visibility: "hidden" }}>{layoutHidden}</span>
+            )}
+          </pre>
+          {(textEffects.scanLine || seqScanLine) && (
+            <div style={textEffects.scanLine || seqScanLine!} />
+          )}
+        </div>
+      ) : (
+        <>
+          <pre
+            ref={preRef}
+            style={{
+              ...textStyle,
+              ...textEffects.innerStyle,
+              ...rgbStyle,
+              ...jitterStyle,
+              ...seqTransInner,
+            }}
+            onMouseMove={localHoverActive ? hoverGlitchHook.handleMouseMove : undefined}
+            onMouseLeave={localHoverActive ? hoverGlitchHook.handleMouseLeave : undefined}
+          >
+            {content}
+            {layoutHidden && (
+              <span style={{ visibility: "hidden" }}>{layoutHidden}</span>
+            )}
+          </pre>
+          {(textEffects.scanLine || seqScanLine) && (
+            <div style={textEffects.scanLine || seqScanLine!} />
+          )}
+        </>
       )}
     </div>
   )
