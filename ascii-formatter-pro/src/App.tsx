@@ -101,8 +101,6 @@ export default function App() {
   const [hoverRadius, setHoverRadius] = useState(3)
   const [hoverFalloff, setHoverFalloff] = useState(0.3)
   const [hoverIntensity, setHoverIntensity] = useState(0.5)
-  const [retriggerOnHover, setRetriggerOnHover] = useState(false)
-
   // Replay key
   const [replayKey, setReplayKey] = useState(0)
 
@@ -115,7 +113,7 @@ export default function App() {
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
     direction, repeatDelay, loopCount,
     intensity, frequency, seed, jitter, rgbSplit, glitchDirection, cursorBlink,
-    hoverEffect, hoverScope, hoverRadius, hoverFalloff, hoverIntensity, retriggerOnHover,
+    hoverEffect, hoverScope, hoverRadius, hoverFalloff, hoverIntensity,
   }
 
   const S: Record<string, React.CSSProperties> = {
@@ -473,12 +471,6 @@ export default function App() {
             <input type="range" min={0} max={3} step={0.05} value={hoverIntensity} onChange={(e) => setHoverIntensity(Number(e.target.value))} style={{ width: "100%" }} />
           </>
         )}
-
-        <label style={{ ...S.label, marginTop: 8 }}>Retrigger On Hover</label>
-        <div style={S.segWrap}>
-          <button style={seg(retriggerOnHover)} onClick={() => setRetriggerOnHover(true)}>On</button>
-          <button style={seg(!retriggerOnHover)} onClick={() => setRetriggerOnHover(false)}>Off</button>
-        </div>
 
         {/* Replay */}
         {appearEffect !== "none" && (

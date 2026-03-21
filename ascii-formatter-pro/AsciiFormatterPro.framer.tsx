@@ -88,7 +88,6 @@ interface AsciiFormatterProProps {
   hoverRadius: number
   hoverFalloff: number
   hoverIntensity: number
-  retriggerOnHover: boolean
   // Framer
   style?: React.CSSProperties
 }
@@ -125,7 +124,6 @@ function usePlayback(config: {
   loopCount: number
   trigger: Trigger
   containerRef: React.RefObject<HTMLDivElement | null>
-  retriggerOnHover: boolean
 }) {
   const {
     enabled,
@@ -136,7 +134,6 @@ function usePlayback(config: {
     loopCount,
     trigger,
     containerRef,
-    retriggerOnHover,
   } = config
 
   const [progress, setProgress] = useState(0)
@@ -170,7 +167,7 @@ function usePlayback(config: {
 
     const enter = () => {
       isHovering.current = true
-      if (!started || retriggerOnHover) {
+      if (!started) {
         setStarted(true)
         setCycle(0)
         startTime.current = 0
@@ -186,7 +183,7 @@ function usePlayback(config: {
       el.removeEventListener("pointerenter", enter)
       el.removeEventListener("pointerleave", leave)
     }
-  }, [enabled, trigger, started, retriggerOnHover])
+  }, [enabled, trigger, started])
 
   // Mount trigger
   useEffect(() => {
@@ -1460,7 +1457,6 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     hoverRadius,
     hoverFalloff,
     hoverIntensity,
-    retriggerOnHover,
     style,
   } = props
 
@@ -1526,7 +1522,6 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     loopCount,
     trigger,
     containerRef,
-    retriggerOnHover,
   })
 
   const initialAppearDone = appearEffect === "none" || progress >= 1
@@ -1901,7 +1896,6 @@ AsciiFormatterPro.defaultProps = {
   hoverRadius: 3,
   hoverFalloff: 0.3,
   hoverIntensity: 0.5,
-  retriggerOnHover: false,
 }
 
 // ─── Property Controls ──────────────────────────────────────────────
@@ -2272,13 +2266,5 @@ addPropertyControls(AsciiFormatterPro, {
     max: 3,
     step: 0.05,
     hidden: (p: P) => p.hoverEffect === "none",
-  },
-  retriggerOnHover: {
-    type: ControlType.Boolean,
-    title: "Retrigger",
-    defaultValue: false,
-    enabledTitle: "On",
-    disabledTitle: "Off",
-    hidden: (p: P) => p.trigger !== "hover" || p.appearEffect === "none",
   },
 })
