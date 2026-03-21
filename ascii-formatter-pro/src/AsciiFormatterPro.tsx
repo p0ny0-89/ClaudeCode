@@ -1883,7 +1883,8 @@ const isTextBased = (p: P) =>
   p.appearEffect === "boot"
 const hasDirection = (p: P) =>
   p.appearEffect === "reveal" || p.appearEffect === "scan"
-const hasStagger = (p: P) => isTextBased(p)
+const hasStagger = (p: P) =>
+  p.appearEffect === "typing" || p.appearEffect === "boot"
 
 addPropertyControls(AsciiFormatterPro, {
   // ━━━ Content ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
