@@ -1594,16 +1594,19 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
 
   // ── Sequence mode: build frames array ──
   const isSequence = contentMode === "sequence"
+  // hoverPlay can use sequence frames even in single-frame mode
+  const hasSequenceFrames = framesProp && framesProp.length > 1
+  const seqActive = isSequence || (playbackMode === "hoverPlay" && hasSequenceFrames)
   const rawFrames = useMemo(() => {
-    if (!isSequence) return [text]
+    if (!seqActive) return [text]
     if (!framesProp || framesProp.length === 0) return [text]
     return framesProp.map((f) => f || "")
-  }, [isSequence, text, framesProp])
+  }, [seqActive, text, framesProp])
 
   const frames = useMemo(() => {
-    if (!isSequence) return rawFrames
+    if (!seqActive) return rawFrames
     return normalizeFrames(rawFrames)
-  }, [isSequence, rawFrames])
+  }, [seqActive, rawFrames])
 
   // Animation frame counter for text-manipulation effects
   useEffect(() => {
@@ -1647,7 +1650,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
 
   // Sequence playback
   const seq = useSequencePlayback({
-    enabled: isSequence && !isCanvas,
+    enabled: seqActive && !isCanvas,
     frameCount: frames.length,
     playbackMode,
     autoPlaySpeed,
@@ -1661,13 +1664,13 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   // Resolve the active text from sequence or single mode
   // In hoverPlay mode, show single-frame text at rest, sequence frames when playing
   const seqText = useMemo(() => {
-    if (!isSequence) return text
+    if (!seqActive) return text
     if (playbackMode === "hoverPlay" && !seq.hoverPlaying) return text
     return frames[seq.activeFrame] || frames[0] || ""
-  }, [isSequence, text, frames, seq.activeFrame, playbackMode, seq.hoverPlaying])
+  }, [seqActive, text, frames, seq.activeFrame, playbackMode, seq.hoverPlaying])
 
   // During a transition, compute blended/transitioning text using the appear effect
-  const seqTransitioning = isSequence && seq.transProgress < 1
+  const seqTransitioning = seqActive && seq.transProgress < 1
   const seqDisplayText = useMemo(() => {
     if (!seqTransitioning) return seqText
     const prevText = frames[seq.prevFrame] || ""
@@ -1709,14 +1712,14 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
 
   // For auto-fit, use the longest frame text for stable sizing
   const autoFitText = useMemo(() => {
-    if (!isSequence) return seqDisplayText
+    if (!seqActive) return seqDisplayText
     // Use longest frame for consistent sizing across transitions
     let longest = ""
     for (const f of frames) {
       if (f.length > longest.length) longest = f
     }
     return longest || seqDisplayText
-  }, [isSequence, frames, seqDisplayText])
+  }, [seqActive, frames, seqDisplayText])
 
   // Auto-fit font sizing (original approach: compute a font size, not a scale transform)
   const fontFamily = props.font?.fontFamily || "'Courier New', Courier, monospace"
@@ -2059,7 +2062,6 @@ addPropertyControls(AsciiFormatterPro, {
     defaultValue: DEFAULT_TEXT,
     displayTextArea: true,
     placeholder: "Paste your ASCII art here...",
-    hidden: isSeq,
   },
   // Sequence frames (array with per-item add/remove/reorder)
   frames: {
@@ -2068,7 +2070,6 @@ addPropertyControls(AsciiFormatterPro, {
     description: "Enter multiple ASCII frames in order for sequence playback.",
     defaultValue: [DEFAULT_TEXT, ""],
     maxCount: 15,
-    hidden: isSingle,
     control: {
       type: ControlType.String,
       defaultValue: "",
@@ -2143,7 +2144,6 @@ addPropertyControls(AsciiFormatterPro, {
     defaultValue: "autoPlay",
     options: ["autoPlay", "hoverPlay", "hover", "viewport"],
     optionTitles: ["Auto Play", "Hover Play", "Hover", "Viewport Enter"],
-    hidden: isSingle,
   },
   autoPlaySpeed: {
     type: ControlType.Number,
@@ -2153,7 +2153,6 @@ addPropertyControls(AsciiFormatterPro, {
     max: 10,
     step: 0.1,
     unit: "s",
-    hidden: isSingle,
   },
   pauseOnHover: {
     type: ControlType.Boolean,
@@ -2161,7 +2160,7 @@ addPropertyControls(AsciiFormatterPro, {
     defaultValue: false,
     enabledTitle: "On",
     disabledTitle: "Off",
-    hidden: (p: P) => isSingle(p) || p.playbackMode !== "autoPlay",
+    hidden: (p: P) => p.playbackMode !== "autoPlay",
   },
 
   // ━━━ Animation ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
