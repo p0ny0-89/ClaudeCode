@@ -2173,7 +2173,6 @@ addPropertyControls(AsciiFormatterPro, {
   hoverScope: {
     type: ControlType.Enum,
     title: "Hover Scope",
-    description: "Character mode is more performance-intensive, especially with dense ASCII art.",
     defaultValue: "global",
     options: ["global", "local"],
     optionTitles: ["Global", "Characters"],
