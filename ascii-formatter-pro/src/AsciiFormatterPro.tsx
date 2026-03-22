@@ -1105,7 +1105,8 @@ function useGlobalHoverEffect(
   hoverIntensity: number,
   text: string,
   seed: number,
-  enabled: boolean
+  enabled: boolean,
+  textAlign: TextAlign = "left"
 ) {
   const [isHovering, setIsHovering] = useState(false)
   const [hoverFrame, setHoverFrame] = useState(0)
@@ -1132,14 +1133,37 @@ function useGlobalHoverEffect(
   }, [])
 
   // Cache computed style measurements to avoid getComputedStyle every frame
-  const measuredRef = useRef({ fSize: 14, lh: 14, charW: 8.4 })
+  // Measure actual character width using a hidden probe span instead of guessing
+  const measuredRef = useRef({ fSize: 14, lh: 14, charW: 8.4, preWidth: 0 })
   useEffect(() => {
     const pre = preRef.current
     if (!pre) return
     const cs = getComputedStyle(pre)
     const fSize = parseFloat(cs.fontSize) || 14
     const lh = parseFloat(cs.lineHeight) || fSize
-    measuredRef.current = { fSize, lh, charW: fSize * 0.6 }
+
+    // Measure actual monospace character advance width including letter-spacing
+    let charW = fSize * 0.6 // fallback
+    try {
+      const probe = document.createElement("span")
+      probe.textContent = "MMMMMMMMMM" // 10 chars
+      probe.style.cssText = `
+        font-family: ${cs.fontFamily};
+        font-size: ${cs.fontSize};
+        letter-spacing: ${cs.letterSpacing};
+        white-space: pre;
+        position: absolute;
+        visibility: hidden;
+        pointer-events: none;
+      `
+      pre.appendChild(probe)
+      charW = probe.getBoundingClientRect().width / 10
+      pre.removeChild(probe)
+    } catch {
+      // fallback to estimate
+    }
+
+    measuredRef.current = { fSize, lh, charW, preWidth: pre.clientWidth }
   }) // runs after every render — cheap read from ref, getComputedStyle only once per render cycle
 
   // Pointer events: mouse hover + touch drag
@@ -1347,14 +1371,22 @@ function useGlobalHoverEffect(
   // Per-column vertical displacement offsets (global displace, vertical mode).
   // Creates a sine-wave ripple centered on cursor X, gaussian falloff.
   // Each column of characters shifts up/down independently.
+  // Accounts for text alignment offset.
   const displaceColumnOffsets = useMemo((): number[] | null => {
     if (!isHovering || hoverEffect !== "displace" || hoverScope === "local") return null
     if (displaceDirection !== "vertical") return null
 
-    const { charW } = measuredRef.current
+    const { charW, preWidth } = measuredRef.current
     const lines = text.split("\n")
     const maxCols = Math.max(...lines.map((l) => l.length))
     const px = pointerX.current
+
+    // Alignment offset for the longest line
+    const maxLineW = maxCols * charW
+    const alignOffset =
+      textAlign === "center" ? (preWidth > 0 ? (preWidth - maxLineW) / 2 : 0)
+      : textAlign === "right" ? (preWidth > 0 ? preWidth - maxLineW : 0)
+      : 0
 
     const time = hoverFrame * 0.15
     const maxPx = hoverIntensity * 150
@@ -1365,23 +1397,24 @@ function useGlobalHoverEffect(
 
     const offsets: number[] = []
     for (let col = 0; col < maxCols; col++) {
-      const colCenterX = col * charW + charW / 2
+      const colCenterX = alignOffset + col * charW + charW / 2
       const dist = Math.abs(colCenterX - px)
       const falloff = Math.exp(-(dist * dist) / (2 * sigma * sigma))
       const wave = Math.sin(time + (dist / charW) * waveFreq * Math.PI)
       offsets.push(Math.round(wave * falloff * maxPx))
     }
     return offsets
-  }, [isHovering, hoverEffect, hoverScope, displaceDirection, hoverIntensity, hoverFalloff, text, hoverFrame])
+  }, [isHovering, hoverEffect, hoverScope, displaceDirection, hoverIntensity, hoverFalloff, text, hoverFrame, textAlign])
 
   // Per-character displacement offsets (local displace mode).
   // Each character near the cursor gets an individual horizontal shift.
   // Optimized: skips entire rows outside the effect radius, uses cached measurements.
+  // Accounts for text alignment by computing per-line X offset.
   const localDisplaceData = useMemo((): { offsets: Float32Array; charW: number; lineH: number } | null => {
     if (!isHovering || hoverEffect !== "displace" || hoverScope !== "local") return null
     if (pointerX.current < 0) return null
 
-    const { lh, charW } = measuredRef.current
+    const { lh, charW, preWidth } = measuredRef.current
 
     const px = pointerX.current
     const py = pointerY.current
@@ -1398,6 +1431,16 @@ function useGlobalHoverEffect(
     const lines = text.split("\n")
     const totalChars = text.length // including newlines
     const offsets = new Float32Array(totalChars)
+
+    // Pre-compute per-line X offset for text alignment
+    const maxLineW = Math.max(...lines.map((l) => l.length)) * charW
+    const lineOffsets: number[] = lines.map((line) => {
+      const lineW = line.length * charW
+      if (textAlign === "center") return (preWidth > 0 ? (preWidth - lineW) / 2 : (maxLineW - lineW) / 2)
+      if (textAlign === "right") return (preWidth > 0 ? preWidth - lineW : maxLineW - lineW)
+      return 0 // left
+    })
+
     let idx = 0
 
     for (let row = 0; row < lines.length; row++) {
@@ -1413,9 +1456,10 @@ function useGlobalHoverEffect(
       }
 
       const dySq = dy * dy
+      const lineXOffset = lineOffsets[row]
 
       for (let col = 0; col < line.length; col++) {
-        const cx = col * charW + charW / 2
+        const cx = lineXOffset + col * charW + charW / 2
         const dx = cx - px
         const distSq = dx * dx + dySq
         const dist = Math.sqrt(distSq)
@@ -1431,7 +1475,7 @@ function useGlobalHoverEffect(
     }
 
     return { offsets, charW, lineH: lh }
-  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverFalloff, hoverRadius, text, hoverFrame])
+  }, [isHovering, hoverEffect, hoverScope, hoverIntensity, hoverFalloff, hoverRadius, text, hoverFrame, textAlign])
 
   const hoverStyle = useMemo((): React.CSSProperties => {
     if (!isHovering) return {}
@@ -1785,7 +1829,8 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     hoverIntensity,
     seqDisplayText,
     seed,
-    globalHoverActive
+    globalHoverActive,
+    props.textAlign
   )
 
   // ── Compute display text and styles ──
