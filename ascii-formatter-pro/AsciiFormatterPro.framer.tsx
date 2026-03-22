@@ -1584,13 +1584,19 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
     rgbSplit,
     glitchDirection,
     cursorBlink,
-    hoverEffect,
+
     hoverScope,
     hoverRadius,
     hoverFalloff,
     hoverIntensity,
     style,
   } = props
+
+  // Displace hover is incompatible with Constant repeat (both use transforms)
+  const hoverEffect: HoverEffect =
+    props.hoverEffect === "displace" && repeatMode === "loop"
+      ? "none"
+      : props.hoverEffect
 
   // Detect Framer canvas — disable all animations
   let isCanvas = false
@@ -2384,6 +2390,7 @@ addPropertyControls(AsciiFormatterPro, {
   hoverEffect: {
     type: ControlType.Enum,
     title: "Hover Effect",
+    description: "Displace is unavailable while Repeat is set to Constant.",
     defaultValue: "none",
     options: ["none", "glitch", "scramble", "displace", "flicker"],
     optionTitles: ["None", "Glitch", "Scramble", "Displace", "Flicker"],
