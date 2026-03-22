@@ -470,6 +470,8 @@ function GlitchFrame({
     // ── Cell grid: each cell contains a positioned content clone ──
     // No base layer — cells collectively form the full image at rest.
     // When displaced, vacated areas are empty (the glitch gap).
+    // Pad each cell by 0.5px to eliminate sub-pixel gaps between adjacent cells.
+    const pad = 0.5
     const cellFrag = document.createDocumentFragment()
     const cells: HTMLDivElement[] = []
     for (let r = 0; r < rowCount; r++) {
@@ -477,13 +479,13 @@ function GlitchFrame({
       for (let c = 0; c < colCount; c++) {
         const cellLeft = c * colWidth
         const cell = document.createElement("div")
-        cell.style.cssText = `position:absolute;left:${cellLeft}px;top:${cellTop}px;width:${colWidth}px;height:${rowHeight}px;overflow:hidden;will-change:transform;backface-visibility:hidden;`
+        cell.style.cssText = `position:absolute;left:${cellLeft - pad}px;top:${cellTop - pad}px;width:${colWidth + pad * 2}px;height:${rowHeight + pad * 2}px;overflow:hidden;will-change:transform;backface-visibility:hidden;`
         // Always populate: clone template positioned so this cell's window
         // shows the correct slice of the full content.
         const clone = template.cloneNode(true) as HTMLDivElement
         clone.style.inset = "auto"
-        clone.style.left = `-${cellLeft}px`
-        clone.style.top = `-${cellTop}px`
+        clone.style.left = `-${cellLeft - pad}px`
+        clone.style.top = `-${cellTop - pad}px`
         clone.style.width = `${pw}px`
         clone.style.height = `${ph}px`
         cell.appendChild(clone)

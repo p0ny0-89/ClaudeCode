@@ -529,6 +529,8 @@ export default function GlitchFrame({
   ])
 
   // ── Build cell grid ───────────────────────────────────────────────────────
+  // Pad each cell by 0.5px to eliminate sub-pixel gaps between adjacent cells.
+  const pad = 0.5
 
   const cells: ReactNode[] = []
   cellEls.current = []
@@ -551,7 +553,7 @@ export default function GlitchFrame({
           style={{
             position: "absolute",
             inset: 0,
-            clipPath: `inset(${top}px ${right}px ${bottom}px ${left}px)`,
+            clipPath: `inset(${top - pad}px ${right - pad}px ${bottom - pad}px ${left - pad}px)`,
             willChange: "transform",
             backfaceVisibility: "hidden",
           }}
