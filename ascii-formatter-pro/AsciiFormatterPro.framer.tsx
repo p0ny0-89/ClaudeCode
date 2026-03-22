@@ -15,7 +15,6 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 // Font is a Framer font object from ControlType.Font (native picker).
 // In dev harness it's a plain object with { fontFamily, fontWeight? }.
 type Font = Record<string, any>
-type FillType = "solid"
 type AppearEffect =
   | "none"
   | "fade"
@@ -37,7 +36,6 @@ type DisplaceDirection = "horizontal" | "vertical"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
 type PlaybackMode = "autoPlay" | "viewport" | "hoverPlay"
-// FrameTransition type removed — appearEffect now drives frame transitions directly
 
 interface AsciiFormatterProProps {
   // Content
@@ -56,7 +54,6 @@ interface AsciiFormatterProProps {
   lineHeight: number
   letterSpacing: number
   // Appearance
-  fillType: FillType
   color: string
   // Animation
   appearEffect: AppearEffect
@@ -249,14 +246,7 @@ function usePlayback(config: {
     return () => cancelAnimationFrame(rafRef.current)
   }, [enabled, started, duration, delay, repeatMode, repeatDelay, loopCount, cycle])
 
-  const replay = useCallback(() => {
-    setCycle(0)
-    setProgress(0)
-    startTime.current = 0
-    setStarted(true)
-  }, [])
-
-  return { progress, cycle, replay, isHovering: isHovering.current }
+  return { progress }
 }
 
 // ─── Auto-Fit Font Sizing ────────────────────────────────────────────
@@ -415,8 +405,6 @@ function useSequencePlayback(config: {
   const [transProgress, setTransProgress] = useState(1)
   const [prevFrame, setPrevFrame] = useState(0)
   const transStartRef = useRef(0)
-  const viewportTriggered = useRef(false)
-  const hoverActiveRef = useRef(false)
   const autoTimerRef = useRef(0)
   const [paused, setPaused] = useState(false)
 
@@ -457,10 +445,8 @@ function useSequencePlayback(config: {
   }, [enabled, playbackMode, pauseOnHover, containerRef])
 
   // Auto play — respects loopSequence: if off, stop after one full cycle
-  const autoPlayDone = useRef(false)
   useEffect(() => {
     if (!enabled || playbackMode !== "autoPlay" || paused) return
-    autoPlayDone.current = false
 
     const intervalMs = autoPlaySpeed * 1000
     let frameIdx = 0
@@ -468,7 +454,6 @@ function useSequencePlayback(config: {
       frameIdx++
       if (!loopSequence && frameIdx > maxFrame) {
         window.clearInterval(autoTimerRef.current)
-        autoPlayDone.current = true
         return
       }
       advanceFrame()
@@ -485,14 +470,12 @@ function useSequencePlayback(config: {
     if (!el) return
 
     const enter = () => {
-      hoverActiveRef.current = true
       setHoverPlaying(true)
       advanceFrame()
       const intervalMs = autoPlaySpeed * 1000
       hoverPlayTimerRef.current = window.setInterval(advanceFrame, intervalMs)
     }
     const leave = () => {
-      hoverActiveRef.current = false
       setHoverPlaying(false)
       window.clearInterval(hoverPlayTimerRef.current)
       // Reset to frame 0
@@ -919,10 +902,6 @@ function useHoverGlitch(
     [enabled, radius, decayMs, startCycling]
   )
 
-  const handleMouseLeave = useCallback(() => {
-    // Let existing chars decay naturally via their expiry timestamps
-  }, [])
-
   useEffect(() => {
     if (!enabled) {
       if (intervalRef.current !== null) {
@@ -940,7 +919,7 @@ function useHoverGlitch(
     }
   }, [enabled])
 
-  return { overrides, handleMouseMove, handleMouseLeave }
+  return { overrides, handleMouseMove }
 }
 
 /**
@@ -1659,9 +1638,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const [frameCount, setFrameCount] = useState(0)
 
   // ── Sequence mode: derive from whether frames have content ──
-  const hasSequenceFrames = framesProp && framesProp.length > 0 && framesProp.some((f) => f && f.trim().length > 0)
-  const isSequence = hasSequenceFrames
-  const seqActive = isSequence
+  const seqActive = framesProp && framesProp.length > 0 && framesProp.some((f: string) => f && f.trim().length > 0)
   const rawFrames = useMemo(() => {
     if (!seqActive) return [text]
     if (!framesProp || framesProp.length === 0) return [text]
@@ -1802,14 +1779,10 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   )
   const effectiveFontSize = autoFontSize
 
-  // Determine whether the appear effect has completed
-  const effectCompleted =
-    appearEffect === "none" || progress >= 1
-
   // ── Hover: local (character-level, event-delegation) ──
   const localHoverActive = hoverEffect !== "none"
     && hoverScope === "local"
-    && effectCompleted
+    && initialAppearDone
     && !isCanvas
     && (hoverEffect === "glitch" || hoverEffect === "scramble")
   const hoverGlitchHook = useHoverGlitch(seqDisplayText, localHoverActive, hoverRadius, 350, 60)
@@ -1888,7 +1861,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   }, [active, appearEffect, seqDisplayText, progress, direction, seed, frameCount, intensity, jitter, stagger, staggerAmount, cursorBlink])
 
   // Apply global hover text override when hovering (and appear effect is complete)
-  const displayText = globalHovering && globalHoverText !== null && effectCompleted
+  const displayText = globalHovering && globalHoverText !== null && initialAppearDone
     ? globalHoverText
     : textEffects.displayText
 
@@ -1976,11 +1949,11 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   let content: React.ReactNode
   if (localHoverActive) {
     content = renderHoverGlitchContent(displayText, hoverGlitchHook.overrides)
-  } else if (displaceOffsets && globalHovering && effectCompleted) {
+  } else if (displaceOffsets && globalHovering && initialAppearDone) {
     content = renderDisplacedLines(displayText, displaceOffsets)
-  } else if (displaceColumnOffsets && globalHovering && effectCompleted) {
+  } else if (displaceColumnOffsets && globalHovering && initialAppearDone) {
     content = renderDisplacedColumns(displayText, displaceColumnOffsets)
-  } else if (localDisplaceData && globalHovering && effectCompleted) {
+  } else if (localDisplaceData && globalHovering && initialAppearDone) {
     content = renderLocalDisplacedChars(displayText, localDisplaceData.offsets)
   } else {
     content = displayText
@@ -2031,7 +2004,6 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
               ...seqTransInner,
             }}
             onMouseMove={localHoverActive ? hoverGlitchHook.handleMouseMove : undefined}
-            onMouseLeave={localHoverActive ? hoverGlitchHook.handleMouseLeave : undefined}
           >
             {content}
             {layoutHidden && (
@@ -2054,7 +2026,6 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
               ...seqTransInner,
             }}
             onMouseMove={localHoverActive ? hoverGlitchHook.handleMouseMove : undefined}
-            onMouseLeave={localHoverActive ? hoverGlitchHook.handleMouseLeave : undefined}
           >
             {content}
             {layoutHidden && (
@@ -2087,7 +2058,6 @@ AsciiFormatterPro.defaultProps = {
   lineHeight: 1,
   letterSpacing: 0,
   // Appearance
-  fillType: "solid" as const,
   color: "#00FF41",
   // Animation
   appearEffect: "none" as AppearEffect,
@@ -2127,8 +2097,6 @@ AsciiFormatterPro.defaultProps = {
 type P = AsciiFormatterProProps
 
 const hasSeqFrames = (p: P) => p.frames && p.frames.length > 0 && p.frames.some((f: string) => f && f.trim().length > 0)
-const isSingle = (p: P) => !hasSeqFrames(p)
-const isSeq = (p: P) => hasSeqFrames(p)
 const isEffectNone = (p: P) => p.appearEffect === "none"
 const isGlitchLike = (p: P) =>
   p.appearEffect === "glitch" || p.appearEffect === "interference"
