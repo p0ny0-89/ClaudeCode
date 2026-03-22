@@ -72,6 +72,11 @@ export default function App() {
   const fillType: FillType = "solid"
   const [color, setColor] = useState("#00FF41")
 
+  // Glow
+  const [glow, setGlow] = useState(false)
+  const [glowIntensity, setGlowIntensity] = useState(0.5)
+  const [glowBlur, setGlowBlur] = useState(10)
+
   // Animation
   const [appearEffect, setAppearEffect] = useState<AppearEffect>("none")
   const [trigger, setTrigger] = useState<Trigger>("mount")
@@ -107,7 +112,7 @@ export default function App() {
     frames, playbackMode, autoPlaySpeed, loopSequence,
     pauseOnHover,
     fontSizingMode, fontSize, lineHeight, letterSpacing,
-    fillType, color,
+    fillType, color, glow, glowIntensity, glowBlur,
     appearEffect, trigger, repeatMode, duration, delay, stagger, staggerAmount,
     direction, repeatDelay, loopCount,
     intensity, frequency, seed, jitter, rgbSplit, glitchDirection, cursorBlink,
@@ -289,6 +294,22 @@ export default function App() {
 
         <label style={S.label}>Color</label>
         <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ ...S.input, height: 32, padding: 2 }} />
+
+        {/* Glow */}
+        <div style={S.section}>Glow</div>
+        <label style={S.label}>Glow</label>
+        <div style={S.segWrap}>
+          <button style={seg(glow)} onClick={() => setGlow(true)}>On</button>
+          <button style={seg(!glow)} onClick={() => setGlow(false)}>Off</button>
+        </div>
+        {glow && (
+          <>
+            <label style={{ ...S.label, marginTop: 8 }}>Intensity: {glowIntensity}</label>
+            <input type="range" min={0} max={1} step={0.05} value={glowIntensity} onChange={(e) => setGlowIntensity(Number(e.target.value))} style={{ width: "100%" }} />
+            <label style={{ ...S.label, marginTop: 8 }}>Blur: {glowBlur}px</label>
+            <input type="range" min={1} max={50} step={1} value={glowBlur} onChange={(e) => setGlowBlur(Number(e.target.value))} style={{ width: "100%" }} />
+          </>
+        )}
 
         {/* Animation */}
         <div style={S.section}>Animation</div>

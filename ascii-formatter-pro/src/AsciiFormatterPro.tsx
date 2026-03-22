@@ -79,6 +79,10 @@ interface AsciiFormatterProProps {
   rgbSplit: number
   glitchDirection: GlitchDirection
   cursorBlink: boolean
+  // Glow
+  glow: boolean
+  glowIntensity: number
+  glowBlur: number
   // Interaction
   hoverEffect: HoverEffect
   hoverScope: HoverScope
@@ -88,6 +92,15 @@ interface AsciiFormatterProProps {
   hoverIntensity: number
   // Framer
   style?: React.CSSProperties
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+/** Convert hex color string to "r,g,b" for use in rgba(). */
+function hexToRgb(hex: string): string {
+  const h = hex.replace("#", "")
+  const n = parseInt(h.length === 3 ? h.split("").map(c => c + c).join("") : h, 16)
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`
 }
 
 // ─── Constants ──────────────────────────────────────────────────────
@@ -1858,6 +1871,27 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const rgbStyle = getRgbSplitStyle(rgbSplit, glitchDirection, isGlitchActive)
   const jitterStyle = getJitterStyle(jitter, glitchDirection, frameCount, isGlitchActive)
 
+  // Glow effect via layered text-shadow (uses current text color)
+  const glowStyle = useMemo((): React.CSSProperties => {
+    if (!props.glow) return {}
+    const blur = props.glowBlur
+    const alpha = props.glowIntensity
+    const c = props.color || "#00FF41"
+    // Two layers: tight inner glow + softer outer bloom
+    const inner = `0 0 ${blur * 0.4}px ${c.replace(/^#/, "#")}` // tight
+    const outer = `0 0 ${blur}px rgba(${hexToRgb(c)},${alpha})`
+    return { textShadow: `${inner}, ${outer}` }
+  }, [props.glow, props.glowBlur, props.glowIntensity, props.color])
+
+  // Merge textShadow from glow + RGB split (both use textShadow)
+  const combinedShadowStyle = useMemo((): React.CSSProperties => {
+    const parts: string[] = []
+    if (glowStyle.textShadow) parts.push(glowStyle.textShadow as string)
+    if (rgbStyle.textShadow) parts.push(rgbStyle.textShadow as string)
+    if (parts.length === 0) return {}
+    return { textShadow: parts.join(", ") }
+  }, [glowStyle, rgbStyle])
+
   const textStyle = getTextStyle(props, effectiveFontSize)
 
   // Sequence transition styles (CSS-based effects: fade, reveal, scan)
@@ -1940,7 +1974,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
             style={{
               ...textStyle,
               ...textEffects.innerStyle,
-              ...rgbStyle,
+              ...combinedShadowStyle,
               ...jitterStyle,
               ...seqTransInner,
             }}
@@ -1963,7 +1997,7 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
             style={{
               ...textStyle,
               ...textEffects.innerStyle,
-              ...rgbStyle,
+              ...combinedShadowStyle,
               ...jitterStyle,
               ...seqTransInner,
             }}
@@ -2023,6 +2057,10 @@ AsciiFormatterPro.defaultProps = {
   rgbSplit: 0,
   glitchDirection: "horizontal" as GlitchDirection,
   cursorBlink: true,
+  // Glow
+  glow: false,
+  glowIntensity: 0.5,
+  glowBlur: 10,
   // Interaction
   hoverEffect: "none" as HoverEffect,
   hoverScope: "global" as HoverScope,
@@ -2140,6 +2178,34 @@ addPropertyControls(AsciiFormatterPro, {
     type: ControlType.Color,
     title: "Color",
     defaultValue: "#00FF41",
+  },
+
+  // ━━━ Glow ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  glow: {
+    type: ControlType.Boolean,
+    title: "Glow",
+    defaultValue: false,
+    enabledTitle: "On",
+    disabledTitle: "Off",
+  },
+  glowIntensity: {
+    type: ControlType.Number,
+    title: "Glow Intensity",
+    defaultValue: 0.5,
+    min: 0,
+    max: 1,
+    step: 0.05,
+    hidden: (p: P) => !p.glow,
+  },
+  glowBlur: {
+    type: ControlType.Number,
+    title: "Glow Blur",
+    defaultValue: 10,
+    min: 1,
+    max: 50,
+    step: 1,
+    unit: "px",
+    hidden: (p: P) => !p.glow,
   },
 
   // ━━━ Sequence ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
