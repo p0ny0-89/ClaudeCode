@@ -509,7 +509,7 @@ function GlitchFrame({
     })
     const sibStyleEl = document.createElement("style")
     sibStyleEl.textContent = sibClasses
-      .map((cls) => `.${cls}{visibility:hidden!important;}`)
+      .map((cls) => `.${cls}{opacity:0!important;pointer-events:none!important;}`)
       .join("\n")
     document.head.appendChild(sibStyleEl)
     setTimeout(() => { suppressObserverRef.current = false }, 0)
