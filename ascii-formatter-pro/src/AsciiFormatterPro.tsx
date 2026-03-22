@@ -1675,11 +1675,13 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   })
 
   // Resolve the active text from sequence or single mode
-  // In hoverPlay mode, show single-frame text at rest, sequence frames when playing
+  // Priority: if single frame has content and hoverPlay is at rest, show single frame.
+  // Otherwise show the active sequence frame. Fall back to first sequence frame or text.
   const seqText = useMemo(() => {
     if (!seqActive) return text
-    if (playbackMode === "hoverPlay" && !seq.hoverPlaying) return text
-    return frames[seq.activeFrame] || frames[0] || ""
+    const hasText = text && text.trim().length > 0
+    if (playbackMode === "hoverPlay" && !seq.hoverPlaying && hasText) return text
+    return frames[seq.activeFrame] || frames[0] || text
   }, [seqActive, text, frames, seq.activeFrame, playbackMode, seq.hoverPlaying])
 
   // During a transition, compute blended/transitioning text using the appear effect
