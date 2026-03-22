@@ -36,7 +36,6 @@ type HoverScope = "global" | "local"
 type DisplaceDirection = "horizontal" | "vertical"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
-type ContentMode = "single" | "sequence"
 type PlaybackMode = "autoPlay" | "viewport" | "hoverPlay"
 // FrameTransition type removed — appearEffect now drives frame transitions directly
 
@@ -46,7 +45,6 @@ interface AsciiFormatterProProps {
   font: Font
   textAlign: TextAlign
   // Sequence
-  contentMode: ContentMode
   frames: string[]
   playbackMode: PlaybackMode
   autoPlaySpeed: number
@@ -1562,7 +1560,6 @@ function getJitterStyle(
 export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const {
     text,
-    contentMode,
     frames: framesProp,
     playbackMode,
     autoPlaySpeed,
@@ -1608,11 +1605,10 @@ export default function AsciiFormatterPro(props: AsciiFormatterProProps) {
   const preRef = useRef<HTMLPreElement>(null)
   const [frameCount, setFrameCount] = useState(0)
 
-  // ── Sequence mode: build frames array ──
-  const isSequence = contentMode === "sequence"
-  // hoverPlay can use sequence frames even in single-frame mode
-  const hasSequenceFrames = framesProp && framesProp.length > 1
-  const seqActive = isSequence || (playbackMode === "hoverPlay" && hasSequenceFrames)
+  // ── Sequence mode: derive from whether frames have content ──
+  const hasSequenceFrames = framesProp && framesProp.length > 0 && framesProp.some((f) => f && f.trim().length > 0)
+  const isSequence = hasSequenceFrames
+  const seqActive = isSequence
   const rawFrames = useMemo(() => {
     if (!seqActive) return [text]
     if (!framesProp || framesProp.length === 0) return [text]
@@ -2024,8 +2020,7 @@ AsciiFormatterPro.defaultProps = {
   font: DEFAULT_FONT,
   textAlign: "left" as TextAlign,
   // Sequence
-  contentMode: "single" as ContentMode,
-  frames: [DEFAULT_TEXT, ""],
+  frames: [],
   playbackMode: "autoPlay" as PlaybackMode,
   autoPlaySpeed: 1,
   loopSequence: true,
@@ -2075,8 +2070,9 @@ AsciiFormatterPro.defaultProps = {
 // Helper types for conditional visibility
 type P = AsciiFormatterProProps
 
-const isSingle = (p: P) => p.contentMode !== "sequence"
-const isSeq = (p: P) => p.contentMode === "sequence"
+const hasSeqFrames = (p: P) => p.frames && p.frames.length > 0 && p.frames.some((f: string) => f && f.trim().length > 0)
+const isSingle = (p: P) => !hasSeqFrames(p)
+const isSeq = (p: P) => hasSeqFrames(p)
 const isEffectNone = (p: P) => p.appearEffect === "none"
 const isGlitchLike = (p: P) =>
   p.appearEffect === "glitch" || p.appearEffect === "interference"
@@ -2091,17 +2087,9 @@ const hasStagger = (p: P) =>
 
 addPropertyControls(AsciiFormatterPro, {
   // ━━━ Content ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  contentMode: {
-    type: ControlType.Enum,
-    title: "Mode",
-    defaultValue: "single",
-    options: ["single", "sequence"],
-    optionTitles: ["Single Frame", "Sequence"],
-    displaySegmentedControl: true,
-  },
   text: {
     type: ControlType.String,
-    title: "ASCII Art",
+    title: "Single Frame",
     defaultValue: DEFAULT_TEXT,
     displayTextArea: true,
     placeholder: "Paste your ASCII art here...",
@@ -2109,9 +2097,9 @@ addPropertyControls(AsciiFormatterPro, {
   // Sequence frames (array with per-item add/remove/reorder)
   frames: {
     type: ControlType.Array,
-    title: "Frames",
+    title: "Sequence Frames",
     description: "Enter multiple ASCII frames in order for sequence playback.",
-    defaultValue: [DEFAULT_TEXT, ""],
+    defaultValue: [],
     maxCount: 15,
     control: {
       type: ControlType.String,
@@ -2246,7 +2234,7 @@ addPropertyControls(AsciiFormatterPro, {
   appearEffect: {
     type: ControlType.Enum,
     title: "Appear Effect",
-    description: "In Sequence mode, this effect also applies between frames.",
+    description: "Also applies between sequence frames when populated.",
     defaultValue: "none",
     options: ["none", "fade", "reveal", "typing", "glitch", "scramble", "scan", "boot", "interference"],
     optionTitles: ["Instant", "Fade", "Directional Reveal", "Typing", "Glitch", "Scramble In", "Scan Reveal", "Boot Sequence", "Interference"],

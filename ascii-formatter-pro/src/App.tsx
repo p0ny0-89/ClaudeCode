@@ -46,11 +46,9 @@ type HoverEffect = "none" | "glitch" | "scramble" | "displace" | "flicker"
 type HoverScope = "global" | "local"
 type TextAlign = "left" | "center" | "right"
 type FontSizingMode = "fixed" | "auto"
-type ContentMode = "single" | "sequence"
 type PlaybackMode = "autoPlay" | "viewport" | "hoverPlay"
 export default function App() {
   // Content
-  const [contentMode, setContentMode] = useState<ContentMode>("single")
   const [text, setText] = useState(DEFAULT_ASCII)
   const [font, setFont] = useState<Font>({ fontFamily: "'Courier New', Courier, monospace", fontWeight: 400 })
   const [textAlign, setTextAlign] = useState<TextAlign>("left")
@@ -108,7 +106,7 @@ export default function App() {
   const [replayKey, setReplayKey] = useState(0)
 
   const allProps = {
-    contentMode, text, font, textAlign,
+    text, font, textAlign,
     frames, playbackMode, autoPlaySpeed, loopSequence,
     pauseOnHover,
     fontSizingMode, fontSize, lineHeight, letterSpacing,
@@ -148,37 +146,23 @@ export default function App() {
       <div style={{ width: 290, background: "#222", padding: 16, overflowY: "auto", borderLeft: "1px solid #333" }}>
         <h3 style={{ color: "#fff", fontSize: 14, margin: "0 0 16px" }}>AsciiFormatterPro</h3>
 
-        {/* Content Mode */}
-        <label style={S.label}>Mode</label>
-        <div style={S.segWrap}>
-          <button style={seg(contentMode === "single")} onClick={() => setContentMode("single")}>Single Frame</button>
-          <button style={seg(contentMode === "sequence")} onClick={() => setContentMode("sequence")}>Sequence</button>
+        {/* Single Frame */}
+        <label style={S.label}>Single Frame</label>
+        <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
+          {[
+            { label: "Cat", value: DEFAULT_ASCII },
+            { label: "Skull", value: SKULL_ASCII },
+            { label: "Circuit", value: CIRCUIT_ASCII },
+            { label: "Robot", value: ROBOT_ASCII },
+          ].map((p) => (
+            <button key={p.label} onClick={() => setText(p.value)} style={{ ...S.input, cursor: "pointer", flex: "1 1 60px", textAlign: "center" }}>{p.label}</button>
+          ))}
         </div>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} style={{ ...S.input, fontFamily: "'Courier New', monospace", resize: "vertical", whiteSpace: "pre" }} />
 
-        {/* Presets (single mode) */}
-        {contentMode === "single" && (
-          <>
-            <label style={{ ...S.label, marginTop: 8 }}>Presets</label>
-            <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
-              {[
-                { label: "Cat", value: DEFAULT_ASCII },
-                { label: "Skull", value: SKULL_ASCII },
-                { label: "Circuit", value: CIRCUIT_ASCII },
-                { label: "Robot", value: ROBOT_ASCII },
-              ].map((p) => (
-                <button key={p.label} onClick={() => setText(p.value)} style={{ ...S.input, cursor: "pointer", flex: "1 1 60px", textAlign: "center" }}>{p.label}</button>
-              ))}
-            </div>
-
-            <label style={S.label}>ASCII Art</label>
-            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} style={{ ...S.input, fontFamily: "'Courier New', monospace", resize: "vertical", whiteSpace: "pre" }} />
-          </>
-        )}
-
-        {/* Sequence mode */}
-        {contentMode === "sequence" && (
-          <>
-            <label style={{ ...S.label, marginTop: 8 }}>Frames ({frames.length})</label>
+        {/* Sequence Frames */}
+        <label style={{ ...S.label, marginTop: 16 }}>Sequence Frames ({frames.length})</label>
+        <div style={{ color: "#888", fontSize: 11, marginBottom: 4 }}>Enter multiple ASCII frames in order for sequence playback.</div>
 
             {frames.map((frame, i) => (
               <div key={i} style={{ position: "relative", marginTop: 8 }}>
@@ -201,7 +185,7 @@ export default function App() {
               </div>
             ))}
 
-            {frames.length < 6 && (
+            {frames.length < 15 && (
               <button
                 onClick={() => setFrames((prev) => [...prev, ""])}
                 style={{ ...S.input, marginTop: 8, cursor: "pointer", textAlign: "center", background: "#2a2a2a", color: "#999", border: "1px dashed #555" }}
@@ -239,10 +223,6 @@ export default function App() {
                 </div>
               </>
             )}
-
-
-          </>
-        )}
 
         <label style={{ ...S.label, marginTop: 8 }}>Font</label>
         <select value={font.fontFamily} onChange={(e) => setFont({ fontFamily: e.target.value, fontWeight: 400 })} style={S.input}>
