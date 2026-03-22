@@ -1174,9 +1174,12 @@ function useGlobalHoverEffect(
           return
         }
       }
-      // Update pointer position (works for both mouse and active touch drag)
+      // Update pointer position relative to the <pre> element (not the container)
+      // so hover effects align with the actual text regardless of alignment/padding
       if (e.pointerType !== "touch" || touchCaptured.current) {
-        const rect = el.getBoundingClientRect()
+        const pre = preRef.current
+        const target = pre || el
+        const rect = target.getBoundingClientRect()
         pointerX.current = e.clientX - rect.left
         pointerY.current = e.clientY - rect.top
       }
