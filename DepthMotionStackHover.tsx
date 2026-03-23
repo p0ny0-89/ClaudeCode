@@ -945,6 +945,26 @@ export default function DepthMotionStackHover(props: Props) {
         startLoop,
     ])
 
+    // ── Clip to Foreground (applied post-render) ─────────
+    // Applied imperatively after Framer has sized slot children,
+    // so the clip doesn't interfere with Framer's layout pass.
+    useEffect(() => {
+        const el = surfaceRef.current
+        if (!el) return
+        if (clipToForeground && parallax) {
+            // Delay one frame to ensure Framer has finished layout
+            const id = requestAnimationFrame(() => {
+                el.style.clipPath = "inset(0)"
+            })
+            return () => {
+                cancelAnimationFrame(id)
+                el.style.clipPath = ""
+            }
+        } else {
+            el.style.clipPath = ""
+        }
+    }, [clipToForeground, parallax])
+
     // ── Cleanup ─────────────────────────────────────────
 
     useEffect(() => () => {
@@ -1082,7 +1102,6 @@ export default function DepthMotionStackHover(props: Props) {
                     width: "100%",
                     height: "100%",
                     display: "grid",
-                    clipPath: clipToForeground ? "inset(0)" : undefined,
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
