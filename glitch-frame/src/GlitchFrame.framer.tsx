@@ -266,7 +266,7 @@ function GlitchFrame({
   const trailFadesBuf = useRef<Float64Array>(new Float64Array(64))
 
   // Autoplay refs
-  const isInView = useRef(false)
+  const isInView = useRef(true) // default true so first burst isn't blocked
   const autoplayStopped = useRef(false)
   const autoplayBurstActive = useRef(false)
   const realPointerActive = useRef(false)
@@ -778,14 +778,16 @@ function GlitchFrame({
   }, [touchDrag])
 
   // ── Autoplay: IntersectionObserver for viewport visibility ─────────────
+  // Observe selfRef (always mounted) OR parent — whichever is available.
+  // This works even when the parent has pointer-events:none.
   useEffect(() => {
-    const parent = parentRef.current
-    if (!parent) return
+    const target = parentRef.current || selfRef.current
+    if (!target) return
     const observer = new IntersectionObserver(
       ([entry]) => { isInView.current = entry.isIntersecting },
       { threshold: 0.1 }
     )
-    observer.observe(parent)
+    observer.observe(target)
     return () => observer.disconnect()
   }, [pw, ph])
 
