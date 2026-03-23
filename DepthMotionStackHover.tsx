@@ -1061,17 +1061,107 @@ export default function DepthMotionStackHover(props: Props) {
     }
 
     // ── Parallax render ──────────────────────────────────────
-    // clipToForeground: a static outer wrapper (grid cell) has overflow:hidden
-    // and stays in place. The inner div (ref) translates inside it via parallax.
-    // The foreground itself is NOT clipped — its content can overflow.
 
-    // Helper: wraps a layer in a static clip container when clipToForeground is on.
-    // The outer div is the grid cell with overflow:hidden (stationary).
-    // The inner div gets the ref and moves via translate3d.
-    const clipCell: React.CSSProperties = {
-        ...gridCell,
-        overflow: "hidden",
+    if (clipToForeground) {
+        // Clip-to-foreground layout:
+        // A single clip container (grid cell, overflow:hidden) holds all
+        // layers below the fg as absolute children. Each gets translated
+        // by parallax inside the static clip boundary. The fg is a
+        // separate grid cell that can overflow freely.
+        return (
+            <div
+                ref={containerRef}
+                style={containerStyle}
+                onPointerEnter={onPointerEnter}
+                onPointerMove={onPointerMove}
+                onPointerLeave={onPointerLeave}
+                onPointerDown={onPointerDown}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
+            >
+                {fillStyle}
+                <div
+                    ref={surfaceRef}
+                    style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "grid",
+                        gridTemplate: "1fr / 1fr",
+                        isolation: "isolate",
+                        willChange: tilt ? "transform" : undefined,
+                        ...(touchActive ? { pointerEvents: "none" as const } : {}),
+                    }}
+                >
+                    {/* Clip container for all layers below foreground */}
+                    <div
+                        style={{
+                            gridRow: 1,
+                            gridColumn: 1,
+                            position: "relative",
+                            overflow: "hidden",
+                            pointerEvents: "none",
+                        }}
+                    >
+                        {/* Background */}
+                        {background && (
+                            <div
+                                ref={bgRef}
+                                className={bgClass}
+                                style={{
+                                    position: "absolute",
+                                    inset: 0,
+                                    willChange: "transform",
+                                    pointerEvents: "none",
+                                    opacity: bgInitialOpacity,
+                                }}
+                            >
+                                {background}
+                            </div>
+                        )}
+
+                        {/* Mid layers */}
+                        {midLayersArr.map((mid, i) => {
+                            if (!mid) return null
+                            const midOp = midInitialOpacities[i]
+                            return (
+                                <div
+                                    key={`layer-mid-${i}`}
+                                    ref={(el) => { midRefs.current[i] = el }}
+                                    className={fillClass}
+                                    style={{
+                                        position: "absolute",
+                                        inset: 0,
+                                        willChange: "transform",
+                                        pointerEvents: "none",
+                                        mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
+                                        opacity: midOp < 100 ? midOp / 100 : undefined,
+                                    }}
+                                >
+                                    {mid}
+                                </div>
+                            )
+                        })}
+                    </div>
+
+                    {/* Foreground — NOT clipped, can overflow */}
+                    <div
+                        ref={fgRef}
+                        className={fillClass}
+                        style={{
+                            ...gridCell,
+                            overflow: clipContent ? "hidden" : "visible",
+                            mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
+                            opacity: fgInitialOpacity,
+                        }}
+                    >
+                        {content}
+                    </div>
+                </div>
+            </div>
+        )
     }
+
+    // ── Flat parallax render (no clipping) ──────────────────
 
     return (
         <div
@@ -1091,30 +1181,13 @@ export default function DepthMotionStackHover(props: Props) {
                     width: "100%",
                     height: "100%",
                     display: "grid",
-                    gridTemplate: "100% / 100%",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
             >
                 {/* Background */}
-                {background && (clipToForeground ? (
-                    <div key="bg-clip" style={clipCell}>
-                        <div
-                            ref={bgRef}
-                            className={bgClass}
-                            style={{
-                                width: "100%",
-                                height: "100%",
-                                willChange: "transform",
-                                pointerEvents: "none",
-                                opacity: bgInitialOpacity,
-                            }}
-                        >
-                            {background}
-                        </div>
-                    </div>
-                ) : (
+                {background && (
                     <div
                         ref={bgRef}
                         className={bgClass}
@@ -1126,30 +1199,13 @@ export default function DepthMotionStackHover(props: Props) {
                     >
                         {background}
                     </div>
-                ))}
+                )}
 
                 {/* Mid layers */}
                 {midLayersArr.map((mid, i) => {
                     if (!mid) return null
                     const midOp = midInitialOpacities[i]
-                    return clipToForeground ? (
-                        <div key={`mid-clip-${i}`} style={clipCell}>
-                            <div
-                                ref={(el) => { midRefs.current[i] = el }}
-                                className={fillClass}
-                                style={{
-                                    width: "100%",
-                                    height: "100%",
-                                    willChange: "transform",
-                                    pointerEvents: "none",
-                                    mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
-                                    opacity: midOp < 100 ? midOp / 100 : undefined,
-                                }}
-                            >
-                                {mid}
-                            </div>
-                        </div>
-                    ) : (
+                    return (
                         <div
                             key={`layer-mid-${i}`}
                             ref={(el) => { midRefs.current[i] = el }}
@@ -1166,7 +1222,7 @@ export default function DepthMotionStackHover(props: Props) {
                     )
                 })}
 
-                {/* Foreground — NOT clipped, defines the visual bounds */}
+                {/* Foreground */}
                 <div
                     ref={fgRef}
                     className={fillClass}
