@@ -1061,11 +1061,17 @@ export default function DepthMotionStackHover(props: Props) {
     }
 
     // ── Parallax render ──────────────────────────────────────
-    // clipToForeground: bg and mid layers get overflow:hidden on their
-    // wrappers so they clip to the grid cell (= foreground bounds).
+    // clipToForeground: a static outer wrapper (grid cell) has overflow:hidden
+    // and stays in place. The inner div (ref) translates inside it via parallax.
     // The foreground itself is NOT clipped — its content can overflow.
-    const bgClipClass = clipToForeground ? fillClass : bgClass
-    const belowClip = (clipContent || clipToForeground) ? "hidden" as const : "visible" as const
+
+    // Helper: wraps a layer in a static clip container when clipToForeground is on.
+    // The outer div is the grid cell with overflow:hidden (stationary).
+    // The inner div gets the ref and moves via translate3d.
+    const clipCell: React.CSSProperties = {
+        ...gridCell,
+        overflow: "hidden",
+    }
 
     return (
         <div
@@ -1091,32 +1097,65 @@ export default function DepthMotionStackHover(props: Props) {
                 }}
             >
                 {/* Background */}
-                {background && (
+                {background && (clipToForeground ? (
+                    <div key="bg-clip" style={clipCell}>
+                        <div
+                            ref={bgRef}
+                            className={fillClass}
+                            style={{
+                                width: "100%",
+                                height: "100%",
+                                willChange: "transform",
+                                pointerEvents: "none",
+                                opacity: bgInitialOpacity,
+                            }}
+                        >
+                            {background}
+                        </div>
+                    </div>
+                ) : (
                     <div
                         ref={bgRef}
-                        className={bgClipClass}
+                        className={bgClass}
                         style={{
                             ...gridCell,
-                            overflow: belowClip,
+                            overflow: clipContent ? "hidden" : "visible",
                             opacity: bgInitialOpacity,
                         }}
                     >
                         {background}
                     </div>
-                )}
+                ))}
 
                 {/* Mid layers */}
                 {midLayersArr.map((mid, i) => {
                     if (!mid) return null
                     const midOp = midInitialOpacities[i]
-                    return (
+                    return clipToForeground ? (
+                        <div key={`mid-clip-${i}`} style={clipCell}>
+                            <div
+                                ref={(el) => { midRefs.current[i] = el }}
+                                className={fillClass}
+                                style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    willChange: "transform",
+                                    pointerEvents: "none",
+                                    mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
+                                    opacity: midOp < 100 ? midOp / 100 : undefined,
+                                }}
+                            >
+                                {mid}
+                            </div>
+                        </div>
+                    ) : (
                         <div
                             key={`layer-mid-${i}`}
                             ref={(el) => { midRefs.current[i] = el }}
                             className={fillClass}
                             style={{
                                 ...gridCell,
-                                overflow: belowClip,
+                                overflow: clipContent ? "hidden" : "visible",
                                 mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                 opacity: midOp < 100 ? midOp / 100 : undefined,
                             }}
