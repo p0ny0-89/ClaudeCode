@@ -1071,7 +1071,7 @@ export default function DepthMotionStackHover(props: Props) {
             <div
                 key="layer-bg"
                 ref={bgRef}
-                className={bgFillClass}
+                className={fillClass}
                 style={{
                     position: "absolute",
                     inset: bgInset,
