@@ -1064,10 +1064,10 @@ export default function DepthMotionStackHover(props: Props) {
 
     if (clipToForeground) {
         // Clip-to-foreground layout:
-        // A single clip container (grid cell, overflow:hidden) holds all
-        // layers below the fg as absolute children. Each gets translated
-        // by parallax inside the static clip boundary. The fg is a
-        // separate grid cell that can overflow freely.
+        // The fg wrapper acts as the clipping parent with overflow:hidden.
+        // BG and mid layers are absolute children inside it, behind the
+        // fg content. They inherit the fg's clip shape (including border-radius).
+        // The fg content renders on top via position:relative and z-index.
         return (
             <div
                 ref={containerRef}
@@ -1092,36 +1092,37 @@ export default function DepthMotionStackHover(props: Props) {
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
                 >
-                    {/* Clip container for all layers below foreground */}
+                    {/* Foreground wrapper — clips all layers to its shape */}
                     <div
+                        ref={fgRef}
+                        className={fillClass}
                         style={{
-                            gridRow: 1,
-                            gridColumn: 1,
-                            width: "100%",
-                            height: "100%",
-                            position: "relative",
+                            ...gridCell,
                             overflow: "hidden",
-                            pointerEvents: "none",
+                            position: "relative",
+                            mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
+                            opacity: fgInitialOpacity,
                         }}
                     >
-                        {/* Background */}
+                        {/* Background — behind fg content */}
                         {background && (
                             <div
                                 ref={bgRef}
-                                className={bgClass}
+                                className={fillClass}
                                 style={{
                                     position: "absolute",
                                     inset: 0,
                                     willChange: "transform",
                                     pointerEvents: "none",
                                     opacity: bgInitialOpacity,
+                                    zIndex: 0,
                                 }}
                             >
                                 {background}
                             </div>
                         )}
 
-                        {/* Mid layers */}
+                        {/* Mid layers — behind fg content */}
                         {midLayersArr.map((mid, i) => {
                             if (!mid) return null
                             const midOp = midInitialOpacities[i]
@@ -1137,26 +1138,24 @@ export default function DepthMotionStackHover(props: Props) {
                                         pointerEvents: "none",
                                         mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                         opacity: midOp < 100 ? midOp / 100 : undefined,
+                                        zIndex: i + 1,
                                     }}
                                 >
                                     {mid}
                                 </div>
                             )
                         })}
-                    </div>
 
-                    {/* Foreground — NOT clipped, can overflow */}
-                    <div
-                        ref={fgRef}
-                        className={fillClass}
-                        style={{
-                            ...gridCell,
-                            overflow: clipContent ? "hidden" : "visible",
-                            mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
-                            opacity: fgInitialOpacity,
-                        }}
-                    >
-                        {content}
+                        {/* FG content on top */}
+                        <div style={{
+                            position: "relative",
+                            width: "100%",
+                            height: "100%",
+                            pointerEvents: "none",
+                            zIndex: layerCount + 2,
+                        }}>
+                            {content}
+                        </div>
                     </div>
                 </div>
             </div>
