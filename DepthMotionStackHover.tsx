@@ -1082,7 +1082,7 @@ export default function DepthMotionStackHover(props: Props) {
                     width: "100%",
                     height: "100%",
                     display: "grid",
-                    overflow: clipToForeground ? "hidden" : undefined,
+                    clipPath: clipToForeground ? "inset(0)" : undefined,
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
