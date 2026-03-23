@@ -784,11 +784,14 @@ function GlitchFrame({
     return () => observer.disconnect()
   }, [pw, ph])
 
+  // ── Autoplay: reset stopped flag only when autoplay prop toggles on ────
+  useEffect(() => {
+    if (autoplay) autoplayStopped.current = false
+  }, [autoplay])
+
   // ── Autoplay: periodic synthetic burst injection ───────────────────────
   useEffect(() => {
     if (!autoplay || cellCount === 0 || pw <= 0 || ph <= 0) return
-    // Reset stopped flag when autoplay is toggled on
-    autoplayStopped.current = false
 
     const id = setInterval(() => {
       // Skip if: not in viewport, stopped by interaction, or real pointer active
