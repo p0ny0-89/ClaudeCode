@@ -77,7 +77,6 @@ interface Props {
     bgOpacityHover: number
     clipToForeground: boolean
     alphaMask: string
-    alphaMaskMode: "luminance" | "alpha"
     style?: React.CSSProperties
 }
 
@@ -146,7 +145,6 @@ export default function DepthMotionStackHover(props: Props) {
         bgOpacityHover = 100,
         clipToForeground = false,
         alphaMask,
-        alphaMaskMode = "luminance",
         style,
     } = props
 
@@ -1169,8 +1167,8 @@ export default function DepthMotionStackHover(props: Props) {
                                 maskSize: "100% 100%",
                                 WebkitMaskRepeat: "no-repeat",
                                 maskRepeat: "no-repeat",
-                                WebkitMaskMode: alphaMaskMode,
-                                maskMode: alphaMaskMode,
+                                WebkitMaskMode: "luminance",
+                                maskMode: "luminance",
                             } : {}),
                         }}
                     >
@@ -1721,18 +1719,6 @@ addPropertyControls(DepthMotionStackHover, {
         description:
             "Optional black and white mask image for custom clipping. White is visible, black is hidden. Leave empty to use the foreground layer's frame.",
         hidden: (props: any) => !props.parallax || !props.clipToForeground,
-    },
-
-    alphaMaskMode: {
-        type: ControlType.Enum,
-        title: "Mask Mode",
-        options: ["luminance", "alpha"],
-        optionTitles: ["Luminance (B&W)", "Alpha (Transparency)"],
-        defaultValue: "luminance",
-        description:
-            "Luminance uses brightness (white = visible). Alpha uses transparency.",
-        hidden: (props: any) =>
-            !props.parallax || !props.clipToForeground || !props.alphaMask,
     },
 
     // ── Motion behavior ─────────────────────────────────
