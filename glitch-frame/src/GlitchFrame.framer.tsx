@@ -993,7 +993,13 @@ function GlitchFrame({
 
           // "Released" = trail influence has dropped well below current
           // displacement, meaning the cell should start easing back to rest.
-          const isReleased = absTarget < Math.max(0.5, prevAbsDisp * 0.3)
+          // Hysteresis: once returning, require much stronger influence to
+          // re-enter attack mode — prevents jittery mode-switching as trail fades.
+          const alreadyReturning = returnTimes[idx] > 0
+          const releaseThreshold = alreadyReturning
+            ? Math.max(2.0, prevAbsDisp * 0.65)
+            : Math.max(0.5, prevAbsDisp * 0.3)
+          const isReleased = absTarget < releaseThreshold
 
           if (!isReleased) {
             // Attack: actively influenced by pointer — responsive lerp
