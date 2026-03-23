@@ -1065,11 +1065,6 @@ export default function DepthMotionStackHover(props: Props) {
     // and all other layers are absolute-positioned children inside it.
 
     if (clipToForeground) {
-        // Scale factor to enlarge the background so edges aren't visible during parallax.
-        // parallaxAmount is the max px shift; the bg needs to be wider/taller by 2× that.
-        // We compute a CSS scale based on the component's dimensions.
-        const bgPad = parallaxAmount
-
         return (
             <div
                 ref={containerRef}
@@ -1105,18 +1100,15 @@ export default function DepthMotionStackHover(props: Props) {
                             opacity: fgInitialOpacity,
                         }}
                     >
-                        {/* Background — enlarged to cover parallax travel */}
+                        {/* Background — same sizing as flat mode, just nested inside fg */}
                         {background && (
                             <div
                                 key="layer-bg"
                                 ref={bgRef}
-                                className={fillClass}
+                                className={bgClass}
                                 style={{
                                     position: "absolute",
-                                    top: -bgPad,
-                                    left: -bgPad,
-                                    width: `calc(100% + ${bgPad * 2}px)`,
-                                    height: `calc(100% + ${bgPad * 2}px)`,
+                                    inset: 0,
                                     willChange: "transform",
                                     pointerEvents: "none",
                                     opacity: bgInitialOpacity,
