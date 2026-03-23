@@ -1064,8 +1064,6 @@ export default function DepthMotionStackHover(props: Props) {
     // clipToForeground: overflow:hidden on the surface clips all layers to
     // the component frame (which matches the foreground). No nesting needed —
     // Framer slot children keep their own sizing and the grid handles layout.
-    const shouldClip = clipContent || clipToForeground
-
     return (
         <div
             ref={containerRef}
@@ -1097,7 +1095,7 @@ export default function DepthMotionStackHover(props: Props) {
                         className={bgClass}
                         style={{
                             ...gridCell,
-                            overflow: shouldClip ? "hidden" : "visible",
+                            overflow: clipContent ? "hidden" : "visible",
                             opacity: bgInitialOpacity,
                         }}
                     >
@@ -1116,7 +1114,7 @@ export default function DepthMotionStackHover(props: Props) {
                             className={fillClass}
                             style={{
                                 ...gridCell,
-                                overflow: shouldClip ? "hidden" : "visible",
+                                overflow: clipContent ? "hidden" : "visible",
                                 mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                 opacity: midOp < 100 ? midOp / 100 : undefined,
                             }}
@@ -1132,7 +1130,7 @@ export default function DepthMotionStackHover(props: Props) {
                     className={fillClass}
                     style={{
                         ...gridCell,
-                        overflow: shouldClip ? "hidden" : "visible",
+                        overflow: clipContent ? "hidden" : "visible",
                         mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         opacity: fgInitialOpacity,
                     }}
