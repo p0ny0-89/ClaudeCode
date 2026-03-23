@@ -1126,14 +1126,14 @@ export default function DepthMotionStackHover(props: Props) {
                             opacity: fgInitialOpacity,
                         }}
                     >
-                        {/* Background — behind fg content */}
+                        {/* Background — enlarged by parallaxAmount to cover parallax travel */}
                         {background && (
                             <div
                                 ref={bgRef}
                                 className={fillClass}
                                 style={{
                                     position: "absolute",
-                                    inset: 0,
+                                    inset: -parallaxAmount,
                                     willChange: "transform",
                                     pointerEvents: "none",
                                     opacity: bgInitialOpacity,
