@@ -76,12 +76,7 @@ interface Props {
     mid5OpacityHover: number
     bgOpacityIdle: number
     bgOpacityHover: number
-    bgClipByAbove: boolean
-    mid1ClipByAbove: boolean
-    mid2ClipByAbove: boolean
-    mid3ClipByAbove: boolean
-    mid4ClipByAbove: boolean
-    mid5ClipByAbove: boolean
+    clipToForeground: boolean
     style?: React.CSSProperties
 }
 
@@ -149,54 +144,22 @@ export default function DepthMotionStackHover(props: Props) {
         mid5OpacityHover = 100,
         bgOpacityIdle = 100,
         bgOpacityHover = 100,
-        bgClipByAbove = false,
-        mid1ClipByAbove = false,
-        mid2ClipByAbove = false,
-        mid3ClipByAbove = false,
-        mid4ClipByAbove = false,
-        mid5ClipByAbove = false,
+        clipToForeground = false,
         style,
     } = props
 
     // Build ordered arrays from individual layer props
     const midLayersArr = [mid1, mid2, mid3, mid4, mid5].slice(0, layerCount)
     const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend].slice(0, layerCount)
-    const midClipArr = [mid1ClipByAbove, mid2ClipByAbove, mid3ClipByAbove, mid4ClipByAbove, mid5ClipByAbove].slice(0, layerCount)
 
-    // ── Clip-by-above: nesting & effective depth factors ──
-    // Total layer count: bg + mid layers + fg
+    // ── Depth factors for parallax ──
     const totalLayers = 2 + layerCount
-    // Raw depth factors: bg=-1, mid layers interpolated, fg=+1
-    const rawFactors: number[] = [
+    // Depth factors: bg=-1, mid layers interpolated, fg=+1
+    const depthFactors: number[] = [
         -1,
         ...Array.from({ length: layerCount }, (_, i) => -1 + (i + 1) / (totalLayers - 1) * 2),
         1,
     ]
-    // Clip flags per layer (fg is always false)
-    const clipFlags = [
-        bgClipByAbove && parallax,
-        ...midClipArr.map(c => c && parallax),
-        false,
-    ]
-    // Nesting: parentOf[i] = index of immediate parent, or -1 if root
-    const parentOf: number[] = new Array(totalLayers).fill(-1)
-    for (let i = 0; i < totalLayers - 1; i++) {
-        if (!clipFlags[i]) continue
-        // Find next layer above that has content
-        for (let j = i + 1; j < totalLayers; j++) {
-            const hasContent = j === 0 || j === totalLayers - 1 || midLayersArr[j - 1]
-            if (hasContent) { parentOf[i] = j; break }
-        }
-    }
-    // Children of each layer (bottom-to-top order)
-    const childrenOf: number[][] = Array.from({ length: totalLayers }, () => [])
-    for (let i = 0; i < totalLayers; i++) {
-        if (parentOf[i] >= 0) childrenOf[parentOf[i]].push(i)
-    }
-    // Effective depth factor: relative to parent if nested, absolute if root
-    const effectiveFactors = rawFactors.map((f, i) =>
-        parentOf[i] >= 0 ? f - rawFactors[parentOf[i]] : f
-    )
 
     // Scoped CSS classes to force Framer slot children to fill their layer.
     // bgFillClass uses min-width/min-height so the background's intrinsic
@@ -309,9 +272,9 @@ export default function DepthMotionStackHover(props: Props) {
         bgOpacityHover,
     }
     clipFactorsRef.current = {
-        bg: effectiveFactors[0],
-        mid: effectiveFactors.slice(1, 1 + layerCount),
-        fg: effectiveFactors[1 + layerCount],
+        bg: depthFactors[0],
+        mid: depthFactors.slice(1, 1 + layerCount),
+        fg: depthFactors[1 + layerCount],
     }
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
@@ -1097,64 +1060,101 @@ export default function DepthMotionStackHover(props: Props) {
         pointerEvents: "none",
     }
 
-    // ── Build layer tree for clip-by-above nesting ──────
-    // Layer indices: 0=bg, 1..layerCount=mid, layerCount+1=fg
-    const layerContents: React.ReactNode[] = [background, ...midLayersArr, content]
-    const layerClassNames = [bgClass, ...new Array(layerCount).fill(fillClass), fillClass]
-    const layerBlends: (string | undefined)[] = [
-        undefined,
-        ...midBlendsArr.map((b: string) => b !== "normal" ? b : undefined),
-        contentBlend !== "normal" ? contentBlend : undefined,
-    ]
-    const layerOpacities: (number | undefined)[] = [
-        bgInitialOpacity,
-        ...midInitialOpacities.map((o: number) => o < 100 ? o / 100 : undefined),
-        fgInitialOpacity,
-    ]
+    // ── Clip-to-foreground render ──────────────────────────
+    // When clipToForeground is on, the fg layer acts as the clipping parent
+    // and all other layers are absolute-positioned children inside it.
 
-    const renderLayer = (layerIdx: number, isRoot: boolean): React.ReactNode => {
-        // Skip null mid layers
-        if (layerIdx > 0 && layerIdx <= layerCount && !midLayersArr[layerIdx - 1]) return null
+    if (clipToForeground) {
+        // Background layer with negative inset to prevent edge visibility during parallax
+        const bgInset = -parallaxAmount
+        const bgLayer = background ? (
+            <div
+                key="layer-bg"
+                ref={bgRef}
+                className={bgFillClass}
+                style={{
+                    position: "absolute",
+                    inset: bgInset,
+                    willChange: "transform",
+                    pointerEvents: "none",
+                    opacity: bgInitialOpacity,
+                }}
+            >
+                {background}
+            </div>
+        ) : null
 
-        const hasClipChildren = childrenOf[layerIdx].length > 0
-        const nestedChildren = childrenOf[layerIdx]
-            .map(ci => renderLayer(ci, false))
-            .filter(Boolean)
-
-        const refCb = (el: HTMLDivElement | null) => {
-            if (layerIdx === 0) (bgRef as React.MutableRefObject<HTMLDivElement | null>).current = el
-            else if (layerIdx <= layerCount) midRefs.current[layerIdx - 1] = el
-            else (fgRef as React.MutableRefObject<HTMLDivElement | null>).current = el
-        }
-
-        const style: React.CSSProperties = isRoot
-            ? {
-                ...gridCell,
-                overflow: (clipContent || hasClipChildren) ? "hidden" : "visible",
-                mixBlendMode: layerBlends[layerIdx] as any,
-                opacity: layerOpacities[layerIdx],
-            }
-            : {
-                position: "absolute",
-                inset: 0,
-                willChange: "transform",
-                overflow: hasClipChildren ? "hidden" : undefined,
-                mixBlendMode: layerBlends[layerIdx] as any,
-                opacity: layerOpacities[layerIdx],
-            }
+        // Mid layers
+        const midLayers = midLayersArr.map((mid, i) => {
+            if (!mid) return null
+            const midOp = midInitialOpacities[i]
+            return (
+                <div
+                    key={`layer-mid-${i}`}
+                    ref={(el) => { midRefs.current[i] = el }}
+                    className={fillClass}
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        willChange: "transform",
+                        pointerEvents: "none",
+                        mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
+                        opacity: midOp < 100 ? midOp / 100 : undefined,
+                    }}
+                >
+                    {mid}
+                </div>
+            )
+        })
 
         return (
             <div
-                key={`layer-${layerIdx}`}
-                ref={refCb}
-                className={layerClassNames[layerIdx]}
-                style={style}
+                ref={containerRef}
+                style={containerStyle}
+                onPointerEnter={onPointerEnter}
+                onPointerMove={onPointerMove}
+                onPointerLeave={onPointerLeave}
+                onPointerDown={onPointerDown}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
             >
-                {nestedChildren}
-                {layerContents[layerIdx]}
+                {fillStyle}
+                <div
+                    ref={surfaceRef}
+                    style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "grid",
+                        isolation: "isolate",
+                        willChange: tilt ? "transform" : undefined,
+                        ...(touchActive ? { pointerEvents: "none" as const } : {}),
+                    }}
+                >
+                    {/* Foreground is the clipping parent — all other layers nest inside */}
+                    <div
+                        ref={fgRef}
+                        className={fillClass}
+                        style={{
+                            ...gridCell,
+                            overflow: "hidden",
+                            position: "relative",
+                            mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
+                            opacity: fgInitialOpacity,
+                        }}
+                    >
+                        {bgLayer}
+                        {midLayers}
+                        {/* FG content on top */}
+                        <div style={{ position: "relative", width: "100%", height: "100%", pointerEvents: "none" }}>
+                            {content}
+                        </div>
+                    </div>
+                </div>
             </div>
         )
     }
+
+    // ── Flat parallax render (no clipping) ──────────────────
 
     return (
         <div
@@ -1179,9 +1179,55 @@ export default function DepthMotionStackHover(props: Props) {
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
             >
-                {Array.from({ length: totalLayers }, (_, i) => i)
-                    .filter(i => parentOf[i] === -1)
-                    .map(i => renderLayer(i, true))}
+                {/* Background */}
+                {background && (
+                    <div
+                        ref={bgRef}
+                        className={bgClass}
+                        style={{
+                            ...gridCell,
+                            overflow: clipContent ? "hidden" : "visible",
+                            opacity: bgInitialOpacity,
+                        }}
+                    >
+                        {background}
+                    </div>
+                )}
+
+                {/* Mid layers */}
+                {midLayersArr.map((mid, i) => {
+                    if (!mid) return null
+                    const midOp = midInitialOpacities[i]
+                    return (
+                        <div
+                            key={`layer-mid-${i}`}
+                            ref={(el) => { midRefs.current[i] = el }}
+                            className={fillClass}
+                            style={{
+                                ...gridCell,
+                                overflow: clipContent ? "hidden" : "visible",
+                                mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
+                                opacity: midOp < 100 ? midOp / 100 : undefined,
+                            }}
+                        >
+                            {mid}
+                        </div>
+                    )
+                })}
+
+                {/* Foreground */}
+                <div
+                    ref={fgRef}
+                    className={fillClass}
+                    style={{
+                        ...gridCell,
+                        overflow: clipContent ? "hidden" : "visible",
+                        mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
+                        opacity: fgInitialOpacity,
+                    }}
+                >
+                    {content}
+                </div>
             </div>
         </div>
     )
@@ -1590,57 +1636,17 @@ addPropertyControls(DepthMotionStackHover, {
         hidden: (props: any) => !props.parallax,
     },
 
-    // ── Clip by Above ────────────────────────────────────
+    // ── Clip to Foreground ────────────────────────────────
 
-    bgClipByAbove: {
+    clipToForeground: {
         type: ControlType.Boolean,
-        title: "BG Clip by Above",
+        title: "Clip to Foreground",
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
         description:
-            "Clips the background to the frame bounds of the layer above it.",
+            "Clips all layers to the foreground frame for a hologram card effect.",
         hidden: (props: any) => !props.parallax,
-    },
-    mid1ClipByAbove: {
-        type: ControlType.Boolean,
-        title: "L1 Clip by Above",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
-    },
-    mid2ClipByAbove: {
-        type: ControlType.Boolean,
-        title: "L2 Clip by Above",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
-    },
-    mid3ClipByAbove: {
-        type: ControlType.Boolean,
-        title: "L3 Clip by Above",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
-    },
-    mid4ClipByAbove: {
-        type: ControlType.Boolean,
-        title: "L4 Clip by Above",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
-    },
-    mid5ClipByAbove: {
-        type: ControlType.Boolean,
-        title: "L5 Clip by Above",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
     },
 
     // ── Motion behavior ─────────────────────────────────
