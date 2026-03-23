@@ -1091,6 +1091,7 @@ export default function DepthMotionStackHover(props: Props) {
                     width: "100%",
                     height: "100%",
                     display: "grid",
+                    gridTemplate: "100% / 100%",
                     isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
@@ -1101,7 +1102,7 @@ export default function DepthMotionStackHover(props: Props) {
                     <div key="bg-clip" style={clipCell}>
                         <div
                             ref={bgRef}
-                            className={fillClass}
+                            className={bgClass}
                             style={{
                                 width: "100%",
                                 height: "100%",
