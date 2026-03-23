@@ -1011,8 +1011,7 @@ export default function DepthMotionStackHover(props: Props) {
         <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
 .${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
-.${bgClipFillClass} > * { width: 100% !important; height: 100% !important; overflow: visible !important; pointer-events: auto; }
-.${bgClipFillClass} * { overflow: visible !important; }
+.${bgClipFillClass} * { width: 100% !important; height: 100% !important; overflow: visible !important; pointer-events: auto; }
         `}</style>
     )
 
