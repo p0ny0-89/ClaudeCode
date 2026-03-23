@@ -1002,10 +1002,17 @@ export default function DepthMotionStackHover(props: Props) {
     const isAutoSize = style?.width === undefined || style?.width === "auto"
     const bgClass = isAutoSize ? bgFillClass : fillClass
 
+    // When clipped to foreground, the bg slot child must stretch to fill the
+    // fg frame and disable its own overflow clipping so content isn't cut off
+    // by the Framer component instance's baked-in frame.
+    const bgClipFillClass = `dms-bgclip-${scopeId}`
+
     const fillStyle = (
         <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
 .${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
+.${bgClipFillClass} > * { width: 100% !important; height: 100% !important; overflow: visible !important; pointer-events: auto; }
+.${bgClipFillClass} > * > * { width: 100% !important; height: 100% !important; overflow: visible !important; }
         `}</style>
     )
 
@@ -1100,12 +1107,12 @@ export default function DepthMotionStackHover(props: Props) {
                             opacity: fgInitialOpacity,
                         }}
                     >
-                        {/* Background — same sizing as flat mode, just nested inside fg */}
+                        {/* Background — fills fg frame, overflow visible so content isn't self-clipped */}
                         {background && (
                             <div
                                 key="layer-bg"
                                 ref={bgRef}
-                                className={bgClass}
+                                className={bgClipFillClass}
                                 style={{
                                     position: "absolute",
                                     inset: 0,
