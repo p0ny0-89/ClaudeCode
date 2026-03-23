@@ -945,26 +945,6 @@ export default function DepthMotionStackHover(props: Props) {
         startLoop,
     ])
 
-    // ── Clip to Foreground (applied post-render) ─────────
-    // Applied imperatively after Framer has sized slot children,
-    // so the clip doesn't interfere with Framer's layout pass.
-    useEffect(() => {
-        const el = surfaceRef.current
-        if (!el) return
-        if (clipToForeground && parallax) {
-            // Delay one frame to ensure Framer has finished layout
-            const id = requestAnimationFrame(() => {
-                el.style.clipPath = "inset(0)"
-            })
-            return () => {
-                cancelAnimationFrame(id)
-                el.style.clipPath = ""
-            }
-        } else {
-            el.style.clipPath = ""
-        }
-    }, [clipToForeground, parallax])
-
     // ── Cleanup ─────────────────────────────────────────
 
     useEffect(() => () => {
@@ -1081,9 +1061,12 @@ export default function DepthMotionStackHover(props: Props) {
     }
 
     // ── Parallax render ──────────────────────────────────────
-    // clipToForeground: overflow:hidden on the surface clips all layers to
-    // the component frame (which matches the foreground). No nesting needed —
-    // Framer slot children keep their own sizing and the grid handles layout.
+    // clipToForeground: bg and mid layers get overflow:hidden on their
+    // wrappers so they clip to the grid cell (= foreground bounds).
+    // The foreground itself is NOT clipped — its content can overflow.
+    const bgClipClass = clipToForeground ? fillClass : bgClass
+    const belowClip = (clipContent || clipToForeground) ? "hidden" as const : "visible" as const
+
     return (
         <div
             ref={containerRef}
@@ -1111,10 +1094,10 @@ export default function DepthMotionStackHover(props: Props) {
                 {background && (
                     <div
                         ref={bgRef}
-                        className={bgClass}
+                        className={bgClipClass}
                         style={{
                             ...gridCell,
-                            overflow: clipContent ? "hidden" : "visible",
+                            overflow: belowClip,
                             opacity: bgInitialOpacity,
                         }}
                     >
@@ -1133,7 +1116,7 @@ export default function DepthMotionStackHover(props: Props) {
                             className={fillClass}
                             style={{
                                 ...gridCell,
-                                overflow: clipContent ? "hidden" : "visible",
+                                overflow: belowClip,
                                 mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                 opacity: midOp < 100 ? midOp / 100 : undefined,
                             }}
@@ -1143,7 +1126,7 @@ export default function DepthMotionStackHover(props: Props) {
                     )
                 })}
 
-                {/* Foreground */}
+                {/* Foreground — NOT clipped, defines the visual bounds */}
                 <div
                     ref={fgRef}
                     className={fillClass}
