@@ -1097,6 +1097,8 @@ export default function DepthMotionStackHover(props: Props) {
                         style={{
                             gridRow: 1,
                             gridColumn: 1,
+                            width: "100%",
+                            height: "100%",
                             position: "relative",
                             overflow: "hidden",
                             pointerEvents: "none",
