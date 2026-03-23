@@ -174,6 +174,7 @@ export default function DepthMotionStackHover(props: Props) {
     const bgRef = useRef<HTMLDivElement>(null)
     const midRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null])
     const fgRef = useRef<HTMLDivElement>(null)
+    const fgContentRef = useRef<HTMLDivElement>(null)
     const rafId = useRef(0)
     const loopRunning = useRef(false)
     const hovering = useRef(false)
@@ -952,6 +953,27 @@ export default function DepthMotionStackHover(props: Props) {
         if (leaveTimer.current) clearTimeout(leaveTimer.current)
     }, [])
 
+    // ── Copy fg slot child border-radius to clip wrapper ──
+    useEffect(() => {
+        if (!clipToForeground || !parallax) return
+        const wrapper = fgRef.current
+        const contentEl = fgContentRef.current
+        if (!wrapper || !contentEl) return
+
+        // The Framer slot child is the first child of our content wrapper
+        const slotChild = contentEl.firstElementChild as HTMLElement | null
+        if (!slotChild) return
+
+        const br = getComputedStyle(slotChild).borderRadius
+        if (br && br !== "0px") {
+            wrapper.style.borderRadius = br
+        }
+
+        return () => {
+            if (wrapper) wrapper.style.borderRadius = ""
+        }
+    }, [clipToForeground, parallax])
+
     // ── Empty State ─────────────────────────────────────
 
     if (!content) {
@@ -1147,7 +1169,7 @@ export default function DepthMotionStackHover(props: Props) {
                         })}
 
                         {/* FG content on top */}
-                        <div style={{
+                        <div ref={fgContentRef} style={{
                             position: "relative",
                             width: "100%",
                             height: "100%",
