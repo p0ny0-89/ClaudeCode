@@ -204,6 +204,9 @@ export default function DepthMotionStackHover(props: Props) {
     // Effective depth factors for parallax (accounts for clip nesting)
     const clipFactorsRef = useRef({ bg: -1, mid: [] as number[], fg: 1 })
 
+    // Clip-to-foreground: bg scale factor for parallax edge coverage
+    const bgScaleRef = useRef(1)
+
     // Latest props in a ref so callbacks stay stable
     const cfg = useRef({
         tilt,
@@ -277,6 +280,7 @@ export default function DepthMotionStackHover(props: Props) {
         mid: depthFactors.slice(1, 1 + layerCount),
         fg: depthFactors[1 + layerCount],
     }
+    bgScaleRef.current = clipToForeground && parallax ? 1 : 0
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
@@ -377,8 +381,24 @@ export default function DepthMotionStackHover(props: Props) {
             const cf = clipFactorsRef.current
 
             if (bgRef.current) {
-                bgRef.current.style.transform =
-                    `translate3d(${(cf.bg * pc.tx).toFixed(2)}px, ${(cf.bg * pc.ty).toFixed(2)}px, 0)`
+                const tx = (cf.bg * pc.tx).toFixed(2)
+                const ty = (cf.bg * pc.ty).toFixed(2)
+                if (bgScaleRef.current) {
+                    // Compute scale from container dimensions + parallax amount
+                    const rect = cachedRect.current || containerRef.current?.getBoundingClientRect()
+                    if (rect && rect.width > 0 && rect.height > 0) {
+                        const minDim = Math.min(rect.width, rect.height)
+                        const s = 1 + (2 * cfg.current.parallaxAmount) / minDim
+                        bgRef.current.style.transform =
+                            `translate3d(${tx}px, ${ty}px, 0) scale(${s.toFixed(4)})`
+                    } else {
+                        bgRef.current.style.transform =
+                            `translate3d(${tx}px, ${ty}px, 0)`
+                    }
+                } else {
+                    bgRef.current.style.transform =
+                        `translate3d(${tx}px, ${ty}px, 0)`
+                }
             }
 
             for (let i = 0; i < lc; i++) {
@@ -465,9 +485,25 @@ export default function DepthMotionStackHover(props: Props) {
 
                 const cf = clipFactorsRef.current
 
-                if (bgRef.current)
-                    bgRef.current.style.transform =
-                        `translate3d(${(cf.bg * pc.tx).toFixed(2)}px, ${(cf.bg * pc.ty).toFixed(2)}px, 0)`
+                if (bgRef.current) {
+                    const tx = (cf.bg * pc.tx).toFixed(2)
+                    const ty = (cf.bg * pc.ty).toFixed(2)
+                    if (bgScaleRef.current) {
+                        const rect = cachedRect.current || containerRef.current?.getBoundingClientRect()
+                        if (rect && rect.width > 0 && rect.height > 0) {
+                            const minDim = Math.min(rect.width, rect.height)
+                            const s = 1 + (2 * cfg.current.parallaxAmount) / minDim
+                            bgRef.current.style.transform =
+                                `translate3d(${tx}px, ${ty}px, 0) scale(${s.toFixed(4)})`
+                        } else {
+                            bgRef.current.style.transform =
+                                `translate3d(${tx}px, ${ty}px, 0)`
+                        }
+                    } else {
+                        bgRef.current.style.transform =
+                            `translate3d(${tx}px, ${ty}px, 0)`
+                    }
+                }
 
                 for (let i = 0; i < lc; i++) {
                     const ref = midRefs.current[i]
@@ -1126,14 +1162,14 @@ export default function DepthMotionStackHover(props: Props) {
                             opacity: fgInitialOpacity,
                         }}
                     >
-                        {/* Background — enlarged by parallaxAmount to cover parallax travel */}
+                        {/* Background — scaled up by tick loop to cover parallax travel */}
                         {background && (
                             <div
                                 ref={bgRef}
                                 className={fillClass}
                                 style={{
                                     position: "absolute",
-                                    inset: -parallaxAmount,
+                                    inset: 0,
                                     willChange: "transform",
                                     pointerEvents: "none",
                                     opacity: bgInitialOpacity,
