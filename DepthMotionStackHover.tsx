@@ -76,6 +76,8 @@ interface Props {
     bgOpacityIdle: number
     bgOpacityHover: number
     clipToForeground: boolean
+    alphaMask: string
+    alphaMaskMode: "luminance" | "alpha"
     style?: React.CSSProperties
 }
 
@@ -143,6 +145,8 @@ export default function DepthMotionStackHover(props: Props) {
         bgOpacityIdle = 100,
         bgOpacityHover = 100,
         clipToForeground = false,
+        alphaMask,
+        alphaMaskMode = "luminance",
         style,
     } = props
 
@@ -1158,6 +1162,16 @@ export default function DepthMotionStackHover(props: Props) {
                             position: "relative",
                             mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                             opacity: fgInitialOpacity,
+                            ...(alphaMask ? {
+                                WebkitMaskImage: `url(${alphaMask})`,
+                                maskImage: `url(${alphaMask})`,
+                                WebkitMaskSize: "100% 100%",
+                                maskSize: "100% 100%",
+                                WebkitMaskRepeat: "no-repeat",
+                                maskRepeat: "no-repeat",
+                                WebkitMaskMode: alphaMaskMode,
+                                maskMode: alphaMaskMode,
+                            } : {}),
                         }}
                     >
                         {/* Background — scaled up by tick loop to cover parallax travel */}
@@ -1699,6 +1713,26 @@ addPropertyControls(DepthMotionStackHover, {
         description:
             "Clips all layers to the foreground frame for a hologram card effect.",
         hidden: (props: any) => !props.parallax,
+    },
+
+    alphaMask: {
+        type: ControlType.Image,
+        title: "Alpha Mask",
+        description:
+            "Upload a black & white image to mask the clip shape. White = visible, black = hidden.",
+        hidden: (props: any) => !props.parallax || !props.clipToForeground,
+    },
+
+    alphaMaskMode: {
+        type: ControlType.Enum,
+        title: "Mask Mode",
+        options: ["luminance", "alpha"],
+        optionTitles: ["Luminance (B&W)", "Alpha (Transparency)"],
+        defaultValue: "luminance",
+        description:
+            "Luminance uses brightness (white = visible). Alpha uses transparency.",
+        hidden: (props: any) =>
+            !props.parallax || !props.clipToForeground || !props.alphaMask,
     },
 
     // ── Motion behavior ─────────────────────────────────
