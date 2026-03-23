@@ -54,7 +54,6 @@ interface Props {
     mid3: React.ReactNode
     mid4: React.ReactNode
     mid5: React.ReactNode
-    clipContent: boolean
     contentBlend: BlendMode
     mid1Blend: BlendMode
     mid2Blend: BlendMode
@@ -123,7 +122,6 @@ export default function DepthMotionStackHover(props: Props) {
         mid3 = null,
         mid4 = null,
         mid5 = null,
-        clipContent = false,
         contentBlend = "normal",
         mid1Blend = "normal" as BlendMode,
         mid2Blend = "normal" as BlendMode,
@@ -1097,7 +1095,7 @@ export default function DepthMotionStackHover(props: Props) {
                     style={{
                         width: "100%",
                         height: "100%",
-                        overflow: clipContent ? "hidden" : "visible",
+                        overflow: "visible",
                         willChange: tilt ? "transform" : undefined,
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
@@ -1252,7 +1250,7 @@ export default function DepthMotionStackHover(props: Props) {
                         className={bgClass}
                         style={{
                             ...gridCell,
-                            overflow: clipContent ? "hidden" : "visible",
+                            overflow: "visible",
                             opacity: bgInitialOpacity,
                         }}
                     >
@@ -1271,7 +1269,7 @@ export default function DepthMotionStackHover(props: Props) {
                             className={fillClass}
                             style={{
                                 ...gridCell,
-                                overflow: clipContent ? "hidden" : "visible",
+                                overflow: "visible",
                                 mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                 opacity: midOp < 100 ? midOp / 100 : undefined,
                             }}
@@ -1287,7 +1285,7 @@ export default function DepthMotionStackHover(props: Props) {
                     className={fillClass}
                     style={{
                         ...gridCell,
-                        overflow: clipContent ? "hidden" : "visible",
+                        overflow: "visible",
                         mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         opacity: fgInitialOpacity,
                     }}
@@ -1455,18 +1453,6 @@ addPropertyControls(DepthMotionStackHover, {
         step: 100,
         description: "Lower values increase depth distortion.",
         hidden: (props: any) => !props.tilt,
-    },
-
-    // ── Clip ──────────────────────────────────────────────
-
-    clipContent: {
-        type: ControlType.Boolean,
-        title: "Clip Content",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        description:
-            "Clips layers to the component frame. Turn off to let content extend beyond for hologram effects.",
     },
 
     // ── Parallax ────────────────────────────────────────
