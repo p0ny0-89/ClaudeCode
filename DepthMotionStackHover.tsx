@@ -1719,7 +1719,7 @@ addPropertyControls(DepthMotionStackHover, {
         type: ControlType.Image,
         title: "Alpha Mask",
         description:
-            "Upload a black & white image to mask the clip shape. White = visible, black = hidden.",
+            "Optional black and white mask image for custom clipping. White is visible, black is hidden. Leave empty to use the foreground layer's frame.",
         hidden: (props: any) => !props.parallax || !props.clipToForeground,
     },
 
