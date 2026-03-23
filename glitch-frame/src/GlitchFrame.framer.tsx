@@ -208,6 +208,10 @@ interface Props {
   returnEasing?: "smooth" | "gentle" | "snap" | "bounce"
   parallaxDirection?: "toward" | "away"
   touchDrag?: boolean
+  autoplay?: boolean
+  autoplayInterval?: number
+  autoplayBurstDuration?: number
+  autoplayStopOnInteract?: boolean
 }
 
 function GlitchFrame({
@@ -227,6 +231,10 @@ function GlitchFrame({
   returnEasing = "smooth",
   parallaxDirection = "away",
   touchDrag = true,
+  autoplay = false,
+  autoplayInterval = 4000,
+  autoplayBurstDuration = 400,
+  autoplayStopOnInteract = true,
 }: Props) {
   const selfRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -256,6 +264,12 @@ function GlitchFrame({
   const smoothVy = useRef(0)
   const suppressObserverRef = useRef(false)
   const trailFadesBuf = useRef<Float64Array>(new Float64Array(64))
+
+  // Autoplay refs
+  const isInView = useRef(false)
+  const autoplayStopped = useRef(false)
+  const autoplayBurstActive = useRef(false)
+  const realPointerActive = useRef(false)
 
   const clampedBlockSize = Math.max(2, blockSize)
   const { w: pw, h: ph } = parentSize
@@ -650,6 +664,11 @@ function GlitchFrame({
     }
 
     const handlePointerDown = (e: PointerEvent) => {
+      // Real interaction: cancel any autoplay burst and optionally stop autoplay
+      realPointerActive.current = true
+      autoplayBurstActive.current = false
+      if (autoplayStopOnInteract) autoplayStopped.current = true
+
       if (e.pointerType !== "touch") {
         // Mouse: activate immediately
         mouseActive.current = true
@@ -700,6 +719,7 @@ function GlitchFrame({
         }
       }
       mouseActive.current = false
+      realPointerActive.current = false
     }
 
     const handlePointerLeave = (e: PointerEvent) => {
@@ -707,6 +727,7 @@ function GlitchFrame({
       if (touchCaptured.current) return
       if (e.pointerType === "touch") return
       mouseActive.current = false
+      realPointerActive.current = false
     }
 
     parent.addEventListener("pointerdown", handlePointerDown)
@@ -725,7 +746,7 @@ function GlitchFrame({
       if (touchStyleEl) { touchStyleEl.remove() }
       if (touchCls) { parent.classList.remove(touchCls) }
     }
-  }, [trailDuration, touchDrag])
+  }, [trailDuration, touchDrag, autoplayStopOnInteract])
 
   // ── Block scroll, context menu & selection during active touch drag ──────
   useEffect(() => {
@@ -750,6 +771,77 @@ function GlitchFrame({
       if (holdTimer.current) clearTimeout(holdTimer.current)
     }
   }, [touchDrag])
+
+  // ── Autoplay: IntersectionObserver for viewport visibility ─────────────
+  useEffect(() => {
+    const parent = parentRef.current
+    if (!parent) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { isInView.current = entry.isIntersecting },
+      { threshold: 0.1 }
+    )
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [pw, ph])
+
+  // ── Autoplay: periodic synthetic burst injection ───────────────────────
+  useEffect(() => {
+    if (!autoplay || cellCount === 0 || pw <= 0 || ph <= 0) return
+    // Reset stopped flag when autoplay is toggled on
+    autoplayStopped.current = false
+
+    const id = setInterval(() => {
+      // Skip if: not in viewport, stopped by interaction, or real pointer active
+      if (!isInView.current || autoplayStopped.current || realPointerActive.current) return
+
+      // Pick random start/end for a synthetic swipe within parent bounds
+      const margin = 0.15 // keep away from edges
+      const x0 = pw * (margin + Math.random() * (1 - 2 * margin))
+      const y0 = ph * (margin + Math.random() * (1 - 2 * margin))
+      const swipeAngle = Math.random() * Math.PI * 2
+      const swipeLen = Math.min(pw, ph) * (0.15 + Math.random() * 0.25)
+      const x1 = Math.max(0, Math.min(pw, x0 + Math.cos(swipeAngle) * swipeLen))
+      const y1 = Math.max(0, Math.min(ph, y0 + Math.sin(swipeAngle) * swipeLen))
+
+      const steps = Math.max(6, Math.round(autoplayBurstDuration / 16))
+      const vx = (x1 - x0) / steps
+      const vy = (y1 - y0) / steps
+      let step = 0
+
+      autoplayBurstActive.current = true
+      mouseActive.current = true
+
+      const inject = () => {
+        if (step >= steps || realPointerActive.current) {
+          // Burst finished (or interrupted by real interaction)
+          autoplayBurstActive.current = false
+          if (!realPointerActive.current) mouseActive.current = false
+          return
+        }
+        const t = step / steps
+        // Ease-in-out speed profile for natural feel
+        const easedT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+        const cx = x0 + (x1 - x0) * easedT
+        const cy = y0 + (y1 - y0) * easedT
+
+        mouseTrail.current.push({
+          x: cx, y: cy,
+          time: performance.now(),
+          vx, vy,
+        })
+        // Keep trail from growing unbounded
+        if (mouseTrail.current.length > 50) mouseTrail.current.splice(0, mouseTrail.current.length - 50)
+
+        lastPointerPos.current = { x: cx, y: cy }
+        lastMoveTime.current = performance.now()
+        step++
+        requestAnimationFrame(inject)
+      }
+      requestAnimationFrame(inject)
+    }, autoplayInterval)
+
+    return () => clearInterval(id)
+  }, [autoplay, autoplayInterval, autoplayBurstDuration, cellCount, pw, ph])
 
   // ── Phase 4: Animation loop (transform cells) ─────────────────────────
 
@@ -1186,6 +1278,41 @@ addPropertyControls(GlitchFrame, {
     options: ["smooth", "gentle", "snap", "bounce"],
     optionTitles: ["Smooth", "Gentle", "Snap", "Bounce"],
     hidden: (props: any) => props.effect === "parallax" || props.directionMode === "cursor",
+  },
+  // ── Autoplay ──
+  autoplay: {
+    type: ControlType.Boolean,
+    title: "Autoplay",
+    defaultValue: false,
+    description:
+      "Periodically trigger glitch bursts while the frame is in view. Great for hinting at interactivity on mobile.",
+  },
+  autoplayInterval: {
+    type: ControlType.Number,
+    title: "Interval",
+    defaultValue: 4000,
+    min: 2000,
+    max: 10000,
+    step: 500,
+    unit: "ms",
+    hidden: (props: any) => !props.autoplay,
+  },
+  autoplayBurstDuration: {
+    type: ControlType.Number,
+    title: "Burst Duration",
+    defaultValue: 400,
+    min: 100,
+    max: 1000,
+    step: 50,
+    unit: "ms",
+    hidden: (props: any) => !props.autoplay,
+  },
+  autoplayStopOnInteract: {
+    type: ControlType.Boolean,
+    title: "Stop on Interact",
+    defaultValue: true,
+    description: "Disable autoplay after the first real pointer or touch interaction.",
+    hidden: (props: any) => !props.autoplay,
   },
 })
 
