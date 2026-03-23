@@ -706,6 +706,11 @@ function GlitchFrame({
         if (!touchCaptured.current) return
       }
 
+      // Any real pointer activity (hover or drag) marks as real interaction
+      realPointerActive.current = true
+      autoplayBurstActive.current = false
+      if (autoplayStopOnInteract) autoplayStopped.current = true
+
       mouseActive.current = true
       updateTrail(e.clientX, e.clientY)
     }
