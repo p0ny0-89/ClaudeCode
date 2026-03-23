@@ -1065,47 +1065,10 @@ export default function DepthMotionStackHover(props: Props) {
     // and all other layers are absolute-positioned children inside it.
 
     if (clipToForeground) {
-        // Background layer with negative inset to prevent edge visibility during parallax
-        const bgInset = -parallaxAmount
-        const bgLayer = background ? (
-            <div
-                key="layer-bg"
-                ref={bgRef}
-                className={fillClass}
-                style={{
-                    position: "absolute",
-                    inset: bgInset,
-                    willChange: "transform",
-                    pointerEvents: "none",
-                    opacity: bgInitialOpacity,
-                }}
-            >
-                {background}
-            </div>
-        ) : null
-
-        // Mid layers
-        const midLayers = midLayersArr.map((mid, i) => {
-            if (!mid) return null
-            const midOp = midInitialOpacities[i]
-            return (
-                <div
-                    key={`layer-mid-${i}`}
-                    ref={(el) => { midRefs.current[i] = el }}
-                    className={fillClass}
-                    style={{
-                        position: "absolute",
-                        inset: 0,
-                        willChange: "transform",
-                        pointerEvents: "none",
-                        mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
-                        opacity: midOp < 100 ? midOp / 100 : undefined,
-                    }}
-                >
-                    {mid}
-                </div>
-            )
-        })
+        // Scale factor to enlarge the background so edges aren't visible during parallax.
+        // parallaxAmount is the max px shift; the bg needs to be wider/taller by 2× that.
+        // We compute a CSS scale based on the component's dimensions.
+        const bgPad = parallaxAmount
 
         return (
             <div
@@ -1142,8 +1105,50 @@ export default function DepthMotionStackHover(props: Props) {
                             opacity: fgInitialOpacity,
                         }}
                     >
-                        {bgLayer}
-                        {midLayers}
+                        {/* Background — enlarged to cover parallax travel */}
+                        {background && (
+                            <div
+                                key="layer-bg"
+                                ref={bgRef}
+                                className={fillClass}
+                                style={{
+                                    position: "absolute",
+                                    top: -bgPad,
+                                    left: -bgPad,
+                                    width: `calc(100% + ${bgPad * 2}px)`,
+                                    height: `calc(100% + ${bgPad * 2}px)`,
+                                    willChange: "transform",
+                                    pointerEvents: "none",
+                                    opacity: bgInitialOpacity,
+                                }}
+                            >
+                                {background}
+                            </div>
+                        )}
+
+                        {/* Mid layers */}
+                        {midLayersArr.map((mid, i) => {
+                            if (!mid) return null
+                            const midOp = midInitialOpacities[i]
+                            return (
+                                <div
+                                    key={`layer-mid-${i}`}
+                                    ref={(el) => { midRefs.current[i] = el }}
+                                    className={fillClass}
+                                    style={{
+                                        position: "absolute",
+                                        inset: 0,
+                                        willChange: "transform",
+                                        pointerEvents: "none",
+                                        mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
+                                        opacity: midOp < 100 ? midOp / 100 : undefined,
+                                    }}
+                                >
+                                    {mid}
+                                </div>
+                            )
+                        })}
+
                         {/* FG content on top */}
                         <div style={{ position: "relative", width: "100%", height: "100%", pointerEvents: "none" }}>
                             {content}
