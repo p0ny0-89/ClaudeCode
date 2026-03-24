@@ -636,8 +636,8 @@ export default function DepthMotionStackHover(props: Props) {
             (act === "click" && clickActive.current)
 
         if (act === "hover") {
+            if (!hovering.current) hoverStartTime.current = performance.now()
             hovering.current = true
-            hoverStartTime.current = performance.now()
             hoverOpTarget.current = 1
         }
 
@@ -757,8 +757,8 @@ export default function DepthMotionStackHover(props: Props) {
         const act = cfg.current.activation
 
         if (act === "hover") {
+            if (hovering.current) hoverStartTime.current = performance.now()
             hovering.current = false
-            hoverStartTime.current = performance.now()
             hoverOpTarget.current = 0
             cachedRect.current = null
 
@@ -813,8 +813,8 @@ export default function DepthMotionStackHover(props: Props) {
         (pointerId: number, el: HTMLElement) => {
             el.setPointerCapture(pointerId)
             touchCaptured.current = true
+            if (!hovering.current) hoverStartTime.current = performance.now()
             hovering.current = true
-            hoverStartTime.current = performance.now()
             hoverOpTarget.current = 1
 
             const container = containerRef.current
@@ -972,8 +972,8 @@ export default function DepthMotionStackHover(props: Props) {
     useEffect(() => {
         clickActive.current = false
         if (activation !== "always") {
+            if (hovering.current) hoverStartTime.current = performance.now()
             hovering.current = false
-            hoverStartTime.current = performance.now()
             hoverOpTarget.current = 0
         }
         startLoop()
