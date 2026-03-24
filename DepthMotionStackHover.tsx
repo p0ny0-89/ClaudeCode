@@ -80,6 +80,7 @@ interface Props {
     clipToForeground: boolean
     alphaMask: string
     invertMask: boolean
+    hoverStagger: number
     style?: React.CSSProperties
 }
 
@@ -149,6 +150,7 @@ export default function DepthMotionStackHover(props: Props) {
         clipToForeground = false,
         alphaMask,
         invertMask = false,
+        hoverStagger = 0,
         style,
     } = props
 
@@ -201,6 +203,11 @@ export default function DepthMotionStackHover(props: Props) {
     // Hover opacity interpolation: 0 = idle, 1 = hover
     const hoverOpTarget = useRef(0)
     const hoverOpCurrent = useRef(0)
+
+    // Per-layer staggered hover opacity (0 = idle, 1 = hover)
+    // Order: [bg, mid1, mid2, ..., midN, fg]
+    const layerHoverOps = useRef<number[]>([])
+    const hoverStartTime = useRef(0)
 
     // Click-to-activate toggle state
     const clickActive = useRef(false)
@@ -278,6 +285,7 @@ export default function DepthMotionStackHover(props: Props) {
         mid5OpacityHover,
         bgOpacityIdle,
         bgOpacityHover,
+        hoverStagger,
     }
     clipFactorsRef.current = {
         bg: depthFactors[0],
@@ -419,7 +427,7 @@ export default function DepthMotionStackHover(props: Props) {
             }
         }
 
-        // ── Lerp hover opacity ───────────────────────────
+        // ── Lerp hover opacity (global + per-layer stagger) ──
         const hoSmooth = hovering.current ? ACTIVE_SMOOTHING : RETURN_SMOOTHING
         hoverOpCurrent.current = lerp(hoverOpCurrent.current, hoverOpTarget.current, hoSmooth)
 
@@ -436,23 +444,58 @@ export default function DepthMotionStackHover(props: Props) {
             mid5OpacityIdle: m5I, mid5OpacityHover: m5H,
         } = cfg.current
 
+        // Compute per-layer staggered hover factor
+        // Layer order: bg(0), mid1(1), mid2(2), ..., midN(N), fg(N+1)
+        const stagger = cfg.current.hoverStagger || 0
+        const totalLayerCount = 2 + lc // bg + mids + fg
+        const ops = layerHoverOps.current
+        if (ops.length !== totalLayerCount) {
+            layerHoverOps.current = new Array(totalLayerCount).fill(0)
+        }
+
+        const now = performance.now()
+        const elapsed = now - hoverStartTime.current
+
+        for (let li = 0; li < totalLayerCount; li++) {
+            const delay = li * stagger
+            let layerTarget: number
+            if (stagger <= 0) {
+                // No stagger — all layers follow global ho
+                layerTarget = hoverOpTarget.current
+            } else if (hovering.current) {
+                // Stagger on hover-in: layer starts after its delay
+                layerTarget = elapsed >= delay ? 1 : 0
+            } else {
+                // Stagger on hover-out: reverse order (fg exits first, bg last)
+                const reverseDelay = (totalLayerCount - 1 - li) * stagger
+                layerTarget = elapsed >= reverseDelay ? 0 : 1
+            }
+            layerHoverOps.current[li] = lerp(layerHoverOps.current[li], layerTarget, hoSmooth)
+        }
+
         // Apply interpolated opacity to each layer via DOM refs
+        // bg = index 0
+        const bgHo = stagger > 0 ? layerHoverOps.current[0] : ho
         if (bgRef.current) {
-            const op = lerp(bgI, bgH, ho) / 100
+            const op = lerp(bgI, bgH, bgHo) / 100
             bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
         }
 
+        // fg = last index
+        const fgHo = stagger > 0 ? layerHoverOps.current[totalLayerCount - 1] : ho
         if (fgRef.current) {
-            const op = lerp(fgI, fgH, ho) / 100
+            const op = lerp(fgI, fgH, fgHo) / 100
             fgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
         }
 
+        // mid layers = indices 1..N
         const midIdleArr = [m1I, m2I, m3I, m4I, m5I]
         const midHoverArr = [m1H, m2H, m3H, m4H, m5H]
         for (let i = 0; i < lc; i++) {
             const ref = midRefs.current[i]
             if (ref) {
-                const op = lerp(midIdleArr[i], midHoverArr[i], ho) / 100
+                const midHo = stagger > 0 ? layerHoverOps.current[i + 1] : ho
+                const op = lerp(midIdleArr[i], midHoverArr[i], midHo) / 100
                 ref.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
             }
         }
@@ -469,8 +512,17 @@ export default function DepthMotionStackHover(props: Props) {
             (Math.abs(pc.tx - pt.tx) < SETTLE_THRESHOLD &&
                 Math.abs(pc.ty - pt.ty) < SETTLE_THRESHOLD)
 
-        const hoverOpSettled =
+        let hoverOpSettled =
             Math.abs(hoverOpCurrent.current - hoverOpTarget.current) < SETTLE_THRESHOLD
+        if (stagger > 0) {
+            for (let li = 0; li < totalLayerCount; li++) {
+                const layerTarget = hovering.current ? 1 : 0
+                if (Math.abs(layerHoverOps.current[li] - layerTarget) >= SETTLE_THRESHOLD) {
+                    hoverOpSettled = false
+                    break
+                }
+            }
+        }
 
         const autoKeepAlive = tiltEnabled && mode === "auto"
 
@@ -525,18 +577,26 @@ export default function DepthMotionStackHover(props: Props) {
             // Snap hover opacity
             hoverOpCurrent.current = hoverOpTarget.current
             const finalHo = hoverOpCurrent.current
+            // Snap per-layer stagger ops too
+            const finalLayerTarget = hovering.current ? 1 : 0
+            for (let li = 0; li < totalLayerCount; li++) {
+                layerHoverOps.current[li] = finalLayerTarget
+            }
+            const finalBgHo = stagger > 0 ? finalLayerTarget : finalHo
+            const finalFgHo = stagger > 0 ? finalLayerTarget : finalHo
             if (bgRef.current) {
-                const op = lerp(bgI, bgH, finalHo) / 100
+                const op = lerp(bgI, bgH, finalBgHo) / 100
                 bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
             }
             if (fgRef.current) {
-                const op = lerp(fgI, fgH, finalHo) / 100
+                const op = lerp(fgI, fgH, finalFgHo) / 100
                 fgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
             }
             for (let i = 0; i < lc; i++) {
                 const ref = midRefs.current[i]
                 if (ref) {
-                    const op = lerp(midIdleArr[i], midHoverArr[i], finalHo) / 100
+                    const finalMidHo = stagger > 0 ? finalLayerTarget : finalHo
+                    const op = lerp(midIdleArr[i], midHoverArr[i], finalMidHo) / 100
                     ref.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
                 }
             }
@@ -577,6 +637,7 @@ export default function DepthMotionStackHover(props: Props) {
 
         if (act === "hover") {
             hovering.current = true
+            hoverStartTime.current = performance.now()
             hoverOpTarget.current = 1
         }
 
@@ -697,6 +758,7 @@ export default function DepthMotionStackHover(props: Props) {
 
         if (act === "hover") {
             hovering.current = false
+            hoverStartTime.current = performance.now()
             hoverOpTarget.current = 0
             cachedRect.current = null
 
@@ -752,6 +814,7 @@ export default function DepthMotionStackHover(props: Props) {
             el.setPointerCapture(pointerId)
             touchCaptured.current = true
             hovering.current = true
+            hoverStartTime.current = performance.now()
             hoverOpTarget.current = 1
 
             const container = containerRef.current
@@ -910,6 +973,7 @@ export default function DepthMotionStackHover(props: Props) {
         clickActive.current = false
         if (activation !== "always") {
             hovering.current = false
+            hoverStartTime.current = performance.now()
             hoverOpTarget.current = 0
         }
         startLoop()
@@ -1720,6 +1784,19 @@ addPropertyControls(DepthMotionStackHover, {
         max: 100,
         step: 1,
         unit: "%",
+        hidden: (props: any) => !props.parallax,
+    },
+
+    hoverStagger: {
+        type: ControlType.Number,
+        title: "Hover Stagger",
+        defaultValue: 0,
+        min: 0,
+        max: 500,
+        step: 10,
+        unit: "ms",
+        description:
+            "Delay between each layer's hover transition. Creates a cascading reveal effect.",
         hidden: (props: any) => !props.parallax,
     },
 
