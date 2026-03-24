@@ -81,6 +81,7 @@ interface Props {
     alphaMask: string
     invertMask: boolean
     hoverStagger: number
+    reverseStagger: boolean
     style?: React.CSSProperties
 }
 
@@ -151,6 +152,7 @@ export default function DepthMotionStackHover(props: Props) {
         alphaMask,
         invertMask = false,
         hoverStagger = 0,
+        reverseStagger = false,
         style,
     } = props
 
@@ -212,7 +214,7 @@ export default function DepthMotionStackHover(props: Props) {
     const staggerPending = useRef(false)
 
     // Trigger staggered layer transitions via setTimeout
-    const triggerStagger = useCallback((target: 1 | 0, staggerMs: number, count: number, restartLoop: () => void) => {
+    const triggerStagger = useCallback((target: 1 | 0, staggerMs: number, count: number, restartLoop: () => void, reverse: boolean) => {
         // Clear any pending stagger timers
         staggerTimers.current.forEach(t => clearTimeout(t))
         staggerTimers.current = []
@@ -232,14 +234,21 @@ export default function DepthMotionStackHover(props: Props) {
         }
 
         // Build reveal order: fg, mid1, mid2, ..., midN, bg
-        // Indices: [count-1, 1, 2, ..., count-2, 0]
-        const revealOrder: number[] = [count - 1] // fg first
-        for (let m = 1; m < count - 1; m++) revealOrder.push(m) // mid1..midN
-        revealOrder.push(0) // bg last
+        // Reversed: bg, midN, ..., mid2, mid1, fg
+        const revealOrder: number[] = []
+        if (!reverse) {
+            revealOrder.push(count - 1) // fg first
+            for (let m = 1; m < count - 1; m++) revealOrder.push(m) // mid1..midN
+            revealOrder.push(0) // bg last
+        } else {
+            revealOrder.push(0) // bg first
+            for (let m = count - 2; m >= 1; m--) revealOrder.push(m) // midN..mid1
+            revealOrder.push(count - 1) // fg last
+        }
 
         for (let i = 0; i < count; i++) {
-            // Hover in: fg → mid1 → mid2 → ... → bg
-            // Hover out: reversed
+            // Hover in: use reveal order
+            // Hover out: reversed reveal order
             const orderIndex = target === 1 ? revealOrder[i] : revealOrder[count - 1 - i]
             const delay = i * staggerMs
 
@@ -333,6 +342,7 @@ export default function DepthMotionStackHover(props: Props) {
         bgOpacityIdle,
         bgOpacityHover,
         hoverStagger,
+        reverseStagger,
     }
     clipFactorsRef.current = {
         bg: depthFactors[0],
@@ -681,7 +691,7 @@ export default function DepthMotionStackHover(props: Props) {
         if (act === "hover") {
             if (!hovering.current) {
                 const s = cfg.current.hoverStagger || 0
-                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop)
+                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
             }
             hovering.current = true
             hoverOpTarget.current = 1
@@ -805,7 +815,7 @@ export default function DepthMotionStackHover(props: Props) {
         if (act === "hover") {
             if (hovering.current) {
                 const s = cfg.current.hoverStagger || 0
-                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop)
+                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
             }
             hovering.current = false
             hoverOpTarget.current = 0
@@ -864,7 +874,7 @@ export default function DepthMotionStackHover(props: Props) {
             touchCaptured.current = true
             if (!hovering.current) {
                 const s = cfg.current.hoverStagger || 0
-                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop)
+                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
             }
             hovering.current = true
             hoverOpTarget.current = 1
@@ -1028,7 +1038,7 @@ export default function DepthMotionStackHover(props: Props) {
         if (activation !== "always") {
             if (hovering.current) {
                 const s = cfg.current.hoverStagger || 0
-                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop)
+                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
             }
             hovering.current = false
             hoverOpTarget.current = 0
@@ -1855,6 +1865,17 @@ addPropertyControls(DepthMotionStackHover, {
         description:
             "Delay between each layer's hover transition. Creates a cascading reveal effect.",
         hidden: (props: any) => !props.parallax,
+    },
+
+    reverseStagger: {
+        type: ControlType.Boolean,
+        title: "Reverse Stagger",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        description:
+            "Reverses the stagger order so background reveals first and foreground last.",
+        hidden: (props: any) => !props.parallax || !props.hoverStagger,
     },
 
     // ── Clip to Foreground ────────────────────────────────
