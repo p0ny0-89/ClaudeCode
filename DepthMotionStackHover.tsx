@@ -1261,6 +1261,7 @@ export default function DepthMotionStackHover(props: Props) {
                         height: "100%",
                         display: "grid",
                         gridTemplate: "1fr / 1fr",
+                        position: "relative",
                         isolation: "isolate",
                         willChange: tilt ? "transform" : undefined,
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
@@ -1354,13 +1355,14 @@ export default function DepthMotionStackHover(props: Props) {
 
                     </div>
 
-                    {/* Animated mask — separate grid cell behind fg, video must be visible to render frames */}
+                    {/* Animated mask — absolute, behind fg, doesn't affect grid sizing */}
                     {animatedMask && (
                         <div ref={maskContainerRef} className={fillClass} style={{
-                            gridRow: 1,
-                            gridColumn: 1,
+                            position: "absolute",
+                            inset: 0,
                             pointerEvents: "none",
                             zIndex: -1,
+                            overflow: "hidden",
                         }}>
                             {animatedMask}
                         </div>
