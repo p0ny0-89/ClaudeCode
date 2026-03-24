@@ -232,9 +232,9 @@ export default function DepthMotionStackHover(props: Props) {
         }
 
         for (let i = 0; i < count; i++) {
-            // Hover in: bg first (index 0) → fg last
-            // Hover out: fg first → bg last (reversed)
-            const orderIndex = target === 1 ? i : (count - 1 - i)
+            // Hover in: fg first (top) → bg last (bottom)
+            // Hover out: bg first (bottom) → fg last (top)
+            const orderIndex = target === 1 ? (count - 1 - i) : i
             const delay = i * staggerMs
 
             if (delay <= 0) {
