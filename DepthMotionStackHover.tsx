@@ -209,16 +209,26 @@ export default function DepthMotionStackHover(props: Props) {
     const layerHoverOps = useRef<number[]>([])
     const layerHoverTargets = useRef<number[]>([])
     const staggerTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+    const staggerPending = useRef(false)
 
     // Trigger staggered layer transitions via setTimeout
-    const triggerStagger = useCallback((target: 1 | 0, staggerMs: number, count: number) => {
+    const triggerStagger = useCallback((target: 1 | 0, staggerMs: number, count: number, restartLoop: () => void) => {
         // Clear any pending stagger timers
         staggerTimers.current.forEach(t => clearTimeout(t))
         staggerTimers.current = []
+        staggerPending.current = true
 
         // Ensure arrays are sized
         if (layerHoverTargets.current.length !== count) {
             layerHoverTargets.current = new Array(count).fill(target === 1 ? 0 : 1)
+        }
+
+        let pending = count
+        const onFire = () => {
+            pending--
+            if (pending <= 0) staggerPending.current = false
+            // Restart the animation loop in case it settled
+            restartLoop()
         }
 
         for (let i = 0; i < count; i++) {
@@ -229,9 +239,11 @@ export default function DepthMotionStackHover(props: Props) {
 
             if (delay <= 0) {
                 layerHoverTargets.current[orderIndex] = target
+                onFire()
             } else {
                 const timer = setTimeout(() => {
                     layerHoverTargets.current[orderIndex] = target
+                    onFire()
                 }, delay)
                 staggerTimers.current.push(timer)
             }
@@ -533,11 +545,16 @@ export default function DepthMotionStackHover(props: Props) {
         let hoverOpSettled =
             Math.abs(hoverOpCurrent.current - hoverOpTarget.current) < SETTLE_THRESHOLD
         if (stagger > 0) {
-            for (let li = 0; li < totalLayerCount; li++) {
-                const lt = layerHoverTargets.current[li] ?? 0
-                if (Math.abs(layerHoverOps.current[li] - lt) >= SETTLE_THRESHOLD) {
-                    hoverOpSettled = false
-                    break
+            // Never settle while stagger timers are still pending
+            if (staggerPending.current) {
+                hoverOpSettled = false
+            } else {
+                for (let li = 0; li < totalLayerCount; li++) {
+                    const lt = layerHoverTargets.current[li] ?? 0
+                    if (Math.abs(layerHoverOps.current[li] - lt) >= SETTLE_THRESHOLD) {
+                        hoverOpSettled = false
+                        break
+                    }
                 }
             }
         }
@@ -656,7 +673,7 @@ export default function DepthMotionStackHover(props: Props) {
         if (act === "hover") {
             if (!hovering.current) {
                 const s = cfg.current.hoverStagger || 0
-                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount)
+                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop)
             }
             hovering.current = true
             hoverOpTarget.current = 1
@@ -780,7 +797,7 @@ export default function DepthMotionStackHover(props: Props) {
         if (act === "hover") {
             if (hovering.current) {
                 const s = cfg.current.hoverStagger || 0
-                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount)
+                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop)
             }
             hovering.current = false
             hoverOpTarget.current = 0
@@ -839,7 +856,7 @@ export default function DepthMotionStackHover(props: Props) {
             touchCaptured.current = true
             if (!hovering.current) {
                 const s = cfg.current.hoverStagger || 0
-                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount)
+                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop)
             }
             hovering.current = true
             hoverOpTarget.current = 1
@@ -1003,7 +1020,7 @@ export default function DepthMotionStackHover(props: Props) {
         if (activation !== "always") {
             if (hovering.current) {
                 const s = cfg.current.hoverStagger || 0
-                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount)
+                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop)
             }
             hovering.current = false
             hoverOpTarget.current = 0
