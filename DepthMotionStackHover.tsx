@@ -56,12 +56,16 @@ interface Props {
     mid3: React.ReactNode
     mid4: React.ReactNode
     mid5: React.ReactNode
+    mid6: React.ReactNode
+    mid7: React.ReactNode
     contentBlend: BlendMode
     mid1Blend: BlendMode
     mid2Blend: BlendMode
     mid3Blend: BlendMode
     mid4Blend: BlendMode
     mid5Blend: BlendMode
+    mid6Blend: BlendMode
+    mid7Blend: BlendMode
     // Per-layer opacity: idle and hover values
     contentOpacityIdle: number
     contentOpacityHover: number
@@ -75,6 +79,10 @@ interface Props {
     mid4OpacityHover: number
     mid5OpacityIdle: number
     mid5OpacityHover: number
+    mid6OpacityIdle: number
+    mid6OpacityHover: number
+    mid7OpacityIdle: number
+    mid7OpacityHover: number
     bgOpacityIdle: number
     bgOpacityHover: number
     clipToForeground: boolean
@@ -128,12 +136,16 @@ export default function DepthMotionStackHover(props: Props) {
         mid3 = null,
         mid4 = null,
         mid5 = null,
+        mid6 = null,
+        mid7 = null,
         contentBlend = "normal",
         mid1Blend = "normal" as BlendMode,
         mid2Blend = "normal" as BlendMode,
         mid3Blend = "normal" as BlendMode,
         mid4Blend = "normal" as BlendMode,
         mid5Blend = "normal" as BlendMode,
+        mid6Blend = "normal" as BlendMode,
+        mid7Blend = "normal" as BlendMode,
         contentOpacityIdle = 100,
         contentOpacityHover = 100,
         mid1OpacityIdle = 100,
@@ -146,6 +158,10 @@ export default function DepthMotionStackHover(props: Props) {
         mid4OpacityHover = 100,
         mid5OpacityIdle = 100,
         mid5OpacityHover = 100,
+        mid6OpacityIdle = 100,
+        mid6OpacityHover = 100,
+        mid7OpacityIdle = 100,
+        mid7OpacityHover = 100,
         bgOpacityIdle = 100,
         bgOpacityHover = 100,
         clipToForeground = false,
@@ -157,8 +173,8 @@ export default function DepthMotionStackHover(props: Props) {
     } = props
 
     // Build ordered arrays from individual layer props
-    const midLayersArr = [mid1, mid2, mid3, mid4, mid5].slice(0, layerCount)
-    const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend].slice(0, layerCount)
+    const midLayersArr = [mid1, mid2, mid3, mid4, mid5, mid6, mid7].slice(0, layerCount)
+    const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend, mid6Blend, mid7Blend].slice(0, layerCount)
 
     // ── Depth factors for parallax ──
     const totalLayers = 2 + layerCount
@@ -306,6 +322,10 @@ export default function DepthMotionStackHover(props: Props) {
         mid4OpacityHover,
         mid5OpacityIdle,
         mid5OpacityHover,
+        mid6OpacityIdle,
+        mid6OpacityHover,
+        mid7OpacityIdle,
+        mid7OpacityHover,
         bgOpacityIdle,
         bgOpacityHover,
     })
@@ -339,6 +359,10 @@ export default function DepthMotionStackHover(props: Props) {
         mid4OpacityHover,
         mid5OpacityIdle,
         mid5OpacityHover,
+        mid6OpacityIdle,
+        mid6OpacityHover,
+        mid7OpacityIdle,
+        mid7OpacityHover,
         bgOpacityIdle,
         bgOpacityHover,
         hoverStagger,
@@ -499,6 +523,8 @@ export default function DepthMotionStackHover(props: Props) {
             mid3OpacityIdle: m3I, mid3OpacityHover: m3H,
             mid4OpacityIdle: m4I, mid4OpacityHover: m4H,
             mid5OpacityIdle: m5I, mid5OpacityHover: m5H,
+            mid6OpacityIdle: m6I, mid6OpacityHover: m6H,
+            mid7OpacityIdle: m7I, mid7OpacityHover: m7H,
         } = cfg.current
 
         // Compute per-layer staggered hover factor
@@ -536,8 +562,8 @@ export default function DepthMotionStackHover(props: Props) {
         }
 
         // mid layers = indices 1..N
-        const midIdleArr = [m1I, m2I, m3I, m4I, m5I]
-        const midHoverArr = [m1H, m2H, m3H, m4H, m5H]
+        const midIdleArr = [m1I, m2I, m3I, m4I, m5I, m6I, m7I]
+        const midHoverArr = [m1H, m2H, m3H, m4H, m5H, m6H, m7H]
         for (let i = 0; i < lc; i++) {
             const ref = midRefs.current[i]
             if (ref) {
@@ -1210,8 +1236,8 @@ export default function DepthMotionStackHover(props: Props) {
     const fgInitOp = isAlways ? contentOpacityHover : contentOpacityIdle
     const bgInitialOpacity = bgInitOp < 100 ? bgInitOp / 100 : undefined
     const fgInitialOpacity = fgInitOp < 100 ? fgInitOp / 100 : undefined
-    const midIdleArr_ = [mid1OpacityIdle, mid2OpacityIdle, mid3OpacityIdle, mid4OpacityIdle, mid5OpacityIdle]
-    const midHoverArr_ = [mid1OpacityHover, mid2OpacityHover, mid3OpacityHover, mid4OpacityHover, mid5OpacityHover]
+    const midIdleArr_ = [mid1OpacityIdle, mid2OpacityIdle, mid3OpacityIdle, mid4OpacityIdle, mid5OpacityIdle, mid6OpacityIdle, mid7OpacityIdle]
+    const midHoverArr_ = [mid1OpacityHover, mid2OpacityHover, mid3OpacityHover, mid4OpacityHover, mid5OpacityHover, mid6OpacityHover, mid7OpacityHover]
     const midInitialOpacities = isAlways ? midHoverArr_ : midIdleArr_
 
     // When parallax is off, render flat (no layer splitting).
@@ -1649,7 +1675,7 @@ addPropertyControls(DepthMotionStackHover, {
         title: "Mid Layers",
         defaultValue: 0,
         min: 0,
-        max: 5,
+        max: 7,
         step: 1,
         displayStepper: true,
         description:
@@ -1825,6 +1851,74 @@ addPropertyControls(DepthMotionStackHover, {
         step: 1,
         unit: "%",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
+    },
+
+    mid6: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 6",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+    mid6Blend: {
+        type: ControlType.Enum,
+        title: "Layer 6 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+    mid6OpacityIdle: {
+        type: ControlType.Number,
+        title: "L6 Opacity Idle",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+    mid6OpacityHover: {
+        type: ControlType.Number,
+        title: "L6 Opacity Hover",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+
+    mid7: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 7",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
+    },
+    mid7Blend: {
+        type: ControlType.Enum,
+        title: "Layer 7 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
+    },
+    mid7OpacityIdle: {
+        type: ControlType.Number,
+        title: "L7 Opacity Idle",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
+    },
+    mid7OpacityHover: {
+        type: ControlType.Number,
+        title: "L7 Opacity Hover",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
     },
 
     // Background — deepest layer
