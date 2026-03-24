@@ -1318,18 +1318,19 @@ export default function DepthMotionStackHover(props: Props) {
                             {content}
                         </div>
 
-                        {/* Animated mask — rendered off-screen, captured to canvas for CSS mask */}
-                        {animatedMask && (
-                            <div ref={maskContainerRef} className={fillClass} style={{
-                                position: "absolute",
-                                inset: 0,
-                                pointerEvents: "none",
-                                clipPath: "inset(100%)",
-                            }}>
-                                {animatedMask}
-                            </div>
-                        )}
                     </div>
+
+                    {/* Animated mask — separate grid cell behind fg, video must be visible to render frames */}
+                    {animatedMask && (
+                        <div ref={maskContainerRef} className={fillClass} style={{
+                            gridRow: 1,
+                            gridColumn: 1,
+                            pointerEvents: "none",
+                            zIndex: -1,
+                        }}>
+                            {animatedMask}
+                        </div>
+                    )}
                 </div>
             </div>
         )
