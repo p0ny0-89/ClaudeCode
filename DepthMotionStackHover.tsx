@@ -1679,7 +1679,7 @@ addPropertyControls(DepthMotionStackHover, {
         step: 1,
         displayStepper: true,
         description:
-            "Add up to 5 depth layers between background and foreground.",
+            "Add up to 7 depth layers between background and foreground.",
         hidden: (props: any) => !props.parallax,
     },
 
