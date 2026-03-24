@@ -231,10 +231,16 @@ export default function DepthMotionStackHover(props: Props) {
             restartLoop()
         }
 
+        // Build reveal order: fg, mid1, mid2, ..., midN, bg
+        // Indices: [count-1, 1, 2, ..., count-2, 0]
+        const revealOrder: number[] = [count - 1] // fg first
+        for (let m = 1; m < count - 1; m++) revealOrder.push(m) // mid1..midN
+        revealOrder.push(0) // bg last
+
         for (let i = 0; i < count; i++) {
-            // Hover in: fg first (top) → bg last (bottom)
-            // Hover out: bg first (bottom) → fg last (top)
-            const orderIndex = target === 1 ? (count - 1 - i) : i
+            // Hover in: fg → mid1 → mid2 → ... → bg
+            // Hover out: reversed
+            const orderIndex = target === 1 ? revealOrder[i] : revealOrder[count - 1 - i]
             const delay = i * staggerMs
 
             if (delay <= 0) {
