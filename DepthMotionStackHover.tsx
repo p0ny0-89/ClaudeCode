@@ -182,6 +182,7 @@ export default function DepthMotionStackHover(props: Props) {
     const fgRef = useRef<HTMLDivElement>(null)
     const fgContentRef = useRef<HTMLDivElement>(null)
     const maskContainerRef = useRef<HTMLDivElement>(null)
+    const invertMaskRef = useRef(false)
     const rafId = useRef(0)
     const loopRunning = useRef(false)
     const hovering = useRef(false)
@@ -1017,6 +1018,9 @@ export default function DepthMotionStackHover(props: Props) {
         }
     }, [clipToForeground, parallax])
 
+    // Keep invertMask ref in sync
+    invertMaskRef.current = invertMask
+
     // ── Animated mask: capture frames to canvas → CSS mask-image ──
     useEffect(() => {
         if (!animatedMask || !clipToForeground || !parallax) return
@@ -1029,7 +1033,6 @@ export default function DepthMotionStackHover(props: Props) {
         if (!ctx) return
 
         let animId = 0
-        let prevUrl = ""
 
         const capture = () => {
             // Find a renderable media source inside the mask container
@@ -1047,11 +1050,10 @@ export default function DepthMotionStackHover(props: Props) {
                     if (canvas.height !== h) canvas.height = h
 
                     ctx.clearRect(0, 0, w, h)
+                    ctx.drawImage(source as CanvasImageSource, 0, 0, w, h)
 
-                    // If invertMask, draw white first then composite source inverted
-                    if (invertMask) {
-                        ctx.drawImage(source as CanvasImageSource, 0, 0, w, h)
-                        // Invert the canvas pixels
+                    // Invert pixels if needed
+                    if (invertMaskRef.current) {
                         const imgData = ctx.getImageData(0, 0, w, h)
                         const d = imgData.data
                         for (let i = 0; i < d.length; i += 4) {
@@ -1060,8 +1062,6 @@ export default function DepthMotionStackHover(props: Props) {
                             d[i + 2] = 255 - d[i + 2]
                         }
                         ctx.putImageData(imgData, 0, 0)
-                    } else {
-                        ctx.drawImage(source as CanvasImageSource, 0, 0, w, h)
                     }
 
                     const dataUrl = canvas.toDataURL("image/png")
@@ -1079,8 +1079,8 @@ export default function DepthMotionStackHover(props: Props) {
             animId = requestAnimationFrame(capture)
         }
 
-        // Small delay to let the mask component mount and render
-        const startTimer = setTimeout(() => { capture() }, 100)
+        // Longer delay to let Framer fully mount and render the mask component
+        const startTimer = setTimeout(() => { capture() }, 500)
 
         return () => {
             clearTimeout(startTimer)
@@ -1090,7 +1090,7 @@ export default function DepthMotionStackHover(props: Props) {
                 wrapper.style.maskImage = ""
             }
         }
-    }, [animatedMask, clipToForeground, parallax, invertMask])
+    }, [animatedMask, clipToForeground, parallax])
 
     // ── Empty State ─────────────────────────────────────
 
@@ -1318,14 +1318,13 @@ export default function DepthMotionStackHover(props: Props) {
                             {content}
                         </div>
 
-                        {/* Animated mask — rendered hidden, captured to canvas for CSS mask */}
+                        {/* Animated mask — rendered off-screen, captured to canvas for CSS mask */}
                         {animatedMask && (
                             <div ref={maskContainerRef} className={fillClass} style={{
                                 position: "absolute",
                                 inset: 0,
-                                zIndex: -1,
                                 pointerEvents: "none",
-                                opacity: 0,
+                                clipPath: "inset(100%)",
                             }}>
                                 {animatedMask}
                             </div>
