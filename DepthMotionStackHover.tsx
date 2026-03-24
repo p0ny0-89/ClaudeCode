@@ -1216,7 +1216,7 @@ export default function DepthMotionStackHover(props: Props) {
                         })}
 
                         {/* FG content on top */}
-                        <div ref={fgContentRef} style={{
+                        <div ref={fgContentRef} className={fillClass} style={{
                             position: "relative",
                             width: "100%",
                             height: "100%",
