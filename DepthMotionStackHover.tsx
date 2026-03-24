@@ -79,7 +79,6 @@ interface Props {
     bgOpacityHover: number
     clipToForeground: boolean
     alphaMask: string
-    animatedMask: React.ReactNode
     invertMask: boolean
     style?: React.CSSProperties
 }
@@ -149,7 +148,6 @@ export default function DepthMotionStackHover(props: Props) {
         bgOpacityHover = 100,
         clipToForeground = false,
         alphaMask,
-        animatedMask = null,
         invertMask = false,
         style,
     } = props
@@ -181,8 +179,6 @@ export default function DepthMotionStackHover(props: Props) {
     const midRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null])
     const fgRef = useRef<HTMLDivElement>(null)
     const fgContentRef = useRef<HTMLDivElement>(null)
-    const maskContainerRef = useRef<HTMLDivElement>(null)
-    const invertMaskRef = useRef(false)
     const rafId = useRef(0)
     const loopRunning = useRef(false)
     const hovering = useRef(false)
@@ -1018,113 +1014,7 @@ export default function DepthMotionStackHover(props: Props) {
         }
     }, [clipToForeground, parallax])
 
-    // Keep invertMask ref in sync
-    invertMaskRef.current = invertMask
 
-    // ── Animated mask: capture frames to canvas → CSS mask-image ──
-    useEffect(() => {
-        if (!animatedMask || !clipToForeground || !parallax) return
-        const wrapper = fgRef.current
-        const maskEl = maskContainerRef.current
-        if (!wrapper || !maskEl) return
-
-        const canvas = document.createElement("canvas")
-        const ctx = canvas.getContext("2d")
-        if (!ctx) return
-
-        let animId = 0
-        let corsFixed = false
-
-        const capture = () => {
-            // Find a renderable media source inside the mask container
-            const video = maskEl.querySelector("video") as HTMLVideoElement | null
-            const source: CanvasImageSource | null =
-                video ||
-                maskEl.querySelector("canvas") ||
-                maskEl.querySelector("img")
-
-            if (!source) {
-                animId = requestAnimationFrame(capture)
-                return
-            }
-
-            // Fix CORS on video elements so canvas isn't tainted
-            if (video && !corsFixed) {
-                video.crossOrigin = "anonymous"
-                // Force reload with CORS
-                const currentSrc = video.src || video.currentSrc
-                if (currentSrc) {
-                    const currentTime = video.currentTime
-                    const wasPlaying = !video.paused
-                    video.src = currentSrc
-                    video.load()
-                    video.currentTime = currentTime
-                    if (wasPlaying) video.play().catch(() => {})
-                }
-                corsFixed = true
-                // Wait for video to reload
-                animId = requestAnimationFrame(capture)
-                return
-            }
-
-            // Skip if video isn't ready
-            if (video && video.readyState < 2) {
-                animId = requestAnimationFrame(capture)
-                return
-            }
-
-            const rect = maskEl.getBoundingClientRect()
-            const w = Math.round(rect.width)
-            const h = Math.round(rect.height)
-            if (w > 0 && h > 0) {
-                if (canvas.width !== w) canvas.width = w
-                if (canvas.height !== h) canvas.height = h
-
-                try {
-                    ctx.clearRect(0, 0, w, h)
-                    ctx.drawImage(source, 0, 0, w, h)
-
-                    // Invert pixels if needed
-                    if (invertMaskRef.current) {
-                        const imgData = ctx.getImageData(0, 0, w, h)
-                        const d = imgData.data
-                        for (let i = 0; i < d.length; i += 4) {
-                            d[i] = 255 - d[i]
-                            d[i + 1] = 255 - d[i + 1]
-                            d[i + 2] = 255 - d[i + 2]
-                        }
-                        ctx.putImageData(imgData, 0, 0)
-                    }
-
-                    const dataUrl = canvas.toDataURL("image/png")
-                    wrapper.style.webkitMaskImage = `url(${dataUrl})`
-                    wrapper.style.maskImage = `url(${dataUrl})`
-                    wrapper.style.webkitMaskSize = "100% 100%"
-                    wrapper.style.maskSize = "100% 100%"
-                    wrapper.style.webkitMaskRepeat = "no-repeat"
-                    wrapper.style.maskRepeat = "no-repeat"
-                    ;(wrapper.style as any).webkitMaskMode = "luminance"
-                    ;(wrapper.style as any).maskMode = "luminance"
-                } catch (_e) {
-                    // CORS or security error — canvas tainted, skip this frame
-                }
-            }
-
-            animId = requestAnimationFrame(capture)
-        }
-
-        // Delay to let Framer mount and render the mask component
-        const startTimer = setTimeout(() => { capture() }, 500)
-
-        return () => {
-            clearTimeout(startTimer)
-            cancelAnimationFrame(animId)
-            if (wrapper) {
-                wrapper.style.webkitMaskImage = ""
-                wrapper.style.maskImage = ""
-            }
-        }
-    }, [animatedMask, clipToForeground, parallax])
 
     // ── Empty State ─────────────────────────────────────
 
@@ -1261,7 +1151,6 @@ export default function DepthMotionStackHover(props: Props) {
                         height: "100%",
                         display: "grid",
                         gridTemplate: "1fr / 1fr",
-                        position: "relative",
                         isolation: "isolate",
                         willChange: tilt ? "transform" : undefined,
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
@@ -1276,7 +1165,7 @@ export default function DepthMotionStackHover(props: Props) {
                             overflow: "hidden",
                             position: "relative",
                             opacity: fgInitialOpacity,
-                            ...(!animatedMask && alphaMask ? (invertMask ? {
+                            ...(alphaMask ? (invertMask ? {
                                 WebkitMaskImage: `url(${alphaMask}), linear-gradient(white, white)`,
                                 maskImage: `url(${alphaMask}), linear-gradient(white, white)`,
                                 WebkitMaskSize: "100% 100%",
@@ -1355,18 +1244,6 @@ export default function DepthMotionStackHover(props: Props) {
 
                     </div>
 
-                    {/* Animated mask — absolute, behind fg, doesn't affect grid sizing */}
-                    {animatedMask && (
-                        <div ref={maskContainerRef} className={fillClass} style={{
-                            position: "absolute",
-                            inset: 0,
-                            pointerEvents: "none",
-                            zIndex: -1,
-                            overflow: "hidden",
-                        }}>
-                            {animatedMask}
-                        </div>
-                    )}
                 </div>
             </div>
         )
@@ -1864,14 +1741,6 @@ addPropertyControls(DepthMotionStackHover, {
         title: "Alpha Mask",
         description:
             "Optional mask image for custom clipping. White areas are visible, black or transparent areas are hidden. Leave empty to use the foreground layer's frame.",
-        hidden: (props: any) => !props.parallax || !props.clipToForeground,
-    },
-
-    animatedMask: {
-        type: ControlType.ComponentInstance,
-        title: "Animated Mask",
-        description:
-            "Optional animated mask layer (video, Lottie, etc.). White/opaque areas are visible, black/transparent areas are hidden. Overrides the static alpha mask when connected.",
         hidden: (props: any) => !props.parallax || !props.clipToForeground,
     },
 
