@@ -181,6 +181,7 @@ export default function DepthMotionStackHover(props: Props) {
     const midRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null])
     const fgRef = useRef<HTMLDivElement>(null)
     const fgContentRef = useRef<HTMLDivElement>(null)
+    const maskContainerRef = useRef<HTMLDivElement>(null)
     const rafId = useRef(0)
     const loopRunning = useRef(false)
     const hovering = useRef(false)
@@ -1016,6 +1017,81 @@ export default function DepthMotionStackHover(props: Props) {
         }
     }, [clipToForeground, parallax])
 
+    // ── Animated mask: capture frames to canvas → CSS mask-image ──
+    useEffect(() => {
+        if (!animatedMask || !clipToForeground || !parallax) return
+        const wrapper = fgRef.current
+        const maskEl = maskContainerRef.current
+        if (!wrapper || !maskEl) return
+
+        const canvas = document.createElement("canvas")
+        const ctx = canvas.getContext("2d")
+        if (!ctx) return
+
+        let animId = 0
+        let prevUrl = ""
+
+        const capture = () => {
+            // Find a renderable media source inside the mask container
+            const source =
+                maskEl.querySelector("video") ||
+                maskEl.querySelector("canvas") ||
+                maskEl.querySelector("img")
+
+            if (source) {
+                const rect = maskEl.getBoundingClientRect()
+                const w = Math.round(rect.width)
+                const h = Math.round(rect.height)
+                if (w > 0 && h > 0) {
+                    if (canvas.width !== w) canvas.width = w
+                    if (canvas.height !== h) canvas.height = h
+
+                    ctx.clearRect(0, 0, w, h)
+
+                    // If invertMask, draw white first then composite source inverted
+                    if (invertMask) {
+                        ctx.drawImage(source as CanvasImageSource, 0, 0, w, h)
+                        // Invert the canvas pixels
+                        const imgData = ctx.getImageData(0, 0, w, h)
+                        const d = imgData.data
+                        for (let i = 0; i < d.length; i += 4) {
+                            d[i] = 255 - d[i]
+                            d[i + 1] = 255 - d[i + 1]
+                            d[i + 2] = 255 - d[i + 2]
+                        }
+                        ctx.putImageData(imgData, 0, 0)
+                    } else {
+                        ctx.drawImage(source as CanvasImageSource, 0, 0, w, h)
+                    }
+
+                    const dataUrl = canvas.toDataURL("image/png")
+                    wrapper.style.webkitMaskImage = `url(${dataUrl})`
+                    wrapper.style.maskImage = `url(${dataUrl})`
+                    wrapper.style.webkitMaskSize = "100% 100%"
+                    wrapper.style.maskSize = "100% 100%"
+                    wrapper.style.webkitMaskRepeat = "no-repeat"
+                    wrapper.style.maskRepeat = "no-repeat"
+                    ;(wrapper.style as any).webkitMaskMode = "luminance"
+                    ;(wrapper.style as any).maskMode = "luminance"
+                }
+            }
+
+            animId = requestAnimationFrame(capture)
+        }
+
+        // Small delay to let the mask component mount and render
+        const startTimer = setTimeout(() => { capture() }, 100)
+
+        return () => {
+            clearTimeout(startTimer)
+            cancelAnimationFrame(animId)
+            if (wrapper) {
+                wrapper.style.webkitMaskImage = ""
+                wrapper.style.maskImage = ""
+            }
+        }
+    }, [animatedMask, clipToForeground, parallax, invertMask])
+
     // ── Empty State ─────────────────────────────────────
 
     if (!content) {
@@ -1067,28 +1143,10 @@ export default function DepthMotionStackHover(props: Props) {
     const bgClass = isAutoSize ? bgFillClass : fillClass
 
     const fillStyle = (
-        <>
-            <style>{`
+        <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
 .${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
-.dms-mask-${scopeId}, .dms-mask-${scopeId} * { background: transparent !important; background-color: transparent !important; }
-            `}</style>
-            {animatedMask && (
-                <svg style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}>
-                    <defs>
-                        <filter id={`lum2alpha-${scopeId}`}>
-                            <feColorMatrix type="luminanceToAlpha" />
-                        </filter>
-                        <filter id={`lum2alpha-inv-${scopeId}`}>
-                            <feColorMatrix type="luminanceToAlpha" />
-                            <feComponentTransfer>
-                                <feFuncA type="table" tableValues="1 0" />
-                            </feComponentTransfer>
-                        </filter>
-                    </defs>
-                </svg>
-            )}
-        </>
+        `}</style>
     )
 
     // Initial opacity values — "always" starts at hover values to prevent flicker
@@ -1182,7 +1240,6 @@ export default function DepthMotionStackHover(props: Props) {
                             ...gridCell,
                             overflow: "hidden",
                             position: "relative",
-                            isolation: animatedMask ? "isolate" : undefined,
                             opacity: fgInitialOpacity,
                             ...(!animatedMask && alphaMask ? (invertMask ? {
                                 WebkitMaskImage: `url(${alphaMask}), linear-gradient(white, white)`,
@@ -1261,15 +1318,14 @@ export default function DepthMotionStackHover(props: Props) {
                             {content}
                         </div>
 
-                        {/* Animated mask — composites via blend mode */}
+                        {/* Animated mask — rendered hidden, captured to canvas for CSS mask */}
                         {animatedMask && (
-                            <div className={`${fillClass} dms-mask-${scopeId}`} style={{
+                            <div ref={maskContainerRef} className={fillClass} style={{
                                 position: "absolute",
                                 inset: 0,
-                                zIndex: layerCount + 3,
+                                zIndex: -1,
                                 pointerEvents: "none",
-                                mixBlendMode: (invertMask ? "destination-out" : "destination-in") as any,
-                                filter: `url(#lum2alpha-${scopeId})`,
+                                opacity: 0,
                             }}>
                                 {animatedMask}
                             </div>
