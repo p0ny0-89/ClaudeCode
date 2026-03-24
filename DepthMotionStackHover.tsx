@@ -79,6 +79,7 @@ interface Props {
     bgOpacityHover: number
     clipToForeground: boolean
     alphaMask: string
+    animatedMask: React.ReactNode
     style?: React.CSSProperties
 }
 
@@ -147,6 +148,7 @@ export default function DepthMotionStackHover(props: Props) {
         bgOpacityHover = 100,
         clipToForeground = false,
         alphaMask,
+        animatedMask = null,
         style,
     } = props
 
@@ -1063,10 +1065,21 @@ export default function DepthMotionStackHover(props: Props) {
     const bgClass = isAutoSize ? bgFillClass : fillClass
 
     const fillStyle = (
-        <style>{`
+        <>
+            <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
 .${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
-        `}</style>
+            `}</style>
+            {animatedMask && (
+                <svg style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}>
+                    <defs>
+                        <filter id={`lum2alpha-${scopeId}`}>
+                            <feColorMatrix type="luminanceToAlpha" />
+                        </filter>
+                    </defs>
+                </svg>
+            )}
+        </>
     )
 
     // Initial opacity values — "always" starts at hover values to prevent flicker
@@ -1160,8 +1173,9 @@ export default function DepthMotionStackHover(props: Props) {
                             ...gridCell,
                             overflow: "hidden",
                             position: "relative",
+                            isolation: animatedMask ? "isolate" : undefined,
                             opacity: fgInitialOpacity,
-                            ...(alphaMask ? {
+                            ...(!animatedMask && alphaMask ? {
                                 WebkitMaskImage: `url(${alphaMask})`,
                                 maskImage: `url(${alphaMask})`,
                                 WebkitMaskSize: "100% 100%",
@@ -1226,6 +1240,20 @@ export default function DepthMotionStackHover(props: Props) {
                         }}>
                             {content}
                         </div>
+
+                        {/* Animated mask — composites via destination-in */}
+                        {animatedMask && (
+                            <div className={fillClass} style={{
+                                position: "absolute",
+                                inset: 0,
+                                zIndex: layerCount + 3,
+                                pointerEvents: "none",
+                                mixBlendMode: "destination-in" as any,
+                                filter: `url(#lum2alpha-${scopeId})`,
+                            }}>
+                                {animatedMask}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -1724,6 +1752,14 @@ addPropertyControls(DepthMotionStackHover, {
         title: "Alpha Mask",
         description:
             "Optional mask image for custom clipping. White areas are visible, black or transparent areas are hidden. Leave empty to use the foreground layer's frame.",
+        hidden: (props: any) => !props.parallax || !props.clipToForeground,
+    },
+
+    animatedMask: {
+        type: ControlType.ComponentInstance,
+        title: "Animated Mask",
+        description:
+            "Optional animated mask layer (video, Lottie, etc.). White/opaque areas are visible, black/transparent areas are hidden. Overrides the static alpha mask when connected.",
         hidden: (props: any) => !props.parallax || !props.clipToForeground,
     },
 
