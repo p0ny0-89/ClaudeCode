@@ -1033,24 +1033,56 @@ export default function DepthMotionStackHover(props: Props) {
         if (!ctx) return
 
         let animId = 0
+        let corsFixed = false
 
         const capture = () => {
             // Find a renderable media source inside the mask container
-            const source =
-                maskEl.querySelector("video") ||
+            const video = maskEl.querySelector("video") as HTMLVideoElement | null
+            const source: CanvasImageSource | null =
+                video ||
                 maskEl.querySelector("canvas") ||
                 maskEl.querySelector("img")
 
-            if (source) {
-                const rect = maskEl.getBoundingClientRect()
-                const w = Math.round(rect.width)
-                const h = Math.round(rect.height)
-                if (w > 0 && h > 0) {
-                    if (canvas.width !== w) canvas.width = w
-                    if (canvas.height !== h) canvas.height = h
+            if (!source) {
+                animId = requestAnimationFrame(capture)
+                return
+            }
 
+            // Fix CORS on video elements so canvas isn't tainted
+            if (video && !corsFixed) {
+                video.crossOrigin = "anonymous"
+                // Force reload with CORS
+                const currentSrc = video.src || video.currentSrc
+                if (currentSrc) {
+                    const currentTime = video.currentTime
+                    const wasPlaying = !video.paused
+                    video.src = currentSrc
+                    video.load()
+                    video.currentTime = currentTime
+                    if (wasPlaying) video.play().catch(() => {})
+                }
+                corsFixed = true
+                // Wait for video to reload
+                animId = requestAnimationFrame(capture)
+                return
+            }
+
+            // Skip if video isn't ready
+            if (video && video.readyState < 2) {
+                animId = requestAnimationFrame(capture)
+                return
+            }
+
+            const rect = maskEl.getBoundingClientRect()
+            const w = Math.round(rect.width)
+            const h = Math.round(rect.height)
+            if (w > 0 && h > 0) {
+                if (canvas.width !== w) canvas.width = w
+                if (canvas.height !== h) canvas.height = h
+
+                try {
                     ctx.clearRect(0, 0, w, h)
-                    ctx.drawImage(source as CanvasImageSource, 0, 0, w, h)
+                    ctx.drawImage(source, 0, 0, w, h)
 
                     // Invert pixels if needed
                     if (invertMaskRef.current) {
@@ -1073,13 +1105,15 @@ export default function DepthMotionStackHover(props: Props) {
                     wrapper.style.maskRepeat = "no-repeat"
                     ;(wrapper.style as any).webkitMaskMode = "luminance"
                     ;(wrapper.style as any).maskMode = "luminance"
+                } catch (_e) {
+                    // CORS or security error — canvas tainted, skip this frame
                 }
             }
 
             animId = requestAnimationFrame(capture)
         }
 
-        // Longer delay to let Framer fully mount and render the mask component
+        // Delay to let Framer mount and render the mask component
         const startTimer = setTimeout(() => { capture() }, 500)
 
         return () => {
