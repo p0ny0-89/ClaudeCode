@@ -80,6 +80,7 @@ interface Props {
     clipToForeground: boolean
     alphaMask: string
     animatedMask: React.ReactNode
+    invertMask: boolean
     style?: React.CSSProperties
 }
 
@@ -149,6 +150,7 @@ export default function DepthMotionStackHover(props: Props) {
         clipToForeground = false,
         alphaMask,
         animatedMask = null,
+        invertMask = false,
         style,
     } = props
 
@@ -1076,6 +1078,12 @@ export default function DepthMotionStackHover(props: Props) {
                         <filter id={`lum2alpha-${scopeId}`}>
                             <feColorMatrix type="luminanceToAlpha" />
                         </filter>
+                        <filter id={`lum2alpha-inv-${scopeId}`}>
+                            <feColorMatrix type="luminanceToAlpha" />
+                            <feComponentTransfer>
+                                <feFuncA type="table" tableValues="1 0" />
+                            </feComponentTransfer>
+                        </filter>
                     </defs>
                 </svg>
             )}
@@ -1175,7 +1183,18 @@ export default function DepthMotionStackHover(props: Props) {
                             position: "relative",
                             isolation: animatedMask ? "isolate" : undefined,
                             opacity: fgInitialOpacity,
-                            ...(!animatedMask && alphaMask ? {
+                            ...(!animatedMask && alphaMask ? (invertMask ? {
+                                WebkitMaskImage: `url(${alphaMask}), linear-gradient(white, white)`,
+                                maskImage: `url(${alphaMask}), linear-gradient(white, white)`,
+                                WebkitMaskSize: "100% 100%",
+                                maskSize: "100% 100%",
+                                WebkitMaskRepeat: "no-repeat",
+                                maskRepeat: "no-repeat",
+                                WebkitMaskMode: "luminance",
+                                maskMode: "luminance",
+                                WebkitMaskComposite: "xor",
+                                maskComposite: "exclude",
+                            } : {
                                 WebkitMaskImage: `url(${alphaMask})`,
                                 maskImage: `url(${alphaMask})`,
                                 WebkitMaskSize: "100% 100%",
@@ -1184,7 +1203,7 @@ export default function DepthMotionStackHover(props: Props) {
                                 maskRepeat: "no-repeat",
                                 WebkitMaskMode: "luminance",
                                 maskMode: "luminance",
-                            } : {}),
+                            }) : {}),
                         }}
                     >
                         {/* Background — scaled up by tick loop to cover parallax travel */}
@@ -1249,7 +1268,7 @@ export default function DepthMotionStackHover(props: Props) {
                                 zIndex: layerCount + 3,
                                 pointerEvents: "none",
                                 mixBlendMode: "destination-in" as any,
-                                filter: `url(#lum2alpha-${scopeId})`,
+                                filter: `url(#lum2alpha${invertMask ? "-inv" : ""}-${scopeId})`,
                             }}>
                                 {animatedMask}
                             </div>
@@ -1761,6 +1780,17 @@ addPropertyControls(DepthMotionStackHover, {
         description:
             "Optional animated mask layer (video, Lottie, etc.). White/opaque areas are visible, black/transparent areas are hidden. Overrides the static alpha mask when connected.",
         hidden: (props: any) => !props.parallax || !props.clipToForeground,
+    },
+
+    invertMask: {
+        type: ControlType.Boolean,
+        title: "Invert Mask",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        description:
+            "Inverts the mask so black/transparent areas become visible and white/opaque areas become hidden.",
+        hidden: (props: any) => !props.parallax || !props.clipToForeground || (!props.alphaMask && !props.animatedMask),
     },
 
     // ── Motion behavior ─────────────────────────────────
