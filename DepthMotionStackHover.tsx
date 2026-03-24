@@ -157,7 +157,7 @@ export default function DepthMotionStackHover(props: Props) {
     // Depth factors: bg=-1, mid layers interpolated, fg=+1
     const depthFactors: number[] = [
         -1,
-        ...Array.from({ length: layerCount }, (_, i) => -1 + (i + 1) / (totalLayers - 1) * 2),
+        ...Array.from({ length: layerCount }, (_, i) => 1 - (i + 1) / (totalLayers - 1) * 2),
         1,
     ]
 
@@ -1206,7 +1206,7 @@ export default function DepthMotionStackHover(props: Props) {
                                         pointerEvents: "none",
                                         mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                         opacity: midOp < 100 ? midOp / 100 : undefined,
-                                        zIndex: i + 1,
+                                        zIndex: layerCount - i,
                                     }}
                                 >
                                     {mid}
