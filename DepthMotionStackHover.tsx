@@ -24,6 +24,8 @@ type BlendMode =
     | "overlay"
     | "soft-light"
     | "hard-light"
+    | "color-dodge"
+    | "color-burn"
     | "difference"
     | "exclusion"
     | "lighten"
@@ -1158,7 +1160,6 @@ export default function DepthMotionStackHover(props: Props) {
                             ...gridCell,
                             overflow: "hidden",
                             position: "relative",
-                            mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                             opacity: fgInitialOpacity,
                             ...(alphaMask ? {
                                 WebkitMaskImage: `url(${alphaMask})`,
@@ -1221,6 +1222,7 @@ export default function DepthMotionStackHover(props: Props) {
                             height: "100%",
                             pointerEvents: "none",
                             zIndex: layerCount + 2,
+                            mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         }}>
                             {content}
                         </div>
@@ -1318,6 +1320,8 @@ const BLEND_OPTIONS = [
     "overlay",
     "soft-light",
     "hard-light",
+    "color-dodge",
+    "color-burn",
     "difference",
     "exclusion",
     "lighten",
@@ -1331,6 +1335,8 @@ const BLEND_TITLES = [
     "Overlay",
     "Soft Light",
     "Hard Light",
+    "Color Dodge",
+    "Color Burn",
     "Difference",
     "Exclusion",
     "Lighten",
