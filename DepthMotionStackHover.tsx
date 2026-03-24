@@ -1260,15 +1260,15 @@ export default function DepthMotionStackHover(props: Props) {
                             {content}
                         </div>
 
-                        {/* Animated mask — composites via destination-in */}
+                        {/* Animated mask — composites via blend mode */}
                         {animatedMask && (
                             <div className={fillClass} style={{
                                 position: "absolute",
                                 inset: 0,
                                 zIndex: layerCount + 3,
                                 pointerEvents: "none",
-                                mixBlendMode: "destination-in" as any,
-                                filter: `url(#lum2alpha${invertMask ? "-inv" : ""}-${scopeId})`,
+                                mixBlendMode: (invertMask ? "destination-in" : "destination-out") as any,
+                                filter: `url(#lum2alpha-${scopeId})`,
                             }}>
                                 {animatedMask}
                             </div>
@@ -1790,7 +1790,7 @@ addPropertyControls(DepthMotionStackHover, {
         disabledTitle: "Off",
         description:
             "Inverts the mask so black/transparent areas become visible and white/opaque areas become hidden.",
-        hidden: (props: any) => !props.parallax || !props.clipToForeground || (!props.alphaMask && !props.animatedMask),
+        hidden: (props: any) => !props.parallax || !props.clipToForeground,
     },
 
     // ── Motion behavior ─────────────────────────────────
