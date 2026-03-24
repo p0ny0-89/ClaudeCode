@@ -511,11 +511,12 @@ export default function DepthMotionStackHover(props: Props) {
             bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
         }
 
-        // fg = last index
+        // fg = last index — use fgContentRef in clip mode, fgRef otherwise
         const fgHo = stagger > 0 ? layerHoverOps.current[totalLayerCount - 1] : ho
-        if (fgRef.current) {
+        const fgOpEl = fgContentRef.current || fgRef.current
+        if (fgOpEl) {
             const op = lerp(fgI, fgH, fgHo) / 100
-            fgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
+            fgOpEl.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
         }
 
         // mid layers = indices 1..N
@@ -623,9 +624,10 @@ export default function DepthMotionStackHover(props: Props) {
                 const op = lerp(bgI, bgH, finalBgHo) / 100
                 bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
             }
-            if (fgRef.current) {
+            const fgSnapEl = fgContentRef.current || fgRef.current
+            if (fgSnapEl) {
                 const op = lerp(fgI, fgH, finalFgHo) / 100
-                fgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
+                fgSnapEl.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
             }
             for (let i = 0; i < lc; i++) {
                 const ref = midRefs.current[i]
@@ -1277,7 +1279,6 @@ export default function DepthMotionStackHover(props: Props) {
                             ...gridCell,
                             overflow: "hidden",
                             position: "relative",
-                            opacity: fgInitialOpacity,
                             ...(alphaMask ? (invertMask ? {
                                 WebkitMaskImage: `url(${alphaMask}), linear-gradient(white, white)`,
                                 maskImage: `url(${alphaMask}), linear-gradient(white, white)`,
@@ -1350,6 +1351,7 @@ export default function DepthMotionStackHover(props: Props) {
                             height: "100%",
                             pointerEvents: "none",
                             zIndex: layerCount + 2,
+                            opacity: fgInitialOpacity,
                             mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         }}>
                             {content}
