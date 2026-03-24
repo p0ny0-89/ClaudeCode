@@ -1071,6 +1071,7 @@ export default function DepthMotionStackHover(props: Props) {
             <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
 .${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
+.dms-mask-${scopeId}, .dms-mask-${scopeId} * { background: transparent !important; background-color: transparent !important; }
             `}</style>
             {animatedMask && (
                 <svg style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}>
@@ -1262,12 +1263,12 @@ export default function DepthMotionStackHover(props: Props) {
 
                         {/* Animated mask — composites via blend mode */}
                         {animatedMask && (
-                            <div className={fillClass} style={{
+                            <div className={`${fillClass} dms-mask-${scopeId}`} style={{
                                 position: "absolute",
                                 inset: 0,
                                 zIndex: layerCount + 3,
                                 pointerEvents: "none",
-                                mixBlendMode: (invertMask ? "destination-in" : "destination-out") as any,
+                                mixBlendMode: (invertMask ? "destination-out" : "destination-in") as any,
                                 filter: `url(#lum2alpha-${scopeId})`,
                             }}>
                                 {animatedMask}
