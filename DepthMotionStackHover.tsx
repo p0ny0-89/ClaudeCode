@@ -957,13 +957,17 @@ export default function DepthMotionStackHover(props: Props) {
             // Click-to-activate for mouse (non-touch) events
             if (cfg.current.activation === "click" && e.pointerType !== "touch") {
                 clickActive.current = !clickActive.current
+                const s = cfg.current.hoverStagger || 0
+                const count = 2 + cfg.current.layerCount
                 if (clickActive.current) {
+                    if (s > 0) triggerStagger(1, s, count, startLoop, cfg.current.reverseStagger)
                     hovering.current = true
                     emitActivationEvent(true)
                     hoverOpTarget.current = 1
                     const el = containerRef.current
                     if (el) cachedRect.current = el.getBoundingClientRect()
                 } else {
+                    if (s > 0) triggerStagger(0, s, count, startLoop, cfg.current.reverseStagger)
                     hovering.current = false
                     emitActivationEvent(false)
                     hoverOpTarget.current = 0
@@ -1020,6 +1024,8 @@ export default function DepthMotionStackHover(props: Props) {
             if (touchCaptured.current) {
                 ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
                 touchCaptured.current = false
+                const s = cfg.current.hoverStagger || 0
+                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
                 hovering.current = false
                 emitActivationEvent(false)
                 hoverOpTarget.current = 0
@@ -1101,6 +1107,17 @@ export default function DepthMotionStackHover(props: Props) {
         if (isCanvas || activation !== "always") return
 
         // Immediately activate hover state + opacity (parallax tracks via onPointerMove)
+        const s = cfg.current.hoverStagger || 0
+        const count = 2 + cfg.current.layerCount
+        if (s > 0) {
+            triggerStagger(1, s, count, startLoop, cfg.current.reverseStagger)
+        } else {
+            // No stagger: set all per-layer targets to 1 immediately
+            for (let i = 0; i < count; i++) {
+                layerHoverTargets.current[i] = 1
+                layerHoverOps.current[i] = 1
+            }
+        }
         hovering.current = true
         emitActivationEvent(true)
         hoverOpTarget.current = 1
