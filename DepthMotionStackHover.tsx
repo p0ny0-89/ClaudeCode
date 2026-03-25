@@ -1497,6 +1497,8 @@ export default function DepthMotionStackHover(props: Props) {
                             ...gridCell,
                             overflow: "hidden",
                             position: "relative",
+                            // Hide until mask is ready to prevent unmasked flash
+                            ...(alphaMask && !processedMask ? { visibility: "hidden" as const } : {}),
                             ...(processedMask ? {
                                 WebkitMaskImage: `url(${processedMask})`,
                                 maskImage: `url(${processedMask})`,
