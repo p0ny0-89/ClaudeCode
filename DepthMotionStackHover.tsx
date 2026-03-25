@@ -964,6 +964,16 @@ export default function DepthMotionStackHover(props: Props) {
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
 
+            // Click mode: capture touch pointer for smooth parallax tracking
+            // when active. Without capture, touch move events stop at element bounds.
+            if (cfg.current.activation === "click" && e.pointerType === "touch" && clickActive.current) {
+                try {
+                    (e.target as HTMLElement).setPointerCapture(e.pointerId)
+                    touchCaptured.current = true
+                    cachedRect.current = containerRef.current?.getBoundingClientRect() ?? null
+                } catch (_) {}
+            }
+
             // Touch drag hold-to-activate
             if (!cfg.current.touchDrag) return
             if (cfg.current.interaction !== "cursor") return
@@ -991,6 +1001,26 @@ export default function DepthMotionStackHover(props: Props) {
             if (e.pointerType !== "touch") return
 
             cancelHold()
+
+            // Click mode: release touch capture on finger lift.
+            // Don't deactivate — the component stays active until next tap.
+            if (cfg.current.activation === "click" && touchCaptured.current) {
+                try {
+                    (e.target as HTMLElement).releasePointerCapture(e.pointerId)
+                } catch (_) {}
+                touchCaptured.current = false
+                // Reset tilt to center on release for a smooth settle
+                if (cfg.current.tilt && cfg.current.interaction === "cursor") {
+                    target.current.rx = 0
+                    target.current.ry = 0
+                }
+                if (cfg.current.parallax && cfg.current.parallaxSource === "cursor") {
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                }
+                startLoop()
+                return
+            }
 
             // When touchDrag is off but activation is hover, a touch
             // triggered pointerenter (hover in) but pointerleave won't
