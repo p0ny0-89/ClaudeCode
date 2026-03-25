@@ -964,41 +964,6 @@ export default function DepthMotionStackHover(props: Props) {
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
 
-            // Click-to-activate for mouse (non-touch) events
-            if (cfg.current.activation === "click" && e.pointerType !== "touch") {
-                clickActive.current = !clickActive.current
-                const s = cfg.current.hoverStagger || 0
-                const count = 2 + cfg.current.layerCount
-                if (clickActive.current) {
-                    // Activate — enable hover opacity, tilt scale, cache rect
-                    if (s > 0) triggerStagger(1, s, count, startLoop, cfg.current.reverseStagger)
-                    hovering.current = true
-                    emitActivationEvent(true)
-                    hoverOpTarget.current = 1
-                    const el = containerRef.current
-                    if (el) cachedRect.current = el.getBoundingClientRect()
-                    if (cfg.current.tilt && cfg.current.interaction === "cursor") {
-                        target.current.s = cfg.current.hoverScale
-                    }
-                } else {
-                    // Deactivate — reset everything to rest state
-                    if (s > 0) triggerStagger(0, s, count, startLoop, cfg.current.reverseStagger)
-                    hovering.current = false
-                    emitActivationEvent(false)
-                    hoverOpTarget.current = 0
-                    // Reset tilt
-                    target.current.rx = 0
-                    target.current.ry = 0
-                    target.current.s = 1
-                    // Reset parallax
-                    pTarget.current.tx = 0
-                    pTarget.current.ty = 0
-                    cachedRect.current = null
-                }
-                startLoop()
-                return
-            }
-
             // Touch drag hold-to-activate
             if (!cfg.current.touchDrag) return
             if (cfg.current.interaction !== "cursor") return
@@ -1162,28 +1127,72 @@ export default function DepthMotionStackHover(props: Props) {
         startLoop()
     }, [activation, startLoop])
 
-    // ── Click-outside deactivation ───────────────────────
+    // ── Click activation via native DOM listener ─────────
+    // Uses a native 'click' listener on the container element to ensure
+    // the event always fires regardless of Framer's event handling.
 
     useEffect(() => {
         if (isCanvas || activation !== "click") return
+        const el = containerRef.current
+        if (!el) return
 
-        const onWindowDown = (e: PointerEvent) => {
-            if (e.pointerType === "touch") return
-            if (!clickActive.current) return
-            const el = containerRef.current
-            if (el && !el.contains(e.target as Node)) {
-                clickActive.current = false
+        const handleClick = (e: MouseEvent) => {
+            clickActive.current = !clickActive.current
+            const s = cfg.current.hoverStagger || 0
+            const count = 2 + cfg.current.layerCount
+
+            if (clickActive.current) {
+                // Activate
+                if (s > 0) triggerStagger(1, s, count, startLoop, cfg.current.reverseStagger)
+                hovering.current = true
+                emitActivationEvent(true)
+                hoverOpTarget.current = 1
+                cachedRect.current = el.getBoundingClientRect()
+                if (cfg.current.tilt && cfg.current.interaction === "cursor") {
+                    target.current.s = cfg.current.hoverScale
+                }
+            } else {
+                // Deactivate
+                if (s > 0) triggerStagger(0, s, count, startLoop, cfg.current.reverseStagger)
                 hovering.current = false
                 emitActivationEvent(false)
                 hoverOpTarget.current = 0
+                target.current.rx = 0
+                target.current.ry = 0
+                target.current.s = 1
                 pTarget.current.tx = 0
                 pTarget.current.ty = 0
-                startLoop()
+                cachedRect.current = null
             }
+            startLoop()
         }
 
+        // Use capture to fire before any child handlers
+        el.addEventListener("click", handleClick, true)
+
+        // Click-outside deactivation
+        const onWindowDown = (e: PointerEvent) => {
+            if (e.pointerType === "touch") return
+            if (!clickActive.current) return
+            if (el.contains(e.target as Node)) return
+            clickActive.current = false
+            hovering.current = false
+            emitActivationEvent(false)
+            hoverOpTarget.current = 0
+            target.current.rx = 0
+            target.current.ry = 0
+            target.current.s = 1
+            pTarget.current.tx = 0
+            pTarget.current.ty = 0
+            cachedRect.current = null
+            startLoop()
+        }
         window.addEventListener("pointerdown", onWindowDown)
-        return () => window.removeEventListener("pointerdown", onWindowDown)
+
+        return () => {
+            el.removeEventListener("click", handleClick, true)
+            window.removeEventListener("pointerdown", onWindowDown)
+        }
     }, [activation, isCanvas, startLoop])
 
     // ── Page-level Parallax Tracking ─────────────────────
