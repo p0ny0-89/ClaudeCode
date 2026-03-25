@@ -1457,6 +1457,14 @@ export default function DepthMotionStackHover(props: Props) {
         pointerEvents: "none",
     }
 
+    // Grid cell without will-change for clip path — avoids GPU layer
+    // promotion that causes transparent PNG compositing artifacts.
+    const gridCellNoGpu: React.CSSProperties = {
+        gridRow: 1,
+        gridColumn: 1,
+        pointerEvents: "none",
+    }
+
     // Only use isolation:isolate when a blend mode is active — it changes
     // how transparent layers composite and can cause bleed-through artifacts.
     const hasBlendMode =
@@ -1525,7 +1533,7 @@ export default function DepthMotionStackHover(props: Props) {
                                 ref={bgRef}
                                 className={fillClass}
                                 style={{
-                                    ...gridCell,
+                                    ...gridCellNoGpu,
                                     opacity: bgInitialOpacity,
                                 }}
                             >
@@ -1543,7 +1551,7 @@ export default function DepthMotionStackHover(props: Props) {
                                     ref={(el) => { midRefs.current[i] = el }}
                                     className={fillClass}
                                     style={{
-                                        ...gridCell,
+                                        ...gridCellNoGpu,
                                         mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                         opacity: midOp < 100 ? midOp / 100 : undefined,
                                     }}
@@ -1555,7 +1563,7 @@ export default function DepthMotionStackHover(props: Props) {
 
                         {/* FG content on top */}
                         <div ref={fgContentRef} className={fillClass} style={{
-                            ...gridCell,
+                            ...gridCellNoGpu,
                             opacity: fgInitialOpacity,
                             mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         }}>
