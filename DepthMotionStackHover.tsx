@@ -90,6 +90,13 @@ interface Props {
     invertMask: boolean
     hoverStagger: number
     reverseStagger: boolean
+    // ── Exposed activation events ──
+    // These fire once on state transitions (not continuously).
+    // Wired via ControlType.EventHandler, they appear in the
+    // Framer Interactions panel so designers can trigger
+    // transitions, overlays, or any parent-level behavior.
+    onActivate?: () => void
+    onDeactivate?: () => void
     style?: React.CSSProperties
 }
 
@@ -169,6 +176,8 @@ export default function DepthMotionStackHover(props: Props) {
         invertMask = false,
         hoverStagger = 0,
         reverseStagger = false,
+        onActivate,
+        onDeactivate,
         style,
     } = props
 
@@ -228,6 +237,27 @@ export default function DepthMotionStackHover(props: Props) {
     const layerHoverTargets = useRef<number[]>([])
     const staggerTimers = useRef<ReturnType<typeof setTimeout>[]>([])
     const staggerPending = useRef(false)
+
+    // ── Activation event emission ────────────────────────────
+    // Tracks the last emitted state so events fire only on
+    // actual transitions, not continuously while active.
+    const lastEmittedActive = useRef<boolean | null>(null)
+    const onActivateRef = useRef(onActivate)
+    const onDeactivateRef = useRef(onDeactivate)
+    onActivateRef.current = onActivate
+    onDeactivateRef.current = onDeactivate
+
+    // Call this whenever the activation state changes.
+    // It deduplicates so the event fires exactly once per transition.
+    const emitActivationEvent = useCallback((active: boolean) => {
+        if (active === lastEmittedActive.current) return
+        lastEmittedActive.current = active
+        if (active) {
+            onActivateRef.current?.()
+        } else {
+            onDeactivateRef.current?.()
+        }
+    }, [])
 
     // Trigger staggered layer transitions via setTimeout
     const triggerStagger = useCallback((target: 1 | 0, staggerMs: number, count: number, restartLoop: () => void, reverse: boolean) => {
@@ -720,6 +750,7 @@ export default function DepthMotionStackHover(props: Props) {
                 if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
             }
             hovering.current = true
+            emitActivationEvent(true)
             hoverOpTarget.current = 1
         }
 
@@ -844,6 +875,7 @@ export default function DepthMotionStackHover(props: Props) {
                 if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
             }
             hovering.current = false
+            emitActivationEvent(false)
             hoverOpTarget.current = 0
             cachedRect.current = null
 
@@ -903,6 +935,7 @@ export default function DepthMotionStackHover(props: Props) {
                 if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
             }
             hovering.current = true
+            emitActivationEvent(true)
             hoverOpTarget.current = 1
 
             const container = containerRef.current
@@ -926,11 +959,13 @@ export default function DepthMotionStackHover(props: Props) {
                 clickActive.current = !clickActive.current
                 if (clickActive.current) {
                     hovering.current = true
+                    emitActivationEvent(true)
                     hoverOpTarget.current = 1
                     const el = containerRef.current
                     if (el) cachedRect.current = el.getBoundingClientRect()
                 } else {
                     hovering.current = false
+                    emitActivationEvent(false)
                     hoverOpTarget.current = 0
                     pTarget.current.tx = 0
                     pTarget.current.ty = 0
@@ -973,6 +1008,7 @@ export default function DepthMotionStackHover(props: Props) {
             if (!cfg.current.touchDrag) {
                 if (cfg.current.activation === "hover" && hovering.current) {
                     hovering.current = false
+                    emitActivationEvent(false)
                     hoverOpTarget.current = 0
                     const s = cfg.current.hoverStagger || 0
                     if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
@@ -985,6 +1021,7 @@ export default function DepthMotionStackHover(props: Props) {
                 ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
                 touchCaptured.current = false
                 hovering.current = false
+                emitActivationEvent(false)
                 hoverOpTarget.current = 0
                 cachedRect.current = null
 
@@ -1065,6 +1102,7 @@ export default function DepthMotionStackHover(props: Props) {
 
         // Immediately activate hover state + opacity (parallax tracks via onPointerMove)
         hovering.current = true
+        emitActivationEvent(true)
         hoverOpTarget.current = 1
         hoverOpCurrent.current = 1
         startLoop()
@@ -1080,6 +1118,7 @@ export default function DepthMotionStackHover(props: Props) {
                 if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
             }
             hovering.current = false
+            emitActivationEvent(false)
             hoverOpTarget.current = 0
         }
         startLoop()
@@ -1097,6 +1136,7 @@ export default function DepthMotionStackHover(props: Props) {
             if (el && !el.contains(e.target as Node)) {
                 clickActive.current = false
                 hovering.current = false
+                emitActivationEvent(false)
                 hoverOpTarget.current = 0
                 pTarget.current.tx = 0
                 pTarget.current.ty = 0
@@ -2007,6 +2047,20 @@ addPropertyControls(DepthMotionStackHover, {
         description:
             "Reverses the stagger order so background reveals first and foreground last.",
         hidden: (props: any) => !props.parallax || !props.hoverStagger,
+    },
+
+    // ── Activation Events ─────────────────────────────────
+    // These appear in the Interactions panel in Framer.
+    // Designers can wire them to transitions, overlays, text
+    // variant swaps, or any parent-level behavior.
+    // Events fire once per state transition, not continuously.
+
+    onActivate: {
+        type: ControlType.EventHandler,
+    },
+
+    onDeactivate: {
+        type: ControlType.EventHandler,
     },
 
     // ── Clip to Foreground ────────────────────────────────
