@@ -895,12 +895,22 @@ export default function DepthMotionStackHover(props: Props) {
                 pTarget.current.ty = 0
             }
         } else if (act === "click") {
-            if (tiltOn && mode === "cursor") {
-                target.current.rx = 0
-                target.current.ry = 0
-                target.current.s = 1
-            }
+            // Only reset tilt/parallax when click is NOT active.
+            // When active, keep responding to cursor movement.
             if (!clickActive.current) {
+                if (tiltOn && mode === "cursor") {
+                    target.current.rx = 0
+                    target.current.ry = 0
+                    target.current.s = 1
+                }
+                if (
+                    cfg.current.parallax &&
+                    cfg.current.parallaxSource === "cursor" &&
+                    cfg.current.parallaxTracking !== "page"
+                ) {
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                }
                 cachedRect.current = null
             }
         } else if (act === "always") {
