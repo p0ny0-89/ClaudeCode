@@ -580,7 +580,7 @@ export default function DepthMotionStackHover(props: Props) {
         const bgHo = stagger > 0 ? layerHoverOps.current[0] : ho
         if (bgRef.current) {
             const op = lerp(bgI, bgH, bgHo) / 100
-            bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
+            bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
         }
 
         // fg = last index — use fgContentRef in clip mode, fgRef otherwise
@@ -588,7 +588,7 @@ export default function DepthMotionStackHover(props: Props) {
         const fgOpEl = fgContentRef.current || fgRef.current
         if (fgOpEl) {
             const op = lerp(fgI, fgH, fgHo) / 100
-            fgOpEl.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
+            fgOpEl.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
         }
 
         // mid layers = indices 1..N
@@ -599,7 +599,7 @@ export default function DepthMotionStackHover(props: Props) {
             if (ref) {
                 const midHo = stagger > 0 ? layerHoverOps.current[i + 1] : ho
                 const op = lerp(midIdleArr[i], midHoverArr[i], midHo) / 100
-                ref.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
+                ref.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
             }
         }
 
@@ -694,19 +694,19 @@ export default function DepthMotionStackHover(props: Props) {
             const finalFgHo = stagger > 0 ? layerHoverOps.current[totalLayerCount - 1] : finalHo
             if (bgRef.current) {
                 const op = lerp(bgI, bgH, finalBgHo) / 100
-                bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
+                bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
             }
             const fgSnapEl = fgContentRef.current || fgRef.current
             if (fgSnapEl) {
                 const op = lerp(fgI, fgH, finalFgHo) / 100
-                fgSnapEl.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
+                fgSnapEl.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
             }
             for (let i = 0; i < lc; i++) {
                 const ref = midRefs.current[i]
                 if (ref) {
                     const finalMidHo = stagger > 0 ? layerHoverOps.current[i + 1] : finalHo
                     const op = lerp(midIdleArr[i], midHoverArr[i], finalMidHo) / 100
-                    ref.style.opacity = op < 1 ? String(op.toFixed(3)) : ""
+                    ref.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
                 }
             }
 
