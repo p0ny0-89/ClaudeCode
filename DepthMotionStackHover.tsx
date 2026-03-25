@@ -85,6 +85,25 @@ interface Props {
     mid7OpacityHover: number
     bgOpacityIdle: number
     bgOpacityHover: number
+    // Per-layer scale (percentage, 100 = normal)
+    contentScale: number
+    mid1Scale: number
+    mid2Scale: number
+    mid3Scale: number
+    mid4Scale: number
+    mid5Scale: number
+    mid6Scale: number
+    mid7Scale: number
+    bgScale: number
+    // Per-layer parallax direction ("default" follows global, "inverted" flips)
+    mid1Direction: "default" | "inverted"
+    mid2Direction: "default" | "inverted"
+    mid3Direction: "default" | "inverted"
+    mid4Direction: "default" | "inverted"
+    mid5Direction: "default" | "inverted"
+    mid6Direction: "default" | "inverted"
+    mid7Direction: "default" | "inverted"
+    bgDirection: "default" | "inverted"
     clipToForeground: boolean
     clipRadius: number
     alphaMask: string
@@ -172,6 +191,23 @@ export default function DepthMotionStackHover(props: Props) {
         mid7OpacityHover = 100,
         bgOpacityIdle = 100,
         bgOpacityHover = 100,
+        contentScale = 100,
+        mid1Scale = 100,
+        mid2Scale = 100,
+        mid3Scale = 100,
+        mid4Scale = 100,
+        mid5Scale = 100,
+        mid6Scale = 100,
+        mid7Scale = 100,
+        bgScale = 100,
+        mid1Direction = "default" as const,
+        mid2Direction = "default" as const,
+        mid3Direction = "default" as const,
+        mid4Direction = "default" as const,
+        mid5Direction = "default" as const,
+        mid6Direction = "default" as const,
+        mid7Direction = "default" as const,
+        bgDirection = "default" as const,
         clipToForeground = false,
         clipRadius = 0,
         alphaMask,
@@ -399,6 +435,12 @@ export default function DepthMotionStackHover(props: Props) {
         bgOpacityHover,
         hoverStagger,
         reverseStagger,
+        contentScale,
+        mid1Scale, mid2Scale, mid3Scale, mid4Scale, mid5Scale, mid6Scale, mid7Scale,
+        bgScale,
+        mid1Direction, mid2Direction, mid3Direction, mid4Direction,
+        mid5Direction, mid6Direction, mid7Direction,
+        bgDirection,
     }
     clipFactorsRef.current = {
         bg: depthFactors[0],
@@ -505,38 +547,55 @@ export default function DepthMotionStackHover(props: Props) {
 
             const cf = clipFactorsRef.current
 
+            // Per-layer scale (percentage → ratio)
+            const midScales = [
+                cfg.current.mid1Scale, cfg.current.mid2Scale, cfg.current.mid3Scale,
+                cfg.current.mid4Scale, cfg.current.mid5Scale, cfg.current.mid6Scale,
+                cfg.current.mid7Scale,
+            ]
+            const fgScale = (cfg.current.contentScale || 100) / 100
+            const bgLayerScale = (cfg.current.bgScale || 100) / 100
+
+            // Per-layer direction multiplier (1 = default, -1 = inverted)
+            const midDirs = [
+                cfg.current.mid1Direction, cfg.current.mid2Direction, cfg.current.mid3Direction,
+                cfg.current.mid4Direction, cfg.current.mid5Direction, cfg.current.mid6Direction,
+                cfg.current.mid7Direction,
+            ]
+            const bgDirMul = cfg.current.bgDirection === "inverted" ? -1 : 1
+
             if (bgRef.current) {
-                const tx = (cf.bg * pc.tx).toFixed(2)
-                const ty = (cf.bg * pc.ty).toFixed(2)
+                const tx = (cf.bg * pc.tx * bgDirMul).toFixed(2)
+                const ty = (cf.bg * pc.ty * bgDirMul).toFixed(2)
+                // Combine user bgScale with clip-mode auto-scale
+                let totalBgScale = bgLayerScale
                 if (bgScaleRef.current) {
-                    // Compute scale from container dimensions + parallax amount
                     const rect = cachedRect.current || containerRef.current?.getBoundingClientRect()
                     if (rect && rect.width > 0 && rect.height > 0) {
                         const minDim = Math.min(rect.width, rect.height)
-                        const s = 1 + (2 * cfg.current.parallaxAmount) / minDim
-                        bgRef.current.style.transform =
-                            `translate3d(${tx}px, ${ty}px, 0) scale(${s.toFixed(4)})`
-                    } else {
-                        bgRef.current.style.transform =
-                            `translate3d(${tx}px, ${ty}px, 0)`
+                        totalBgScale *= 1 + (2 * cfg.current.parallaxAmount) / minDim
                     }
-                } else {
-                    bgRef.current.style.transform =
-                        `translate3d(${tx}px, ${ty}px, 0)`
                 }
+                const scaleStr = totalBgScale !== 1 ? ` scale(${totalBgScale.toFixed(4)})` : ""
+                bgRef.current.style.transform =
+                    `translate3d(${tx}px, ${ty}px, 0)${scaleStr}`
             }
 
             for (let i = 0; i < lc; i++) {
                 const ref = midRefs.current[i]
                 if (ref) {
+                    const dirMul = midDirs[i] === "inverted" ? -1 : 1
+                    const s = (midScales[i] || 100) / 100
+                    const scaleStr = s !== 1 ? ` scale(${s.toFixed(4)})` : ""
                     ref.style.transform =
-                        `translate3d(${(cf.mid[i] * pc.tx).toFixed(2)}px, ${(cf.mid[i] * pc.ty).toFixed(2)}px, 0)`
+                        `translate3d(${(cf.mid[i] * pc.tx * dirMul).toFixed(2)}px, ${(cf.mid[i] * pc.ty * dirMul).toFixed(2)}px, 0)${scaleStr}`
                 }
             }
 
             if (fgRef.current) {
+                const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
                 fgRef.current.style.transform =
-                    `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
+                    `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)${scaleStr}`
             }
         }
 
@@ -651,37 +710,53 @@ export default function DepthMotionStackHover(props: Props) {
 
                 const cf = clipFactorsRef.current
 
+                // Per-layer scale + direction (same logic as main tick)
+                const midScales2 = [
+                    cfg.current.mid1Scale, cfg.current.mid2Scale, cfg.current.mid3Scale,
+                    cfg.current.mid4Scale, cfg.current.mid5Scale, cfg.current.mid6Scale,
+                    cfg.current.mid7Scale,
+                ]
+                const midDirs2 = [
+                    cfg.current.mid1Direction, cfg.current.mid2Direction, cfg.current.mid3Direction,
+                    cfg.current.mid4Direction, cfg.current.mid5Direction, cfg.current.mid6Direction,
+                    cfg.current.mid7Direction,
+                ]
+                const bgDirMul2 = cfg.current.bgDirection === "inverted" ? -1 : 1
+                const fgScale2 = (cfg.current.contentScale || 100) / 100
+                const bgLayerScale2 = (cfg.current.bgScale || 100) / 100
+
                 if (bgRef.current) {
-                    const tx = (cf.bg * pc.tx).toFixed(2)
-                    const ty = (cf.bg * pc.ty).toFixed(2)
+                    const tx = (cf.bg * pc.tx * bgDirMul2).toFixed(2)
+                    const ty = (cf.bg * pc.ty * bgDirMul2).toFixed(2)
+                    let totalBgScale = bgLayerScale2
                     if (bgScaleRef.current) {
                         const rect = cachedRect.current || containerRef.current?.getBoundingClientRect()
                         if (rect && rect.width > 0 && rect.height > 0) {
                             const minDim = Math.min(rect.width, rect.height)
-                            const s = 1 + (2 * cfg.current.parallaxAmount) / minDim
-                            bgRef.current.style.transform =
-                                `translate3d(${tx}px, ${ty}px, 0) scale(${s.toFixed(4)})`
-                        } else {
-                            bgRef.current.style.transform =
-                                `translate3d(${tx}px, ${ty}px, 0)`
+                            totalBgScale *= 1 + (2 * cfg.current.parallaxAmount) / minDim
                         }
-                    } else {
-                        bgRef.current.style.transform =
-                            `translate3d(${tx}px, ${ty}px, 0)`
                     }
+                    const scaleStr = totalBgScale !== 1 ? ` scale(${totalBgScale.toFixed(4)})` : ""
+                    bgRef.current.style.transform =
+                        `translate3d(${tx}px, ${ty}px, 0)${scaleStr}`
                 }
 
                 for (let i = 0; i < lc; i++) {
                     const ref = midRefs.current[i]
                     if (ref) {
+                        const dirMul = midDirs2[i] === "inverted" ? -1 : 1
+                        const s = (midScales2[i] || 100) / 100
+                        const scaleStr = s !== 1 ? ` scale(${s.toFixed(4)})` : ""
                         ref.style.transform =
-                            `translate3d(${(cf.mid[i] * pc.tx).toFixed(2)}px, ${(cf.mid[i] * pc.ty).toFixed(2)}px, 0)`
+                            `translate3d(${(cf.mid[i] * pc.tx * dirMul).toFixed(2)}px, ${(cf.mid[i] * pc.ty * dirMul).toFixed(2)}px, 0)${scaleStr}`
                     }
                 }
 
-                if (fgRef.current)
+                if (fgRef.current) {
+                    const scaleStr = fgScale2 !== 1 ? ` scale(${fgScale2.toFixed(4)})` : ""
                     fgRef.current.style.transform =
-                        `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
+                        `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)${scaleStr}`
+                }
             }
 
             // Snap hover opacity
@@ -1727,6 +1802,16 @@ addPropertyControls(DepthMotionStackHover, {
         unit: "%",
         hidden: (props: any) => !props.parallax,
     },
+    contentScale: {
+        type: ControlType.Number,
+        title: "FG Scale",
+        defaultValue: 100,
+        min: 50,
+        max: 300,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax,
+    },
 
     // ── Tilt ─────────────────────────────────────────────
 
@@ -1890,6 +1975,24 @@ addPropertyControls(DepthMotionStackHover, {
         unit: "%",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
     },
+    mid1Scale: {
+        type: ControlType.Number,
+        title: "L1 Scale",
+        defaultValue: 100,
+        min: 50,
+        max: 300,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
+    },
+    mid1Direction: {
+        type: ControlType.Enum,
+        title: "L1 Direction",
+        options: ["default", "inverted"],
+        optionTitles: ["Default", "Inverted"],
+        defaultValue: "default",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
+    },
 
     mid2: {
         type: ControlType.ComponentInstance,
@@ -1922,6 +2025,24 @@ addPropertyControls(DepthMotionStackHover, {
         max: 100,
         step: 1,
         unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
+    },
+    mid2Scale: {
+        type: ControlType.Number,
+        title: "L2 Scale",
+        defaultValue: 100,
+        min: 50,
+        max: 300,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
+    },
+    mid2Direction: {
+        type: ControlType.Enum,
+        title: "L2 Direction",
+        options: ["default", "inverted"],
+        optionTitles: ["Default", "Inverted"],
+        defaultValue: "default",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
     },
 
@@ -1958,6 +2079,24 @@ addPropertyControls(DepthMotionStackHover, {
         unit: "%",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
     },
+    mid3Scale: {
+        type: ControlType.Number,
+        title: "L3 Scale",
+        defaultValue: 100,
+        min: 50,
+        max: 300,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
+    },
+    mid3Direction: {
+        type: ControlType.Enum,
+        title: "L3 Direction",
+        options: ["default", "inverted"],
+        optionTitles: ["Default", "Inverted"],
+        defaultValue: "default",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
+    },
 
     mid4: {
         type: ControlType.ComponentInstance,
@@ -1990,6 +2129,24 @@ addPropertyControls(DepthMotionStackHover, {
         max: 100,
         step: 1,
         unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
+    },
+    mid4Scale: {
+        type: ControlType.Number,
+        title: "L4 Scale",
+        defaultValue: 100,
+        min: 50,
+        max: 300,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
+    },
+    mid4Direction: {
+        type: ControlType.Enum,
+        title: "L4 Direction",
+        options: ["default", "inverted"],
+        optionTitles: ["Default", "Inverted"],
+        defaultValue: "default",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
     },
 
@@ -2026,6 +2183,24 @@ addPropertyControls(DepthMotionStackHover, {
         unit: "%",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
     },
+    mid5Scale: {
+        type: ControlType.Number,
+        title: "L5 Scale",
+        defaultValue: 100,
+        min: 50,
+        max: 300,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
+    },
+    mid5Direction: {
+        type: ControlType.Enum,
+        title: "L5 Direction",
+        options: ["default", "inverted"],
+        optionTitles: ["Default", "Inverted"],
+        defaultValue: "default",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
+    },
 
     mid6: {
         type: ControlType.ComponentInstance,
@@ -2058,6 +2233,24 @@ addPropertyControls(DepthMotionStackHover, {
         max: 100,
         step: 1,
         unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+    mid6Scale: {
+        type: ControlType.Number,
+        title: "L6 Scale",
+        defaultValue: 100,
+        min: 50,
+        max: 300,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+    mid6Direction: {
+        type: ControlType.Enum,
+        title: "L6 Direction",
+        options: ["default", "inverted"],
+        optionTitles: ["Default", "Inverted"],
+        defaultValue: "default",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
     },
 
@@ -2094,6 +2287,24 @@ addPropertyControls(DepthMotionStackHover, {
         unit: "%",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
     },
+    mid7Scale: {
+        type: ControlType.Number,
+        title: "L7 Scale",
+        defaultValue: 100,
+        min: 50,
+        max: 300,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
+    },
+    mid7Direction: {
+        type: ControlType.Enum,
+        title: "L7 Direction",
+        options: ["default", "inverted"],
+        optionTitles: ["Default", "Inverted"],
+        defaultValue: "default",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
+    },
 
     // Background — deepest layer
     background: {
@@ -2119,6 +2330,24 @@ addPropertyControls(DepthMotionStackHover, {
         max: 100,
         step: 1,
         unit: "%",
+        hidden: (props: any) => !props.parallax,
+    },
+    bgScale: {
+        type: ControlType.Number,
+        title: "BG Scale",
+        defaultValue: 100,
+        min: 50,
+        max: 300,
+        step: 1,
+        unit: "%",
+        hidden: (props: any) => !props.parallax,
+    },
+    bgDirection: {
+        type: ControlType.Enum,
+        title: "BG Direction",
+        options: ["default", "inverted"],
+        optionTitles: ["Default", "Inverted"],
+        defaultValue: "default",
         hidden: (props: any) => !props.parallax,
     },
 
