@@ -1137,75 +1137,74 @@ export default function DepthMotionStackHover(props: Props) {
         if (!el) return
 
         let lastClickTime = 0
-        const handleClick = (e: MouseEvent) => {
-            // Debounce: ignore clicks within 300ms (prevents double-fire)
-            const now = Date.now()
-            if (now - lastClickTime < 300) return
-            lastClickTime = now
 
-            // Consume the event completely
-            e.preventDefault()
-            e.stopPropagation()
-            e.stopImmediatePropagation()
+        // Use document-level click in capture phase — this catches ALL clicks
+        // regardless of where they land in the DOM tree, even inside Framer
+        // component instances that might not bubble to our container.
+        const handleDocClick = (e: MouseEvent) => {
+            const clickedInside = el.contains(e.target as Node)
 
-            clickActive.current = !clickActive.current
+            if (clickedInside) {
+                // Debounce: ignore clicks within 300ms
+                const now = Date.now()
+                if (now - lastClickTime < 300) return
+                lastClickTime = now
 
-            // DEBUG: visible indicator — red outline = active, none = inactive
-            el.style.outline = clickActive.current ? "3px solid red" : "none"
-            const s = cfg.current.hoverStagger || 0
-            const count = 2 + cfg.current.layerCount
+                clickActive.current = !clickActive.current
 
-            if (clickActive.current) {
-                // Activate
-                if (s > 0) triggerStagger(1, s, count, startLoop, cfg.current.reverseStagger)
-                hovering.current = true
-                emitActivationEvent(true)
-                hoverOpTarget.current = 1
-                cachedRect.current = el.getBoundingClientRect()
-                if (cfg.current.tilt && cfg.current.interaction === "cursor") {
-                    target.current.s = cfg.current.hoverScale
+                // DEBUG: visible indicator
+                el.style.outline = clickActive.current ? "3px solid red" : "none"
+
+                const s = cfg.current.hoverStagger || 0
+                const count = 2 + cfg.current.layerCount
+
+                if (clickActive.current) {
+                    // Activate
+                    if (s > 0) triggerStagger(1, s, count, startLoop, cfg.current.reverseStagger)
+                    hovering.current = true
+                    emitActivationEvent(true)
+                    hoverOpTarget.current = 1
+                    cachedRect.current = el.getBoundingClientRect()
+                    if (cfg.current.tilt && cfg.current.interaction === "cursor") {
+                        target.current.s = cfg.current.hoverScale
+                    }
+                } else {
+                    // Deactivate
+                    if (s > 0) triggerStagger(0, s, count, startLoop, cfg.current.reverseStagger)
+                    hovering.current = false
+                    emitActivationEvent(false)
+                    hoverOpTarget.current = 0
+                    target.current.rx = 0
+                    target.current.ry = 0
+                    target.current.s = 1
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                    cachedRect.current = null
                 }
+                startLoop()
             } else {
-                // Deactivate
-                if (s > 0) triggerStagger(0, s, count, startLoop, cfg.current.reverseStagger)
-                hovering.current = false
-                emitActivationEvent(false)
-                hoverOpTarget.current = 0
-                target.current.rx = 0
-                target.current.ry = 0
-                target.current.s = 1
-                pTarget.current.tx = 0
-                pTarget.current.ty = 0
-                cachedRect.current = null
+                // Click outside — deactivate if active
+                if (clickActive.current) {
+                    clickActive.current = false
+                    el.style.outline = "none"
+                    hovering.current = false
+                    emitActivationEvent(false)
+                    hoverOpTarget.current = 0
+                    target.current.rx = 0
+                    target.current.ry = 0
+                    target.current.s = 1
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                    cachedRect.current = null
+                    startLoop()
+                }
             }
-            startLoop()
         }
 
-        // Use click in capture phase
-        el.addEventListener("click", handleClick, true)
-
-        // Click-outside deactivation
-        const onWindowDown = (e: PointerEvent) => {
-            if (e.pointerType === "touch") return
-            if (!clickActive.current) return
-            if (el.contains(e.target as Node)) return
-            clickActive.current = false
-            hovering.current = false
-            emitActivationEvent(false)
-            hoverOpTarget.current = 0
-            target.current.rx = 0
-            target.current.ry = 0
-            target.current.s = 1
-            pTarget.current.tx = 0
-            pTarget.current.ty = 0
-            cachedRect.current = null
-            startLoop()
-        }
-        window.addEventListener("pointerdown", onWindowDown)
+        document.addEventListener("click", handleDocClick, true)
 
         return () => {
-            el.removeEventListener("click", handleClick, true)
-            window.removeEventListener("pointerdown", onWindowDown)
+            document.removeEventListener("click", handleDocClick, true)
         }
     }, [activation, isCanvas, startLoop])
 
