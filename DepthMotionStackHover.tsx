@@ -1612,8 +1612,11 @@ export default function DepthMotionStackHover(props: Props) {
                     </div>
                 )}
 
-                {/* Mid layers */}
-                {midLayersArr.map((mid, i) => {
+                {/* Mid layers — reversed DOM order so Layer 1 (closest to fg)
+                     is last in DOM = painted on top. Refs use original index
+                     so parallax depth assignments stay correct. */}
+                {[...midLayersArr].reverse().map((mid, ri) => {
+                    const i = layerCount - 1 - ri
                     if (!mid) return null
                     const midOp = midInitialOpacities[i]
                     return (
