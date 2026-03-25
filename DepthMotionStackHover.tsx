@@ -1377,8 +1377,8 @@ export default function DepthMotionStackHover(props: Props) {
                 onPointerEnter={onPointerEnter}
                 onPointerMove={onPointerMove}
                 onPointerLeave={onPointerLeave}
-                onPointerDown={onPointerDown}
-                onPointerUp={onPointerUp}
+                onPointerDownCapture={onPointerDown}
+                onPointerUpCapture={onPointerUp}
                 onPointerCancel={onPointerUp}
             >
                 {fillStyle}
@@ -1424,8 +1424,8 @@ export default function DepthMotionStackHover(props: Props) {
                 onPointerEnter={onPointerEnter}
                 onPointerMove={onPointerMove}
                 onPointerLeave={onPointerLeave}
-                onPointerDown={onPointerDown}
-                onPointerUp={onPointerUp}
+                onPointerDownCapture={onPointerDown}
+                onPointerUpCapture={onPointerUp}
                 onPointerCancel={onPointerUp}
             >
                 {fillStyle}
