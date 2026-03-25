@@ -86,6 +86,7 @@ interface Props {
     bgOpacityIdle: number
     bgOpacityHover: number
     clipToForeground: boolean
+    clipRadius: number
     alphaMask: string
     invertMask: boolean
     hoverStagger: number
@@ -172,6 +173,7 @@ export default function DepthMotionStackHover(props: Props) {
         bgOpacityIdle = 100,
         bgOpacityHover = 100,
         clipToForeground = false,
+        clipRadius = 0,
         alphaMask,
         invertMask = false,
         hoverStagger = 0,
@@ -1290,13 +1292,15 @@ export default function DepthMotionStackHover(props: Props) {
     }, [])
 
     // ── Copy fg slot child border-radius to clip wrapper ──
+    // clipRadius prop provides the value directly (works on canvas + preview).
+    // The useEffect is a fallback that reads from the fg slot child's DOM.
     useEffect(() => {
         if (!clipToForeground || !parallax) return
+        if (clipRadius > 0) return // prop takes priority, skip DOM read
         const wrapper = fgRef.current
         const contentEl = fgContentRef.current
         if (!wrapper || !contentEl) return
 
-        // The Framer slot child is the first child of our content wrapper
         const slotChild = contentEl.firstElementChild as HTMLElement | null
         if (!slotChild) return
 
@@ -1308,7 +1312,7 @@ export default function DepthMotionStackHover(props: Props) {
         return () => {
             if (wrapper) wrapper.style.borderRadius = ""
         }
-    }, [clipToForeground, parallax])
+    }, [clipToForeground, parallax, clipRadius])
 
 
 
@@ -1497,6 +1501,8 @@ export default function DepthMotionStackHover(props: Props) {
                             ...gridCell,
                             overflow: "hidden",
                             position: "relative",
+                            // Clip radius — prop value takes priority, useEffect fallback reads from DOM
+                            ...(clipRadius > 0 ? { borderRadius: clipRadius } : {}),
                             // Hide until mask is ready to prevent unmasked flash
                             ...(alphaMask && !processedMask ? { visibility: "hidden" as const } : {}),
                             ...(processedMask ? {
@@ -2165,6 +2171,18 @@ addPropertyControls(DepthMotionStackHover, {
         description:
             "Clips all layers to the foreground frame for a hologram card effect.",
         hidden: (props: any) => !props.parallax,
+    },
+
+    clipRadius: {
+        type: ControlType.Number,
+        title: "Clip Radius",
+        defaultValue: 0,
+        min: 0,
+        max: 500,
+        step: 1,
+        description:
+            "Border radius for the clip shape. Set to 0 to auto-detect from the foreground layer.",
+        hidden: (props: any) => !props.parallax || !props.clipToForeground,
     },
 
     alphaMask: {
