@@ -1457,19 +1457,6 @@ export default function DepthMotionStackHover(props: Props) {
         pointerEvents: "none",
     }
 
-    // Grid cell without will-change for clip path — avoids GPU layer
-    // promotion that causes transparent PNG compositing artifacts.
-    const gridCellNoGpu: React.CSSProperties = {
-        gridRow: 1,
-        gridColumn: 1,
-        pointerEvents: "none",
-    }
-
-    // Only use isolation:isolate when a blend mode is active — it changes
-    // how transparent layers composite and can cause bleed-through artifacts.
-    const hasBlendMode =
-        contentBlend !== "normal" ||
-        midBlendsArr.some((b) => b !== "normal")
 
     // ── Parallax render ──────────────────────────────────────
 
@@ -1498,23 +1485,19 @@ export default function DepthMotionStackHover(props: Props) {
                         height: "100%",
                         display: "grid",
                         gridTemplate: "1fr / 1fr",
-                        isolation: hasBlendMode ? "isolate" as const : undefined,
+                        isolation: "isolate",
                         willChange: tilt ? "transform" : undefined,
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
                 >
-                    {/* Foreground wrapper — clips all layers to its shape.
-                         Uses an inner grid (same as flat path) so layers composite
-                         within one GPU layer, avoiding transparent PNG bleed-through
-                         that absolute positioning + will-change causes. */}
+                    {/* Foreground wrapper — clips all layers to its shape */}
                     <div
                         ref={fgRef}
                         className={fillClass}
                         style={{
                             ...gridCell,
                             overflow: "hidden",
-                            display: "grid",
-                            gridTemplate: "1fr / 1fr",
+                            position: "relative",
                             // Hide until mask is ready to prevent unmasked flash
                             ...(alphaMask && !processedMask ? { visibility: "hidden" as const } : {}),
                             ...(processedMask ? {
@@ -1527,26 +1510,26 @@ export default function DepthMotionStackHover(props: Props) {
                             } : {}),
                         }}
                     >
-                        {/* Background — first in DOM = visually at bottom */}
+                        {/* Background — scaled up by tick loop to cover parallax travel */}
                         {background && (
                             <div
                                 ref={bgRef}
                                 className={fillClass}
                                 style={{
-                                    ...gridCellNoGpu,
+                                    position: "absolute",
+                                    inset: 0,
+                                    willChange: "transform",
+                                    pointerEvents: "none",
                                     opacity: bgInitialOpacity,
+                                    zIndex: 0,
                                 }}
                             >
                                 {background}
                             </div>
                         )}
 
-                        {/* Mid layers — rendered in REVERSE DOM order so that
-                             Layer 1 (closest to fg) is last in DOM = painted on top.
-                             This avoids z-index stacking contexts which cause
-                             transparent PNG alpha compositing artifacts. */}
-                        {[...midLayersArr].reverse().map((mid, ri) => {
-                            const i = layerCount - 1 - ri // original index
+                        {/* Mid layers — behind fg content */}
+                        {midLayersArr.map((mid, i) => {
                             if (!mid) return null
                             const midOp = midInitialOpacities[i]
                             return (
@@ -1555,9 +1538,13 @@ export default function DepthMotionStackHover(props: Props) {
                                     ref={(el) => { midRefs.current[i] = el }}
                                     className={fillClass}
                                     style={{
-                                        ...gridCellNoGpu,
+                                        position: "absolute",
+                                        inset: 0,
+                                        willChange: "transform",
+                                        pointerEvents: "none",
                                         mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                         opacity: midOp < 100 ? midOp / 100 : undefined,
+                                        zIndex: layerCount - i,
                                     }}
                                 >
                                     {mid}
@@ -1565,9 +1552,13 @@ export default function DepthMotionStackHover(props: Props) {
                             )
                         })}
 
-                        {/* FG content — last in DOM = visually on top */}
+                        {/* FG content on top */}
                         <div ref={fgContentRef} className={fillClass} style={{
-                            ...gridCellNoGpu,
+                            position: "relative",
+                            width: "100%",
+                            height: "100%",
+                            pointerEvents: "none",
+                            zIndex: layerCount + 2,
                             opacity: fgInitialOpacity,
                             mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         }}>
@@ -1601,7 +1592,7 @@ export default function DepthMotionStackHover(props: Props) {
                     width: "100%",
                     height: "100%",
                     display: "grid",
-                    isolation: hasBlendMode ? "isolate" as const : undefined,
+                    isolation: "isolate",
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
