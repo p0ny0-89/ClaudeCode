@@ -1453,7 +1453,6 @@ export default function DepthMotionStackHover(props: Props) {
     const gridCell: React.CSSProperties = {
         gridRow: 1,
         gridColumn: 1,
-        willChange: "transform",
         pointerEvents: "none",
     }
 
