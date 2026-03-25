@@ -1152,9 +1152,6 @@ export default function DepthMotionStackHover(props: Props) {
 
                 clickActive.current = !clickActive.current
 
-                // DEBUG: visible indicator
-                el.style.outline = clickActive.current ? "3px solid red" : "none"
-
                 const s = cfg.current.hoverStagger || 0
                 const count = 2 + cfg.current.layerCount
 
@@ -1186,7 +1183,6 @@ export default function DepthMotionStackHover(props: Props) {
                 // Click outside — deactivate if active
                 if (clickActive.current) {
                     clickActive.current = false
-                    el.style.outline = "none"
                     hovering.current = false
                     emitActivationEvent(false)
                     hoverOpTarget.current = 0
