@@ -1136,7 +1136,17 @@ export default function DepthMotionStackHover(props: Props) {
         const el = containerRef.current
         if (!el) return
 
+        let lastClickTime = 0
         const handleClick = (e: MouseEvent) => {
+            // Debounce: ignore clicks within 200ms (prevents double-fire)
+            const now = Date.now()
+            if (now - lastClickTime < 200) return
+            lastClickTime = now
+
+            // Stop propagation to prevent Framer from re-dispatching
+            e.stopPropagation()
+            e.stopImmediatePropagation()
+
             clickActive.current = !clickActive.current
             const s = cfg.current.hoverStagger || 0
             const count = 2 + cfg.current.layerCount
