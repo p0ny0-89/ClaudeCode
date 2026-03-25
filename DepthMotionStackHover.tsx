@@ -970,19 +970,30 @@ export default function DepthMotionStackHover(props: Props) {
                 const s = cfg.current.hoverStagger || 0
                 const count = 2 + cfg.current.layerCount
                 if (clickActive.current) {
+                    // Activate — enable hover opacity, tilt scale, cache rect
                     if (s > 0) triggerStagger(1, s, count, startLoop, cfg.current.reverseStagger)
                     hovering.current = true
                     emitActivationEvent(true)
                     hoverOpTarget.current = 1
                     const el = containerRef.current
                     if (el) cachedRect.current = el.getBoundingClientRect()
+                    if (cfg.current.tilt && cfg.current.interaction === "cursor") {
+                        target.current.s = cfg.current.hoverScale
+                    }
                 } else {
+                    // Deactivate — reset everything to rest state
                     if (s > 0) triggerStagger(0, s, count, startLoop, cfg.current.reverseStagger)
                     hovering.current = false
                     emitActivationEvent(false)
                     hoverOpTarget.current = 0
+                    // Reset tilt
+                    target.current.rx = 0
+                    target.current.ry = 0
+                    target.current.s = 1
+                    // Reset parallax
                     pTarget.current.tx = 0
                     pTarget.current.ty = 0
+                    cachedRect.current = null
                 }
                 startLoop()
                 return
