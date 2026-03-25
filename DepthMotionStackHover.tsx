@@ -1223,30 +1223,11 @@ export default function DepthMotionStackHover(props: Props) {
     const isAutoSize = style?.width === undefined || style?.width === "auto"
     const bgClass = isAutoSize ? bgFillClass : fillClass
 
-    // SVG filter for luminance-to-alpha conversion (cross-browser, including iOS Safari)
-    const lum2alphaFilterId = `lum2a-${scopeId}`
-    const lum2alphaInvFilterId = `lum2a-inv-${scopeId}`
-
     const fillStyle = (
-        <>
-            <style>{`
+        <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
 .${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
-            `}</style>
-            <svg style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }} aria-hidden="true">
-                <defs>
-                    <filter id={lum2alphaFilterId} colorInterpolationFilters="sRGB">
-                        <feColorMatrix type="luminanceToAlpha" />
-                    </filter>
-                    <filter id={lum2alphaInvFilterId} colorInterpolationFilters="sRGB">
-                        <feColorMatrix type="luminanceToAlpha" />
-                        <feComponentTransfer>
-                            <feFuncA type="table" tableValues="1 0" />
-                        </feComponentTransfer>
-                    </filter>
-                </defs>
-            </svg>
-        </>
+        `}</style>
     )
 
     // Initial opacity values — "always" starts at hover values to prevent flicker
@@ -1340,28 +1321,29 @@ export default function DepthMotionStackHover(props: Props) {
                             ...gridCell,
                             overflow: "hidden",
                             position: "relative",
-                            ...(alphaMask ? (() => {
-                                const filterId = invertMask ? lum2alphaInvFilterId : lum2alphaFilterId
-                                // Use an inline SVG as the mask source — the SVG applies the
-                                // luminance-to-alpha filter, converting the B&W image to alpha.
-                                // This is cross-browser (including iOS Safari) unlike mask-mode: luminance.
-                                const svgMask = `url("data:image/svg+xml,${encodeURIComponent(
-                                    `<svg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'>` +
-                                    `<defs><filter id='f' color-interpolation-filters='sRGB'>` +
-                                    `<feColorMatrix type='luminanceToAlpha'/>` +
-                                    (invertMask ? `<feComponentTransfer><feFuncA type='table' tableValues='1 0'/></feComponentTransfer>` : ``) +
-                                    `</filter></defs>` +
-                                    `<image href='${alphaMask}' width='100%25' height='100%25' preserveAspectRatio='none' filter='url(%23f)'/>` +
-                                    `</svg>`)}")`
-                                return {
-                                    WebkitMaskImage: svgMask,
-                                    maskImage: svgMask,
-                                    WebkitMaskSize: "100% 100%",
-                                    maskSize: "100% 100%",
-                                    WebkitMaskRepeat: "no-repeat",
-                                    maskRepeat: "no-repeat",
-                                }
-                            })() : {}),
+                            ...(alphaMask ? (invertMask ? {
+                                WebkitMaskImage: `url(${alphaMask}), linear-gradient(white, white)`,
+                                maskImage: `url(${alphaMask}), linear-gradient(white, white)`,
+                                WebkitMaskSize: "100% 100%",
+                                maskSize: "100% 100%",
+                                WebkitMaskRepeat: "no-repeat",
+                                maskRepeat: "no-repeat",
+                                WebkitMaskMode: "luminance",
+                                maskMode: "luminance",
+                                WebkitMaskSourceType: "luminance",
+                                WebkitMaskComposite: "xor",
+                                maskComposite: "exclude",
+                            } as any : {
+                                WebkitMaskImage: `url(${alphaMask})`,
+                                maskImage: `url(${alphaMask})`,
+                                WebkitMaskSize: "100% 100%",
+                                maskSize: "100% 100%",
+                                WebkitMaskRepeat: "no-repeat",
+                                maskRepeat: "no-repeat",
+                                WebkitMaskMode: "luminance",
+                                maskMode: "luminance",
+                                WebkitMaskSourceType: "luminance",
+                            } as any) : {}),
                         }}
                     >
                         {/* Background — scaled up by tick loop to cover parallax travel */}
