@@ -1527,14 +1527,13 @@ export default function DepthMotionStackHover(props: Props) {
                             } : {}),
                         }}
                     >
-                        {/* Background — scaled up by tick loop to cover parallax travel */}
+                        {/* Background — first in DOM = visually at bottom */}
                         {background && (
                             <div
                                 ref={bgRef}
                                 className={fillClass}
                                 style={{
                                     ...gridCellNoGpu,
-                                    zIndex: 0,
                                     opacity: bgInitialOpacity,
                                 }}
                             >
@@ -1542,10 +1541,12 @@ export default function DepthMotionStackHover(props: Props) {
                             </div>
                         )}
 
-                        {/* Mid layers — behind fg content.
-                             z-index creates stacking contexts (sealing Framer internals)
-                             AND controls layer order: Layer 1 closest to fg = highest z. */}
-                        {midLayersArr.map((mid, i) => {
+                        {/* Mid layers — rendered in REVERSE DOM order so that
+                             Layer 1 (closest to fg) is last in DOM = painted on top.
+                             This avoids z-index stacking contexts which cause
+                             transparent PNG alpha compositing artifacts. */}
+                        {[...midLayersArr].reverse().map((mid, ri) => {
+                            const i = layerCount - 1 - ri // original index
                             if (!mid) return null
                             const midOp = midInitialOpacities[i]
                             return (
@@ -1555,7 +1556,6 @@ export default function DepthMotionStackHover(props: Props) {
                                     className={fillClass}
                                     style={{
                                         ...gridCellNoGpu,
-                                        zIndex: layerCount - i,
                                         mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                         opacity: midOp < 100 ? midOp / 100 : undefined,
                                     }}
@@ -1565,10 +1565,9 @@ export default function DepthMotionStackHover(props: Props) {
                             )
                         })}
 
-                        {/* FG content on top */}
+                        {/* FG content — last in DOM = visually on top */}
                         <div ref={fgContentRef} className={fillClass} style={{
                             ...gridCellNoGpu,
-                            zIndex: layerCount + 2,
                             opacity: fgInitialOpacity,
                             mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         }}>
