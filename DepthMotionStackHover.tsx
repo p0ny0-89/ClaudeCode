@@ -1,5 +1,5 @@
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
-import React, { useRef, useEffect, useCallback, useId } from "react"
+import React, { useRef, useEffect, useCallback, useId, useState } from "react"
 
 // ─── Constants ────────────────────────────────────────────
 
@@ -1230,6 +1230,43 @@ export default function DepthMotionStackHover(props: Props) {
         `}</style>
     )
 
+    // ── Convert B&W mask to alpha-channel mask (cross-browser) ──
+    // mask-mode: luminance isn't supported on iOS Safari, so we convert
+    // the luminance values to alpha via canvas once on load.
+    const [processedMask, setProcessedMask] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (!alphaMask) { setProcessedMask(null); return }
+
+        const img = new Image()
+        img.crossOrigin = "anonymous"
+        img.onload = () => {
+            const canvas = document.createElement("canvas")
+            canvas.width = img.naturalWidth
+            canvas.height = img.naturalHeight
+            const ctx = canvas.getContext("2d")
+            if (!ctx) return
+
+            ctx.drawImage(img, 0, 0)
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+            const d = imgData.data
+
+            for (let i = 0; i < d.length; i += 4) {
+                // Convert luminance to alpha: bright = opaque, dark = transparent
+                const luminance = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114
+                const alpha = invertMask ? 255 - luminance : luminance
+                d[i] = 255     // R — white
+                d[i + 1] = 255 // G — white
+                d[i + 2] = 255 // B — white
+                d[i + 3] = alpha
+            }
+
+            ctx.putImageData(imgData, 0, 0)
+            setProcessedMask(canvas.toDataURL("image/png"))
+        }
+        img.src = alphaMask
+    }, [alphaMask, invertMask])
+
     // Initial opacity values — "always" starts at hover values to prevent flicker
     const isAlways = activation === "always"
     const bgInitOp = isAlways ? bgOpacityHover : bgOpacityIdle
@@ -1321,29 +1358,14 @@ export default function DepthMotionStackHover(props: Props) {
                             ...gridCell,
                             overflow: "hidden",
                             position: "relative",
-                            ...(alphaMask ? (invertMask ? {
-                                WebkitMaskImage: `url(${alphaMask}), linear-gradient(white, white)`,
-                                maskImage: `url(${alphaMask}), linear-gradient(white, white)`,
+                            ...(processedMask ? {
+                                WebkitMaskImage: `url(${processedMask})`,
+                                maskImage: `url(${processedMask})`,
                                 WebkitMaskSize: "100% 100%",
                                 maskSize: "100% 100%",
                                 WebkitMaskRepeat: "no-repeat",
                                 maskRepeat: "no-repeat",
-                                WebkitMaskMode: "luminance",
-                                maskMode: "luminance",
-                                WebkitMaskSourceType: "luminance",
-                                WebkitMaskComposite: "xor",
-                                maskComposite: "exclude",
-                            } as any : {
-                                WebkitMaskImage: `url(${alphaMask})`,
-                                maskImage: `url(${alphaMask})`,
-                                WebkitMaskSize: "100% 100%",
-                                maskSize: "100% 100%",
-                                WebkitMaskRepeat: "no-repeat",
-                                maskRepeat: "no-repeat",
-                                WebkitMaskMode: "luminance",
-                                maskMode: "luminance",
-                                WebkitMaskSourceType: "luminance",
-                            } as any) : {}),
+                            } : {}),
                         }}
                     >
                         {/* Background — scaled up by tick loop to cover parallax travel */}
