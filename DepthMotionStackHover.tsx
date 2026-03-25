@@ -963,10 +963,23 @@ export default function DepthMotionStackHover(props: Props) {
     const onPointerUp = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
-            if (!cfg.current.touchDrag) return
             if (e.pointerType !== "touch") return
 
             cancelHold()
+
+            // When touchDrag is off but activation is hover, a touch
+            // triggered pointerenter (hover in) but pointerleave won't
+            // fire reliably on mobile. Reset hover on touch up.
+            if (!cfg.current.touchDrag) {
+                if (cfg.current.activation === "hover" && hovering.current) {
+                    hovering.current = false
+                    hoverOpTarget.current = 0
+                    const s = cfg.current.hoverStagger || 0
+                    if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
+                    startLoop()
+                }
+                return
+            }
 
             if (touchCaptured.current) {
                 ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
