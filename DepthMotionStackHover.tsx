@@ -1495,14 +1495,18 @@ export default function DepthMotionStackHover(props: Props) {
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
                 >
-                    {/* Foreground wrapper — clips all layers to its shape */}
+                    {/* Foreground wrapper — clips all layers to its shape.
+                         Uses an inner grid (same as flat path) so layers composite
+                         within one GPU layer, avoiding transparent PNG bleed-through
+                         that absolute positioning + will-change causes. */}
                     <div
                         ref={fgRef}
                         className={fillClass}
                         style={{
                             ...gridCell,
                             overflow: "hidden",
-                            position: "relative",
+                            display: "grid",
+                            gridTemplate: "1fr / 1fr",
                             // Hide until mask is ready to prevent unmasked flash
                             ...(alphaMask && !processedMask ? { visibility: "hidden" as const } : {}),
                             ...(processedMask ? {
@@ -1521,12 +1525,8 @@ export default function DepthMotionStackHover(props: Props) {
                                 ref={bgRef}
                                 className={fillClass}
                                 style={{
-                                    position: "absolute",
-                                    inset: 0,
-                                    willChange: "transform",
-                                    pointerEvents: "none",
+                                    ...gridCell,
                                     opacity: bgInitialOpacity,
-                                    zIndex: 0,
                                 }}
                             >
                                 {background}
@@ -1543,13 +1543,9 @@ export default function DepthMotionStackHover(props: Props) {
                                     ref={(el) => { midRefs.current[i] = el }}
                                     className={fillClass}
                                     style={{
-                                        position: "absolute",
-                                        inset: 0,
-                                        willChange: "transform",
-                                        pointerEvents: "none",
+                                        ...gridCell,
                                         mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                         opacity: midOp < 100 ? midOp / 100 : undefined,
-                                        zIndex: layerCount - i,
                                     }}
                                 >
                                     {mid}
@@ -1559,11 +1555,7 @@ export default function DepthMotionStackHover(props: Props) {
 
                         {/* FG content on top */}
                         <div ref={fgContentRef} className={fillClass} style={{
-                            position: "relative",
-                            width: "100%",
-                            height: "100%",
-                            pointerEvents: "none",
-                            zIndex: layerCount + 2,
+                            ...gridCell,
                             opacity: fgInitialOpacity,
                             mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         }}>
