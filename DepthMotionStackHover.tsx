@@ -1137,15 +1137,14 @@ export default function DepthMotionStackHover(props: Props) {
         if (!el) return
 
         let lastClickTime = 0
-        const handleClick = (e: MouseEvent) => {
-            // Debounce: ignore clicks within 200ms (prevents double-fire)
-            const now = Date.now()
-            if (now - lastClickTime < 200) return
-            lastClickTime = now
+        const handleClick = (e: PointerEvent) => {
+            // Only handle mouse/pen, not touch (touch uses hold-to-activate)
+            if (e.pointerType === "touch") return
 
-            // Stop propagation to prevent Framer from re-dispatching
-            e.stopPropagation()
-            e.stopImmediatePropagation()
+            // Debounce: ignore clicks within 300ms (prevents double-fire)
+            const now = Date.now()
+            if (now - lastClickTime < 300) return
+            lastClickTime = now
 
             clickActive.current = !clickActive.current
             const s = cfg.current.hoverStagger || 0
@@ -1177,8 +1176,8 @@ export default function DepthMotionStackHover(props: Props) {
             startLoop()
         }
 
-        // Use capture to fire before any child handlers
-        el.addEventListener("click", handleClick, true)
+        // Use pointerdown in capture phase — more reliable than click in Framer
+        el.addEventListener("pointerdown", handleClick, true)
 
         // Click-outside deactivation
         const onWindowDown = (e: PointerEvent) => {
@@ -1200,7 +1199,7 @@ export default function DepthMotionStackHover(props: Props) {
         window.addEventListener("pointerdown", onWindowDown)
 
         return () => {
-            el.removeEventListener("click", handleClick, true)
+            el.removeEventListener("pointerdown", handleClick, true)
             window.removeEventListener("pointerdown", onWindowDown)
         }
     }, [activation, isCanvas, startLoop])
