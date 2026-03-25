@@ -1534,6 +1534,7 @@ export default function DepthMotionStackHover(props: Props) {
                                 className={fillClass}
                                 style={{
                                     ...gridCellNoGpu,
+                                    zIndex: 0,
                                     opacity: bgInitialOpacity,
                                 }}
                             >
@@ -1541,7 +1542,9 @@ export default function DepthMotionStackHover(props: Props) {
                             </div>
                         )}
 
-                        {/* Mid layers — behind fg content */}
+                        {/* Mid layers — behind fg content.
+                             z-index creates stacking contexts (sealing Framer internals)
+                             AND controls layer order: Layer 1 closest to fg = highest z. */}
                         {midLayersArr.map((mid, i) => {
                             if (!mid) return null
                             const midOp = midInitialOpacities[i]
@@ -1552,6 +1555,7 @@ export default function DepthMotionStackHover(props: Props) {
                                     className={fillClass}
                                     style={{
                                         ...gridCellNoGpu,
+                                        zIndex: layerCount - i,
                                         mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                         opacity: midOp < 100 ? midOp / 100 : undefined,
                                     }}
@@ -1564,6 +1568,7 @@ export default function DepthMotionStackHover(props: Props) {
                         {/* FG content on top */}
                         <div ref={fgContentRef} className={fillClass} style={{
                             ...gridCellNoGpu,
+                            zIndex: layerCount + 2,
                             opacity: fgInitialOpacity,
                             mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         }}>
