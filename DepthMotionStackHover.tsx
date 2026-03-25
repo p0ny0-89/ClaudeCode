@@ -1457,6 +1457,12 @@ export default function DepthMotionStackHover(props: Props) {
         pointerEvents: "none",
     }
 
+    // Only use isolation:isolate when a blend mode is active — it changes
+    // how transparent layers composite and can cause bleed-through artifacts.
+    const hasBlendMode =
+        contentBlend !== "normal" ||
+        midBlendsArr.some((b) => b !== "normal")
+
     // ── Parallax render ──────────────────────────────────────
 
     if (clipToForeground) {
@@ -1484,7 +1490,7 @@ export default function DepthMotionStackHover(props: Props) {
                         height: "100%",
                         display: "grid",
                         gridTemplate: "1fr / 1fr",
-                        isolation: "isolate",
+                        isolation: hasBlendMode ? "isolate" as const : undefined,
                         willChange: tilt ? "transform" : undefined,
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
@@ -1591,7 +1597,7 @@ export default function DepthMotionStackHover(props: Props) {
                     width: "100%",
                     height: "100%",
                     display: "grid",
-                    isolation: "isolate",
+                    isolation: hasBlendMode ? "isolate" as const : undefined,
                     willChange: tilt ? "transform" : undefined,
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
