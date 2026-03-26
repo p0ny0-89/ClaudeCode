@@ -46,13 +46,22 @@ interface Props {
 
 // ─── Helpers ──────────────────────────────────────────────
 
-function parseColor(hex: string): [number, number, number] {
-    const h = hex.replace("#", "")
-    return [
-        parseInt(h.substring(0, 2), 16),
-        parseInt(h.substring(2, 4), 16),
-        parseInt(h.substring(4, 6), 16),
-    ]
+function parseColor(color: string): [number, number, number] {
+    // Handle hex
+    if (color.startsWith("#")) {
+        const h = color.replace("#", "")
+        return [
+            parseInt(h.substring(0, 2), 16),
+            parseInt(h.substring(2, 4), 16),
+            parseInt(h.substring(4, 6), 16),
+        ]
+    }
+    // Handle rgb/rgba strings from Framer
+    const match = color.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+    if (match) {
+        return [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])]
+    }
+    return [255, 255, 255]
 }
 
 function createStar(w: number, h: number, props: Props): Star {
@@ -141,7 +150,14 @@ function StarfieldBackdrop(props: Props) {
             initStars(w, h)
         }
 
-        resize()
+        // Retry resize until we get non-zero dimensions (live preview may delay layout)
+        const tryResize = () => {
+            resize()
+            if (sizeRef.current.w === 0 || sizeRef.current.h === 0) {
+                setTimeout(tryResize, 50)
+            }
+        }
+        tryResize()
         const ro = new ResizeObserver(resize)
         ro.observe(container)
 
@@ -295,22 +311,24 @@ function StarfieldBackdrop(props: Props) {
     }, [initStars])
 
     return (
-        <div
-            ref={containerRef}
-            style={{
-                ...props.style,
-                position: "relative",
-                overflow: "hidden",
-            }}
-        >
-            <canvas
-                ref={canvasRef}
+        <div style={props.style}>
+            <div
+                ref={containerRef}
                 style={{
-                    display: "block",
                     position: "absolute",
                     inset: 0,
+                    overflow: "hidden",
                 }}
-            />
+            >
+                <canvas
+                    ref={canvasRef}
+                    style={{
+                        display: "block",
+                        position: "absolute",
+                        inset: 0,
+                    }}
+                />
+            </div>
         </div>
     )
 }
