@@ -1,5 +1,5 @@
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
-import React, { useRef, useEffect, useCallback, useId, useState } from "react"
+import React, { useRef, useEffect, useLayoutEffect, useCallback, useId, useState } from "react"
 
 // ─── Constants ────────────────────────────────────────────
 
@@ -1463,6 +1463,31 @@ export default function DepthMotionStack(props: Props) {
 .${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
         `}</style>
     )
+
+    // ── Force slot children to fill (handles Framer inline !important) ──
+    // Framer may set inline !important dimensions on newly connected slot
+    // children that override stylesheet !important. Direct DOM manipulation
+    // with setProperty has the highest specificity and wins in all cases.
+    const slotDeps = [fillClass, bgFillClass, content, background,
+        mid1, mid2, mid3, mid4, mid5, mid6, mid7]
+    useLayoutEffect(() => {
+        const applyFill = (selector: string, useMin: boolean) => {
+            document.querySelectorAll(selector).forEach(wrapper => {
+                const child = wrapper.firstElementChild as HTMLElement | null
+                if (!child) return
+                if (useMin) {
+                    child.style.setProperty("min-width", "100%", "important")
+                    child.style.setProperty("min-height", "100%", "important")
+                } else {
+                    child.style.setProperty("width", "100%", "important")
+                    child.style.setProperty("height", "100%", "important")
+                }
+                child.style.setProperty("pointer-events", "auto")
+            })
+        }
+        applyFill(`.${fillClass}`, false)
+        applyFill(`.${bgFillClass}`, true)
+    }, slotDeps)
 
     // ── Convert B&W mask to alpha-channel mask (cross-browser) ──
     // mask-mode: luminance isn't supported on iOS Safari, so we convert
