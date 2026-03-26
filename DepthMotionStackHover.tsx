@@ -2115,14 +2115,14 @@ addPropertyControls(DepthMotionStackHover, {
 
     hoverStagger: {
         type: ControlType.Number,
-        title: "Hover Stagger",
+        title: "Activation Stagger",
         defaultValue: 0,
         min: 0,
         max: 500,
         step: 10,
         unit: "ms",
         description:
-            "Delay between each layer's hover transition. Creates a cascading reveal effect.",
+            "Delay each layer's activation for a cascading reveal.",
         hidden: (props: any) => !props.parallax,
     },
 
@@ -2133,7 +2133,7 @@ addPropertyControls(DepthMotionStackHover, {
         enabledTitle: "On",
         disabledTitle: "Off",
         description:
-            "Reverses the stagger order so background reveals first and foreground last.",
+            "Background reveals first, foreground last.",
         hidden: (props: any) => !props.parallax || !props.hoverStagger,
     },
 
@@ -2160,7 +2160,7 @@ addPropertyControls(DepthMotionStackHover, {
         enabledTitle: "On",
         disabledTitle: "Off",
         description:
-            "Clips all layers to the foreground frame for a hologram card effect.",
+            "Clips all layers to the foreground shape.",
         hidden: (props: any) => !props.parallax,
     },
 
@@ -2172,7 +2172,7 @@ addPropertyControls(DepthMotionStackHover, {
         max: 500,
         step: 1,
         description:
-            "Border radius for the clip shape. Set to 0 to auto-detect from the foreground layer.",
+            "Corner radius for the clip shape. Set to 0 to match the foreground layer.",
         hidden: (props: any) => !props.parallax || !props.clipToForeground,
     },
 
@@ -2180,7 +2180,7 @@ addPropertyControls(DepthMotionStackHover, {
         type: ControlType.Image,
         title: "Alpha Mask",
         description:
-            "Optional mask image for custom clipping. White areas are visible, black or transparent areas are hidden. Leave empty to use the foreground layer's frame.",
+            "Optional mask for custom clipping. White areas stay visible. Black or transparent areas are hidden.",
         hidden: (props: any) => !props.parallax || !props.clipToForeground,
     },
 
@@ -2190,8 +2190,6 @@ addPropertyControls(DepthMotionStackHover, {
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
-        description:
-            "Inverts the mask so black/transparent areas become visible and white/opaque areas become hidden.",
         hidden: (props: any) => !props.parallax || !props.clipToForeground,
     },
 
@@ -2229,6 +2227,8 @@ addPropertyControls(DepthMotionStackHover, {
         optionTitles: ["Toward", "Away"],
         displaySegmentedControl: true,
         defaultValue: "toward",
+        description:
+            "Controls whether layers move toward or away from the cursor.",
         hidden: (props: any) => !props.parallax,
     },
 
@@ -2253,6 +2253,8 @@ addPropertyControls(DepthMotionStackHover, {
         min: 0,
         max: 1,
         step: 0.1,
+        description:
+            "Higher values feel smoother and slower.",
         hidden: (props: any) => !props.parallax,
     },
 })
