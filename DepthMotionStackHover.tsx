@@ -576,9 +576,17 @@ export default function DepthMotionStackHover(props: Props) {
             }
 
             if (fgRef.current) {
-                const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
-                fgRef.current.style.transform =
-                    `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)${scaleStr}`
+                // In clip mode, fgRef is the clip container — apply scale to fgContentRef instead
+                if (fgContentRef.current && bgScaleRef.current) {
+                    fgRef.current.style.transform =
+                        `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
+                    const scaleStr = fgScale !== 1 ? `scale(${fgScale.toFixed(4)})` : ""
+                    fgContentRef.current.style.transform = scaleStr
+                } else {
+                    const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
+                    fgRef.current.style.transform =
+                        `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)${scaleStr}`
+                }
             }
         }
 
@@ -736,9 +744,16 @@ export default function DepthMotionStackHover(props: Props) {
                 }
 
                 if (fgRef.current) {
-                    const scaleStr = fgScale2 !== 1 ? ` scale(${fgScale2.toFixed(4)})` : ""
-                    fgRef.current.style.transform =
-                        `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)${scaleStr}`
+                    if (fgContentRef.current && bgScaleRef.current) {
+                        fgRef.current.style.transform =
+                            `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
+                        const scaleStr = fgScale2 !== 1 ? `scale(${fgScale2.toFixed(4)})` : ""
+                        fgContentRef.current.style.transform = scaleStr
+                    } else {
+                        const scaleStr = fgScale2 !== 1 ? ` scale(${fgScale2.toFixed(4)})` : ""
+                        fgRef.current.style.transform =
+                            `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)${scaleStr}`
+                    }
                 }
             }
 
