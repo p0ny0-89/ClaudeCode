@@ -102,6 +102,93 @@ function clamp(v: number, lo: number, hi: number): number {
     return Math.min(Math.max(v, lo), hi)
 }
 
+/**
+ * Apply parallax translate3d + scale transforms to all layer refs (bg, mid[], fg).
+ * Shared by the main tick loop and the settle-snap path to avoid duplication.
+ */
+function applyLayerTransforms(
+    pc: { tx: number; ty: number },
+    cf: { bg: number; mid: number[]; fg: number },
+    cfgVal: any,
+    refs: {
+        bg: React.RefObject<HTMLDivElement>
+        mid: React.MutableRefObject<(HTMLDivElement | null)[]>
+        fg: React.RefObject<HTMLDivElement>
+        fgContent: React.RefObject<HTMLDivElement>
+        container: React.RefObject<HTMLDivElement>
+    },
+    bgScaleActive: number,
+    cachedRect: DOMRect | null,
+    lc: number,
+): void {
+    // Per-layer scale (percentage -> ratio)
+    const midScales = [
+        cfgVal.mid1Scale, cfgVal.mid2Scale, cfgVal.mid3Scale,
+        cfgVal.mid4Scale, cfgVal.mid5Scale, cfgVal.mid6Scale,
+        cfgVal.mid7Scale,
+    ]
+    const fgScale = (cfgVal.contentScale || 100) / 100
+    const bgLayerScale = (cfgVal.bgScale || 100) / 100
+
+    // Per-layer direction multiplier (1 = default, -1 = inverted)
+    const midDirs = [
+        cfgVal.mid1Direction, cfgVal.mid2Direction, cfgVal.mid3Direction,
+        cfgVal.mid4Direction, cfgVal.mid5Direction, cfgVal.mid6Direction,
+        cfgVal.mid7Direction,
+    ]
+    const bgDirMul = cfgVal.bgDirection === "inverted" ? -1 : 1
+
+    if (refs.bg.current) {
+        const tx = (cf.bg * pc.tx * bgDirMul).toFixed(2)
+        const ty = (cf.bg * pc.ty * bgDirMul).toFixed(2)
+        // Combine user bgScale with clip-mode auto-scale
+        let totalBgScale = bgLayerScale
+        if (bgScaleActive) {
+            const rect = cachedRect || refs.container.current?.getBoundingClientRect()
+            if (rect && rect.width > 0 && rect.height > 0) {
+                const minDim = Math.min(rect.width, rect.height)
+                totalBgScale *= 1 + (2 * cfgVal.parallaxAmount) / minDim
+            }
+        }
+        const scaleStr = totalBgScale !== 1 ? ` scale(${totalBgScale.toFixed(4)})` : ""
+        refs.bg.current.style.transform =
+            `translate3d(${tx}px, ${ty}px, 0)${scaleStr}`
+    }
+
+    for (let i = 0; i < lc; i++) {
+        const ref = refs.mid.current[i]
+        if (ref) {
+            const dirMul = midDirs[i] === "inverted" ? -1 : 1
+            const s = (midScales[i] || 100) / 100
+            const scaleStr = s !== 1 ? ` scale(${s.toFixed(4)})` : ""
+            ref.style.transform =
+                `translate3d(${(cf.mid[i] * pc.tx * dirMul).toFixed(2)}px, ${(cf.mid[i] * pc.ty * dirMul).toFixed(2)}px, 0)${scaleStr}`
+        }
+    }
+
+    if (refs.fg.current) {
+        const fgDirMul = cfgVal.contentDirection === "inverted" ? -1 : 1
+        // In clip mode, fgRef is the clip container — direction + scale go on fgContentRef
+        if (refs.fgContent.current && bgScaleActive) {
+            // Clip container moves without direction/scale (affects all layers)
+            refs.fg.current.style.transform =
+                `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
+            // FG content gets its own direction offset + scale
+            const dirTx = fgDirMul === -1 ? (cf.fg * pc.tx * -2).toFixed(2) : "0"
+            const dirTy = fgDirMul === -1 ? (cf.fg * pc.ty * -2).toFixed(2) : "0"
+            const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
+            const dirStr = fgDirMul === -1 ? `translate3d(${dirTx}px, ${dirTy}px, 0)` : ""
+            refs.fgContent.current.style.transform = `${dirStr}${scaleStr}`.trim() || "none"
+        } else {
+            const fgTx = (cf.fg * pc.tx * fgDirMul).toFixed(2)
+            const fgTy = (cf.fg * pc.ty * fgDirMul).toFixed(2)
+            const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
+            refs.fg.current.style.transform =
+                `translate3d(${fgTx}px, ${fgTy}px, 0)${scaleStr}`
+        }
+    }
+}
+
 // ─── Component ────────────────────────────────────────────
 
 // @framerSupportedLayoutWidth any
@@ -230,7 +317,7 @@ export default function DepthMotionStack(props: Props) {
     const containerRef = useRef<HTMLDivElement>(null)
     const surfaceRef = useRef<HTMLDivElement>(null)
     const bgRef = useRef<HTMLDivElement>(null)
-    const midRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null])
+    const midRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null, null])
     const fgRef = useRef<HTMLDivElement>(null)
     const fgContentRef = useRef<HTMLDivElement>(null)
     const rafId = useRef(0)
@@ -252,7 +339,7 @@ export default function DepthMotionStack(props: Props) {
     const pTarget = useRef({ tx: 0, ty: 0 })
     const pCurrent = useRef({ tx: 0, ty: 0 })
 
-    // Hover opacity interpolation: 0 = idle, 1 = hover
+    // Hover opacity blend factor — lerped from 0 (idle) to 1 (active) each frame
     const hoverOpTarget = useRef(0)
     const hoverOpCurrent = useRef(0)
 
@@ -345,45 +432,9 @@ export default function DepthMotionStack(props: Props) {
     // Clip-to-foreground: bg scale factor for parallax edge coverage
     const bgScaleRef = useRef(1)
 
-    // Latest props in a ref so callbacks stay stable
-    const cfg = useRef({
-        tilt,
-        interaction,
-        behavior,
-        touchDrag,
-        tiltLimit,
-        hoverScale,
-        perspective,
-        speed,
-        parallax,
-        activation,
-        parallaxSource,
-        parallaxTracking,
-        hoverParallax,
-        parallaxDirection,
-        parallaxAmount,
-        parallaxSmoothing,
-        layerCount,
-        // Opacity values for tick loop
-        contentOpacityIdle,
-        contentOpacityHover,
-        mid1OpacityIdle,
-        mid1OpacityHover,
-        mid2OpacityIdle,
-        mid2OpacityHover,
-        mid3OpacityIdle,
-        mid3OpacityHover,
-        mid4OpacityIdle,
-        mid4OpacityHover,
-        mid5OpacityIdle,
-        mid5OpacityHover,
-        mid6OpacityIdle,
-        mid6OpacityHover,
-        mid7OpacityIdle,
-        mid7OpacityHover,
-        bgOpacityIdle,
-        bgOpacityHover,
-    })
+    // Latest props in a ref so callbacks stay stable.
+    // Initial value is a throwaway — overwritten immediately below every render.
+    const cfg = useRef(null as any)
     cfg.current = {
         tilt,
         interaction,
@@ -532,74 +583,11 @@ export default function DepthMotionStack(props: Props) {
             pc.tx = lerp(pc.tx, pt.tx, pLerp)
             pc.ty = lerp(pc.ty, pt.ty, pLerp)
 
-            const cf = clipFactorsRef.current
-
-            // Per-layer scale (percentage → ratio)
-            const midScales = [
-                cfg.current.mid1Scale, cfg.current.mid2Scale, cfg.current.mid3Scale,
-                cfg.current.mid4Scale, cfg.current.mid5Scale, cfg.current.mid6Scale,
-                cfg.current.mid7Scale,
-            ]
-            const fgScale = (cfg.current.contentScale || 100) / 100
-            const bgLayerScale = (cfg.current.bgScale || 100) / 100
-
-            // Per-layer direction multiplier (1 = default, -1 = inverted)
-            const midDirs = [
-                cfg.current.mid1Direction, cfg.current.mid2Direction, cfg.current.mid3Direction,
-                cfg.current.mid4Direction, cfg.current.mid5Direction, cfg.current.mid6Direction,
-                cfg.current.mid7Direction,
-            ]
-            const bgDirMul = cfg.current.bgDirection === "inverted" ? -1 : 1
-
-            if (bgRef.current) {
-                const tx = (cf.bg * pc.tx * bgDirMul).toFixed(2)
-                const ty = (cf.bg * pc.ty * bgDirMul).toFixed(2)
-                // Combine user bgScale with clip-mode auto-scale
-                let totalBgScale = bgLayerScale
-                if (bgScaleRef.current) {
-                    const rect = cachedRect.current || containerRef.current?.getBoundingClientRect()
-                    if (rect && rect.width > 0 && rect.height > 0) {
-                        const minDim = Math.min(rect.width, rect.height)
-                        totalBgScale *= 1 + (2 * cfg.current.parallaxAmount) / minDim
-                    }
-                }
-                const scaleStr = totalBgScale !== 1 ? ` scale(${totalBgScale.toFixed(4)})` : ""
-                bgRef.current.style.transform =
-                    `translate3d(${tx}px, ${ty}px, 0)${scaleStr}`
-            }
-
-            for (let i = 0; i < lc; i++) {
-                const ref = midRefs.current[i]
-                if (ref) {
-                    const dirMul = midDirs[i] === "inverted" ? -1 : 1
-                    const s = (midScales[i] || 100) / 100
-                    const scaleStr = s !== 1 ? ` scale(${s.toFixed(4)})` : ""
-                    ref.style.transform =
-                        `translate3d(${(cf.mid[i] * pc.tx * dirMul).toFixed(2)}px, ${(cf.mid[i] * pc.ty * dirMul).toFixed(2)}px, 0)${scaleStr}`
-                }
-            }
-
-            if (fgRef.current) {
-                const fgDirMul = cfg.current.contentDirection === "inverted" ? -1 : 1
-                // In clip mode, fgRef is the clip container — direction + scale go on fgContentRef
-                if (fgContentRef.current && bgScaleRef.current) {
-                    // Clip container moves without direction/scale (affects all layers)
-                    fgRef.current.style.transform =
-                        `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
-                    // FG content gets its own direction offset + scale
-                    const dirTx = fgDirMul === -1 ? (cf.fg * pc.tx * -2).toFixed(2) : "0"
-                    const dirTy = fgDirMul === -1 ? (cf.fg * pc.ty * -2).toFixed(2) : "0"
-                    const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
-                    const dirStr = fgDirMul === -1 ? `translate3d(${dirTx}px, ${dirTy}px, 0)` : ""
-                    fgContentRef.current.style.transform = `${dirStr}${scaleStr}`.trim() || "none"
-                } else {
-                    const fgTx = (cf.fg * pc.tx * fgDirMul).toFixed(2)
-                    const fgTy = (cf.fg * pc.ty * fgDirMul).toFixed(2)
-                    const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
-                    fgRef.current.style.transform =
-                        `translate3d(${fgTx}px, ${fgTy}px, 0)${scaleStr}`
-                }
-            }
+            applyLayerTransforms(
+                pc, clipFactorsRef.current, cfg.current,
+                { bg: bgRef, mid: midRefs, fg: fgRef, fgContent: fgContentRef, container: containerRef },
+                bgScaleRef.current, cachedRect.current, lc,
+            )
         }
 
         // ── Lerp hover opacity (global + per-layer stagger) ──
@@ -698,8 +686,9 @@ export default function DepthMotionStack(props: Props) {
 
         const autoKeepAlive = tiltEnabled && mode === "auto"
 
+        // ── Settle: snap to final values and stop loop ──
         if (tiltSettled && parallaxSettled && hoverOpSettled && !autoKeepAlive && !hovering.current) {
-            // Snap to exact values
+            // Snap to exact target values to avoid sub-pixel drift, then stop the rAF loop.
             if (tiltEnabled) {
                 c.rx = t.rx
                 c.ry = t.ry
@@ -710,69 +699,11 @@ export default function DepthMotionStack(props: Props) {
             if (pEnabled) {
                 pc.tx = pt.tx
                 pc.ty = pt.ty
-
-                const cf = clipFactorsRef.current
-
-                // Per-layer scale + direction (same logic as main tick)
-                const midScales2 = [
-                    cfg.current.mid1Scale, cfg.current.mid2Scale, cfg.current.mid3Scale,
-                    cfg.current.mid4Scale, cfg.current.mid5Scale, cfg.current.mid6Scale,
-                    cfg.current.mid7Scale,
-                ]
-                const midDirs2 = [
-                    cfg.current.mid1Direction, cfg.current.mid2Direction, cfg.current.mid3Direction,
-                    cfg.current.mid4Direction, cfg.current.mid5Direction, cfg.current.mid6Direction,
-                    cfg.current.mid7Direction,
-                ]
-                const bgDirMul2 = cfg.current.bgDirection === "inverted" ? -1 : 1
-                const fgScale2 = (cfg.current.contentScale || 100) / 100
-                const bgLayerScale2 = (cfg.current.bgScale || 100) / 100
-
-                if (bgRef.current) {
-                    const tx = (cf.bg * pc.tx * bgDirMul2).toFixed(2)
-                    const ty = (cf.bg * pc.ty * bgDirMul2).toFixed(2)
-                    let totalBgScale = bgLayerScale2
-                    if (bgScaleRef.current) {
-                        const rect = cachedRect.current || containerRef.current?.getBoundingClientRect()
-                        if (rect && rect.width > 0 && rect.height > 0) {
-                            const minDim = Math.min(rect.width, rect.height)
-                            totalBgScale *= 1 + (2 * cfg.current.parallaxAmount) / minDim
-                        }
-                    }
-                    const scaleStr = totalBgScale !== 1 ? ` scale(${totalBgScale.toFixed(4)})` : ""
-                    bgRef.current.style.transform =
-                        `translate3d(${tx}px, ${ty}px, 0)${scaleStr}`
-                }
-
-                for (let i = 0; i < lc; i++) {
-                    const ref = midRefs.current[i]
-                    if (ref) {
-                        const dirMul = midDirs2[i] === "inverted" ? -1 : 1
-                        const s = (midScales2[i] || 100) / 100
-                        const scaleStr = s !== 1 ? ` scale(${s.toFixed(4)})` : ""
-                        ref.style.transform =
-                            `translate3d(${(cf.mid[i] * pc.tx * dirMul).toFixed(2)}px, ${(cf.mid[i] * pc.ty * dirMul).toFixed(2)}px, 0)${scaleStr}`
-                    }
-                }
-
-                if (fgRef.current) {
-                    const fgDirMul2 = cfg.current.contentDirection === "inverted" ? -1 : 1
-                    if (fgContentRef.current && bgScaleRef.current) {
-                        fgRef.current.style.transform =
-                            `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
-                        const dirTx = fgDirMul2 === -1 ? (cf.fg * pc.tx * -2).toFixed(2) : "0"
-                        const dirTy = fgDirMul2 === -1 ? (cf.fg * pc.ty * -2).toFixed(2) : "0"
-                        const scaleStr = fgScale2 !== 1 ? ` scale(${fgScale2.toFixed(4)})` : ""
-                        const dirStr = fgDirMul2 === -1 ? `translate3d(${dirTx}px, ${dirTy}px, 0)` : ""
-                        fgContentRef.current.style.transform = `${dirStr}${scaleStr}`.trim() || "none"
-                    } else {
-                        const fgTx2 = (cf.fg * pc.tx * fgDirMul2).toFixed(2)
-                        const fgTy2 = (cf.fg * pc.ty * fgDirMul2).toFixed(2)
-                        const scaleStr = fgScale2 !== 1 ? ` scale(${fgScale2.toFixed(4)})` : ""
-                        fgRef.current.style.transform =
-                            `translate3d(${fgTx2}px, ${fgTy2}px, 0)${scaleStr}`
-                    }
-                }
+                applyLayerTransforms(
+                    pc, clipFactorsRef.current, cfg.current,
+                    { bg: bgRef, mid: midRefs, fg: fgRef, fgContent: fgContentRef, container: containerRef },
+                    bgScaleRef.current, cachedRect.current, lc,
+                )
             }
 
             // Snap hover opacity
@@ -1405,8 +1336,6 @@ export default function DepthMotionStack(props: Props) {
         }
     }, [clipToForeground, parallax, clipRadius])
 
-
-
     // ── Empty State ─────────────────────────────────────
 
     if (!content) {
@@ -1550,7 +1479,6 @@ export default function DepthMotionStack(props: Props) {
         gridColumn: 1,
         pointerEvents: "none",
     }
-
 
     // ── Parallax render ──────────────────────────────────────
 
