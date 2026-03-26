@@ -1,5 +1,5 @@
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
-import React, { useRef, useEffect, useCallback, useId } from "react"
+import React, { useRef, useEffect, useCallback, useId, useState } from "react"
 
 // ─── Constants ────────────────────────────────────────────
 
@@ -24,6 +24,8 @@ type BlendMode =
     | "overlay"
     | "soft-light"
     | "hard-light"
+    | "color-dodge"
+    | "color-burn"
     | "difference"
     | "exclusion"
     | "lighten"
@@ -54,26 +56,39 @@ interface Props {
     mid3: React.ReactNode
     mid4: React.ReactNode
     mid5: React.ReactNode
-    clipContent: boolean
+    mid6: React.ReactNode
+    mid7: React.ReactNode
     contentBlend: BlendMode
     mid1Blend: BlendMode
     mid2Blend: BlendMode
     mid3Blend: BlendMode
     mid4Blend: BlendMode
     mid5Blend: BlendMode
-    contentOpacity: number
-    mid1Opacity: number
-    mid2Opacity: number
-    mid3Opacity: number
-    mid4Opacity: number
-    mid5Opacity: number
-    bgOpacity: number
-    bgClipByAbove: boolean
-    mid1ClipByAbove: boolean
-    mid2ClipByAbove: boolean
-    mid3ClipByAbove: boolean
-    mid4ClipByAbove: boolean
-    mid5ClipByAbove: boolean
+    mid6Blend: BlendMode
+    mid7Blend: BlendMode
+    // Per-layer advanced settings (collapsible ControlType.Object sections)
+    contentAdvanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid1Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid2Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid3Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid4Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid5Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid6Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid7Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    bgAdvanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    clipToForeground: boolean
+    clipRadius: number
+    alphaMask: string
+    invertMask: boolean
+    hoverStagger: number
+    reverseStagger: boolean
+    // ── Exposed activation events ──
+    // These fire once on state transitions (not continuously).
+    // Wired via ControlType.EventHandler, they appear in the
+    // Framer Interactions panel so designers can trigger
+    // transitions, overlays, or any parent-level behavior.
+    onActivate?: () => void
+    onDeactivate?: () => void
     style?: React.CSSProperties
 }
 
@@ -120,63 +135,86 @@ export default function DepthMotionStack(props: Props) {
         mid3 = null,
         mid4 = null,
         mid5 = null,
-        clipContent = false,
+        mid6 = null,
+        mid7 = null,
         contentBlend = "normal",
         mid1Blend = "normal" as BlendMode,
         mid2Blend = "normal" as BlendMode,
         mid3Blend = "normal" as BlendMode,
         mid4Blend = "normal" as BlendMode,
         mid5Blend = "normal" as BlendMode,
-        contentOpacity = 100,
-        mid1Opacity = 100,
-        mid2Opacity = 100,
-        mid3Opacity = 100,
-        mid4Opacity = 100,
-        mid5Opacity = 100,
-        bgOpacity = 100,
-        bgClipByAbove = false,
-        mid1ClipByAbove = false,
-        mid2ClipByAbove = false,
-        mid3ClipByAbove = false,
-        mid4ClipByAbove = false,
-        mid5ClipByAbove = false,
+        mid6Blend = "normal" as BlendMode,
+        mid7Blend = "normal" as BlendMode,
+        contentAdvanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid1Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid2Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid3Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid4Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid5Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid6Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid7Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        bgAdvanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        clipToForeground = false,
+        clipRadius = 0,
+        alphaMask,
+        invertMask = false,
+        hoverStagger = 0,
+        reverseStagger = false,
+        onActivate,
+        onDeactivate,
         style,
     } = props
 
+    // Extract flat variable names from Advanced objects for compatibility with the rest of the code
+    const contentOpacityIdle = contentAdvanced.opacityIdle
+    const contentOpacityHover = contentAdvanced.opacityActive
+    const contentScale = contentAdvanced.scale
+    const contentDirection = contentAdvanced.direction
+    const mid1OpacityIdle = mid1Advanced.opacityIdle
+    const mid1OpacityHover = mid1Advanced.opacityActive
+    const mid1Scale = mid1Advanced.scale
+    const mid1Direction = mid1Advanced.direction
+    const mid2OpacityIdle = mid2Advanced.opacityIdle
+    const mid2OpacityHover = mid2Advanced.opacityActive
+    const mid2Scale = mid2Advanced.scale
+    const mid2Direction = mid2Advanced.direction
+    const mid3OpacityIdle = mid3Advanced.opacityIdle
+    const mid3OpacityHover = mid3Advanced.opacityActive
+    const mid3Scale = mid3Advanced.scale
+    const mid3Direction = mid3Advanced.direction
+    const mid4OpacityIdle = mid4Advanced.opacityIdle
+    const mid4OpacityHover = mid4Advanced.opacityActive
+    const mid4Scale = mid4Advanced.scale
+    const mid4Direction = mid4Advanced.direction
+    const mid5OpacityIdle = mid5Advanced.opacityIdle
+    const mid5OpacityHover = mid5Advanced.opacityActive
+    const mid5Scale = mid5Advanced.scale
+    const mid5Direction = mid5Advanced.direction
+    const mid6OpacityIdle = mid6Advanced.opacityIdle
+    const mid6OpacityHover = mid6Advanced.opacityActive
+    const mid6Scale = mid6Advanced.scale
+    const mid6Direction = mid6Advanced.direction
+    const mid7OpacityIdle = mid7Advanced.opacityIdle
+    const mid7OpacityHover = mid7Advanced.opacityActive
+    const mid7Scale = mid7Advanced.scale
+    const mid7Direction = mid7Advanced.direction
+    const bgOpacityIdle = bgAdvanced.opacityIdle
+    const bgOpacityHover = bgAdvanced.opacityActive
+    const bgScale = bgAdvanced.scale
+    const bgDirection = bgAdvanced.direction
+
     // Build ordered arrays from individual layer props
-    const midLayersArr = [mid1, mid2, mid3, mid4, mid5].slice(0, layerCount)
-    const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend].slice(0, layerCount)
-    const midOpacitiesArr = [mid1Opacity, mid2Opacity, mid3Opacity, mid4Opacity, mid5Opacity].slice(0, layerCount)
+    const midLayersArr = [mid1, mid2, mid3, mid4, mid5, mid6, mid7].slice(0, layerCount)
+    const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend, mid6Blend, mid7Blend].slice(0, layerCount)
 
-    const midClipArr = [mid1ClipByAbove, mid2ClipByAbove, mid3ClipByAbove, mid4ClipByAbove, mid5ClipByAbove].slice(0, layerCount)
-
-    // ── Clip-by-above: nesting & effective depth factors ──
+    // ── Depth factors for parallax ──
     const totalLayers = 2 + layerCount
-    const rawFactors: number[] = [
+    // Depth factors: bg=-1, mid layers interpolated, fg=+1
+    const depthFactors: number[] = [
         -1,
-        ...Array.from({ length: layerCount }, (_, i) => -1 + (i + 1) / (totalLayers - 1) * 2),
+        ...Array.from({ length: layerCount }, (_, i) => 1 - (i + 1) / (totalLayers - 1) * 2),
         1,
     ]
-    const clipFlags = [
-        bgClipByAbove && parallax,
-        ...midClipArr.map(c => c && parallax),
-        false,
-    ]
-    const parentOf: number[] = new Array(totalLayers).fill(-1)
-    for (let i = 0; i < totalLayers - 1; i++) {
-        if (!clipFlags[i]) continue
-        for (let j = i + 1; j < totalLayers; j++) {
-            const hasContent = j === 0 || j === totalLayers - 1 || midLayersArr[j - 1]
-            if (hasContent) { parentOf[i] = j; break }
-        }
-    }
-    const childrenOf: number[][] = Array.from({ length: totalLayers }, () => [])
-    for (let i = 0; i < totalLayers; i++) {
-        if (parentOf[i] >= 0) childrenOf[parentOf[i]].push(i)
-    }
-    const effectiveFactors = rawFactors.map((f, i) =>
-        parentOf[i] >= 0 ? f - rawFactors[parentOf[i]] : f
-    )
 
     // Scoped CSS classes to force Framer slot children to fill their layer.
     // bgFillClass uses min-width/min-height so the background's intrinsic
@@ -191,6 +229,7 @@ export default function DepthMotionStack(props: Props) {
     const bgRef = useRef<HTMLDivElement>(null)
     const midRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null])
     const fgRef = useRef<HTMLDivElement>(null)
+    const fgContentRef = useRef<HTMLDivElement>(null)
     const rafId = useRef(0)
     const loopRunning = useRef(false)
     const hovering = useRef(false)
@@ -199,23 +238,109 @@ export default function DepthMotionStack(props: Props) {
     const holdStart = useRef<{ x: number; y: number; pointerId: number; target: HTMLElement } | null>(null)
     const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    // Cached bounding rect — avoids getBoundingClientRect() feedback
-    // loop caused by 3D perspective distorting the projected rect
+    // Cached bounding rect
     const cachedRect = useRef<DOMRect | null>(null)
 
     // Tilt state (applied to the surface)
     const target = useRef({ rx: 0, ry: 0, s: 1 })
     const current = useRef({ rx: 0, ry: 0, s: 1 })
 
-    // Parallax state — one normalised vector, split at render time
-    // into depth-weighted translations for each layer.
+    // Parallax state
     const pTarget = useRef({ tx: 0, ty: 0 })
     const pCurrent = useRef({ tx: 0, ty: 0 })
+
+    // Hover opacity interpolation: 0 = idle, 1 = hover
+    const hoverOpTarget = useRef(0)
+    const hoverOpCurrent = useRef(0)
+
+    // Per-layer staggered hover: independent targets and current values
+    // Order: [bg, mid1, mid2, ..., midN, fg]
+    const layerHoverOps = useRef<number[]>([])
+    const layerHoverTargets = useRef<number[]>([])
+    const staggerTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+    const staggerPending = useRef(false)
+
+    // ── Activation event emission ────────────────────────────
+    // Tracks the last emitted state so events fire only on
+    // actual transitions, not continuously while active.
+    const lastEmittedActive = useRef<boolean | null>(null)
+    const onActivateRef = useRef(onActivate)
+    const onDeactivateRef = useRef(onDeactivate)
+    onActivateRef.current = onActivate
+    onDeactivateRef.current = onDeactivate
+
+    // Call this whenever the activation state changes.
+    // It deduplicates so the event fires exactly once per transition.
+    const emitActivationEvent = useCallback((active: boolean) => {
+        if (active === lastEmittedActive.current) return
+        lastEmittedActive.current = active
+        if (active) {
+            onActivateRef.current?.()
+        } else {
+            onDeactivateRef.current?.()
+        }
+    }, [])
+
+    // Trigger staggered layer transitions via setTimeout
+    const triggerStagger = useCallback((target: 1 | 0, staggerMs: number, count: number, restartLoop: () => void, reverse: boolean) => {
+        // Clear any pending stagger timers
+        staggerTimers.current.forEach(t => clearTimeout(t))
+        staggerTimers.current = []
+        staggerPending.current = true
+
+        // Ensure arrays are sized
+        if (layerHoverTargets.current.length !== count) {
+            layerHoverTargets.current = new Array(count).fill(target === 1 ? 0 : 1)
+        }
+
+        let pending = count
+        const onFire = () => {
+            pending--
+            if (pending <= 0) staggerPending.current = false
+            // Restart the animation loop in case it settled
+            restartLoop()
+        }
+
+        // Build reveal order: fg, mid1, mid2, ..., midN, bg
+        // Reversed: bg, midN, ..., mid2, mid1, fg
+        const revealOrder: number[] = []
+        if (!reverse) {
+            revealOrder.push(count - 1) // fg first
+            for (let m = 1; m < count - 1; m++) revealOrder.push(m) // mid1..midN
+            revealOrder.push(0) // bg last
+        } else {
+            revealOrder.push(0) // bg first
+            for (let m = count - 2; m >= 1; m--) revealOrder.push(m) // midN..mid1
+            revealOrder.push(count - 1) // fg last
+        }
+
+        for (let i = 0; i < count; i++) {
+            // Hover in: use reveal order
+            // Hover out: reversed reveal order
+            const orderIndex = target === 1 ? revealOrder[i] : revealOrder[count - 1 - i]
+            const delay = i * staggerMs
+
+            if (delay <= 0) {
+                layerHoverTargets.current[orderIndex] = target
+                onFire()
+            } else {
+                const timer = setTimeout(() => {
+                    layerHoverTargets.current[orderIndex] = target
+                    onFire()
+                }, delay)
+                staggerTimers.current.push(timer)
+            }
+        }
+    }, [])
 
     // Click-to-activate toggle state
     const clickActive = useRef(false)
 
+    // Effective depth factors for parallax (accounts for clip nesting)
     const clipFactorsRef = useRef({ bg: -1, mid: [] as number[], fg: 1 })
+
+    // Clip-to-foreground: bg scale factor for parallax edge coverage
+    const bgScaleRef = useRef(1)
 
     // Latest props in a ref so callbacks stay stable
     const cfg = useRef({
@@ -236,6 +361,25 @@ export default function DepthMotionStack(props: Props) {
         parallaxAmount,
         parallaxSmoothing,
         layerCount,
+        // Opacity values for tick loop
+        contentOpacityIdle,
+        contentOpacityHover,
+        mid1OpacityIdle,
+        mid1OpacityHover,
+        mid2OpacityIdle,
+        mid2OpacityHover,
+        mid3OpacityIdle,
+        mid3OpacityHover,
+        mid4OpacityIdle,
+        mid4OpacityHover,
+        mid5OpacityIdle,
+        mid5OpacityHover,
+        mid6OpacityIdle,
+        mid6OpacityHover,
+        mid7OpacityIdle,
+        mid7OpacityHover,
+        bgOpacityIdle,
+        bgOpacityHover,
     })
     cfg.current = {
         tilt,
@@ -255,13 +399,39 @@ export default function DepthMotionStack(props: Props) {
         parallaxAmount,
         parallaxSmoothing,
         layerCount,
+        contentOpacityIdle,
+        contentOpacityHover,
+        mid1OpacityIdle,
+        mid1OpacityHover,
+        mid2OpacityIdle,
+        mid2OpacityHover,
+        mid3OpacityIdle,
+        mid3OpacityHover,
+        mid4OpacityIdle,
+        mid4OpacityHover,
+        mid5OpacityIdle,
+        mid5OpacityHover,
+        mid6OpacityIdle,
+        mid6OpacityHover,
+        mid7OpacityIdle,
+        mid7OpacityHover,
+        bgOpacityIdle,
+        bgOpacityHover,
+        hoverStagger,
+        reverseStagger,
+        contentScale, contentDirection,
+        mid1Scale, mid2Scale, mid3Scale, mid4Scale, mid5Scale, mid6Scale, mid7Scale,
+        bgScale,
+        mid1Direction, mid2Direction, mid3Direction, mid4Direction,
+        mid5Direction, mid6Direction, mid7Direction,
+        bgDirection,
     }
-
     clipFactorsRef.current = {
-        bg: effectiveFactors[0],
-        mid: effectiveFactors.slice(1, 1 + layerCount),
-        fg: effectiveFactors[1 + layerCount],
+        bg: depthFactors[0],
+        mid: depthFactors.slice(1, 1 + layerCount),
+        fg: depthFactors[1 + layerCount],
     }
+    bgScaleRef.current = clipToForeground && parallax ? 1 : 0
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
@@ -303,15 +473,11 @@ export default function DepthMotionStack(props: Props) {
         const clickGate = act !== "click" || clickActive.current
         if (pEnabled && clickGate) {
             if (tiltEnabled && mode === "auto" && hovering.current) {
-                // Hover state in auto tilt mode — depends on hoverParallax
                 const hpMode = cfg.current.hoverParallax
                 if (hpMode === "off") {
-                    // Parallax also pauses
                     pt.tx = 0
                     pt.ty = 0
                 } else if (hpMode === "auto") {
-                    // Phantom Lissajous: compute what tilt *would* be,
-                    // derive parallax from it (tilt itself stays neutral)
                     const sec = time * 0.001 * spd
                     const phRx =
                         Math.sin(sec * 0.6 + 0.3) * limit * AUTO_INTENSITY
@@ -323,20 +489,16 @@ export default function DepthMotionStack(props: Props) {
                     pt.tx = nRy * pAmt * dirMul
                     pt.ty = -nRx * pAmt * dirMul
                 }
-                // "cursor" — pTarget driven by onPointerMove, skip
             } else if (
                 tiltEnabled &&
                 (mode === "auto" || pSource === "tilt")
             ) {
-                // Derive parallax from current tilt target
                 const dirMul = pDir === "away" ? -1 : 1
                 const nRy = limit > 0 ? t.ry / limit : 0
                 const nRx = limit > 0 ? t.rx / limit : 0
                 pt.tx = nRy * pAmt * dirMul
                 pt.ty = -nRx * pAmt * dirMul
             }
-            // Tilt off + source "tilt": no branch fires → parallax stays at 0
-            // Source "cursor": pTarget set by pointer handlers
         }
 
         // ── Lerp tilt ───────────────────────────────────
@@ -352,7 +514,6 @@ export default function DepthMotionStack(props: Props) {
 
             el.style.transform = `rotateX(${c.rx.toFixed(2)}deg) rotateY(${c.ry.toFixed(2)}deg) scale(${c.s.toFixed(4)})`
         } else {
-            // Tilt off — clear any stale rotation
             c.rx = 0
             c.ry = 0
             c.s = 1
@@ -370,25 +531,131 @@ export default function DepthMotionStack(props: Props) {
 
             const cf = clipFactorsRef.current
 
-            // Background — always deepest
+            // Per-layer scale (percentage → ratio)
+            const midScales = [
+                cfg.current.mid1Scale, cfg.current.mid2Scale, cfg.current.mid3Scale,
+                cfg.current.mid4Scale, cfg.current.mid5Scale, cfg.current.mid6Scale,
+                cfg.current.mid7Scale,
+            ]
+            const fgScale = (cfg.current.contentScale || 100) / 100
+            const bgLayerScale = (cfg.current.bgScale || 100) / 100
+
+            // Per-layer direction multiplier (1 = default, -1 = inverted)
+            const midDirs = [
+                cfg.current.mid1Direction, cfg.current.mid2Direction, cfg.current.mid3Direction,
+                cfg.current.mid4Direction, cfg.current.mid5Direction, cfg.current.mid6Direction,
+                cfg.current.mid7Direction,
+            ]
+            const bgDirMul = cfg.current.bgDirection === "inverted" ? -1 : 1
+
             if (bgRef.current) {
+                const tx = (cf.bg * pc.tx * bgDirMul).toFixed(2)
+                const ty = (cf.bg * pc.ty * bgDirMul).toFixed(2)
+                // Combine user bgScale with clip-mode auto-scale
+                let totalBgScale = bgLayerScale
+                if (bgScaleRef.current) {
+                    const rect = cachedRect.current || containerRef.current?.getBoundingClientRect()
+                    if (rect && rect.width > 0 && rect.height > 0) {
+                        const minDim = Math.min(rect.width, rect.height)
+                        totalBgScale *= 1 + (2 * cfg.current.parallaxAmount) / minDim
+                    }
+                }
+                const scaleStr = totalBgScale !== 1 ? ` scale(${totalBgScale.toFixed(4)})` : ""
                 bgRef.current.style.transform =
-                    `translate3d(${(cf.bg * pc.tx).toFixed(2)}px, ${(cf.bg * pc.ty).toFixed(2)}px, 0)`
+                    `translate3d(${tx}px, ${ty}px, 0)${scaleStr}`
             }
 
-            // Mid layers — auto-distributed between bg and fg
             for (let i = 0; i < lc; i++) {
                 const ref = midRefs.current[i]
                 if (ref) {
+                    const dirMul = midDirs[i] === "inverted" ? -1 : 1
+                    const s = (midScales[i] || 100) / 100
+                    const scaleStr = s !== 1 ? ` scale(${s.toFixed(4)})` : ""
                     ref.style.transform =
-                        `translate3d(${(cf.mid[i] * pc.tx).toFixed(2)}px, ${(cf.mid[i] * pc.ty).toFixed(2)}px, 0)`
+                        `translate3d(${(cf.mid[i] * pc.tx * dirMul).toFixed(2)}px, ${(cf.mid[i] * pc.ty * dirMul).toFixed(2)}px, 0)${scaleStr}`
                 }
             }
 
-            // Foreground — always shallowest
             if (fgRef.current) {
-                fgRef.current.style.transform =
-                    `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
+                const fgDirMul = cfg.current.contentDirection === "inverted" ? -1 : 1
+                const fgTx = (cf.fg * pc.tx * fgDirMul).toFixed(2)
+                const fgTy = (cf.fg * pc.ty * fgDirMul).toFixed(2)
+                // In clip mode, fgRef is the clip container — apply scale to fgContentRef instead
+                if (fgContentRef.current && bgScaleRef.current) {
+                    fgRef.current.style.transform =
+                        `translate3d(${fgTx}px, ${fgTy}px, 0)`
+                    const scaleStr = fgScale !== 1 ? `scale(${fgScale.toFixed(4)})` : ""
+                    fgContentRef.current.style.transform = scaleStr
+                } else {
+                    const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
+                    fgRef.current.style.transform =
+                        `translate3d(${fgTx}px, ${fgTy}px, 0)${scaleStr}`
+                }
+            }
+        }
+
+        // ── Lerp hover opacity (global + per-layer stagger) ──
+        const hoSmooth = hovering.current ? ACTIVE_SMOOTHING : RETURN_SMOOTHING
+        hoverOpCurrent.current = lerp(hoverOpCurrent.current, hoverOpTarget.current, hoSmooth)
+
+        const ho = hoverOpCurrent.current
+
+        // Read opacity config
+        const {
+            bgOpacityIdle: bgI, bgOpacityHover: bgH,
+            contentOpacityIdle: fgI, contentOpacityHover: fgH,
+            mid1OpacityIdle: m1I, mid1OpacityHover: m1H,
+            mid2OpacityIdle: m2I, mid2OpacityHover: m2H,
+            mid3OpacityIdle: m3I, mid3OpacityHover: m3H,
+            mid4OpacityIdle: m4I, mid4OpacityHover: m4H,
+            mid5OpacityIdle: m5I, mid5OpacityHover: m5H,
+            mid6OpacityIdle: m6I, mid6OpacityHover: m6H,
+            mid7OpacityIdle: m7I, mid7OpacityHover: m7H,
+        } = cfg.current
+
+        // Compute per-layer staggered hover factor
+        const stagger = cfg.current.hoverStagger || 0
+        const totalLayerCount = 2 + lc // bg + mids + fg
+
+        // Ensure arrays are properly sized
+        if (layerHoverOps.current.length !== totalLayerCount) {
+            layerHoverOps.current = new Array(totalLayerCount).fill(0)
+        }
+        if (layerHoverTargets.current.length !== totalLayerCount) {
+            layerHoverTargets.current = new Array(totalLayerCount).fill(0)
+        }
+
+        // Lerp each layer toward its individual target (set by setTimeout stagger)
+        for (let li = 0; li < totalLayerCount; li++) {
+            const target = stagger > 0 ? layerHoverTargets.current[li] : hoverOpTarget.current
+            layerHoverOps.current[li] = lerp(layerHoverOps.current[li], target, hoSmooth)
+        }
+
+        // Apply interpolated opacity to each layer via DOM refs
+        // bg = index 0
+        const bgHo = stagger > 0 ? layerHoverOps.current[0] : ho
+        if (bgRef.current) {
+            const op = lerp(bgI, bgH, bgHo) / 100
+            bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
+        }
+
+        // fg = last index — use fgContentRef in clip mode, fgRef otherwise
+        const fgHo = stagger > 0 ? layerHoverOps.current[totalLayerCount - 1] : ho
+        const fgOpEl = fgContentRef.current || fgRef.current
+        if (fgOpEl) {
+            const op = lerp(fgI, fgH, fgHo) / 100
+            fgOpEl.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
+        }
+
+        // mid layers = indices 1..N
+        const midIdleArr = [m1I, m2I, m3I, m4I, m5I, m6I, m7I]
+        const midHoverArr = [m1H, m2H, m3H, m4H, m5H, m6H, m7H]
+        for (let i = 0; i < lc; i++) {
+            const ref = midRefs.current[i]
+            if (ref) {
+                const midHo = stagger > 0 ? layerHoverOps.current[i + 1] : ho
+                const op = lerp(midIdleArr[i], midHoverArr[i], midHo) / 100
+                ref.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
             }
         }
 
@@ -404,9 +671,26 @@ export default function DepthMotionStack(props: Props) {
             (Math.abs(pc.tx - pt.tx) < SETTLE_THRESHOLD &&
                 Math.abs(pc.ty - pt.ty) < SETTLE_THRESHOLD)
 
+        let hoverOpSettled =
+            Math.abs(hoverOpCurrent.current - hoverOpTarget.current) < SETTLE_THRESHOLD
+        if (stagger > 0) {
+            // Never settle while stagger timers are still pending
+            if (staggerPending.current) {
+                hoverOpSettled = false
+            } else {
+                for (let li = 0; li < totalLayerCount; li++) {
+                    const lt = layerHoverTargets.current[li] ?? 0
+                    if (Math.abs(layerHoverOps.current[li] - lt) >= SETTLE_THRESHOLD) {
+                        hoverOpSettled = false
+                        break
+                    }
+                }
+            }
+        }
+
         const autoKeepAlive = tiltEnabled && mode === "auto"
 
-        if (tiltSettled && parallaxSettled && !autoKeepAlive && !hovering.current) {
+        if (tiltSettled && parallaxSettled && hoverOpSettled && !autoKeepAlive && !hovering.current) {
             // Snap to exact values
             if (tiltEnabled) {
                 c.rx = t.rx
@@ -421,21 +705,91 @@ export default function DepthMotionStack(props: Props) {
 
                 const cf = clipFactorsRef.current
 
-                if (bgRef.current)
+                // Per-layer scale + direction (same logic as main tick)
+                const midScales2 = [
+                    cfg.current.mid1Scale, cfg.current.mid2Scale, cfg.current.mid3Scale,
+                    cfg.current.mid4Scale, cfg.current.mid5Scale, cfg.current.mid6Scale,
+                    cfg.current.mid7Scale,
+                ]
+                const midDirs2 = [
+                    cfg.current.mid1Direction, cfg.current.mid2Direction, cfg.current.mid3Direction,
+                    cfg.current.mid4Direction, cfg.current.mid5Direction, cfg.current.mid6Direction,
+                    cfg.current.mid7Direction,
+                ]
+                const bgDirMul2 = cfg.current.bgDirection === "inverted" ? -1 : 1
+                const fgScale2 = (cfg.current.contentScale || 100) / 100
+                const bgLayerScale2 = (cfg.current.bgScale || 100) / 100
+
+                if (bgRef.current) {
+                    const tx = (cf.bg * pc.tx * bgDirMul2).toFixed(2)
+                    const ty = (cf.bg * pc.ty * bgDirMul2).toFixed(2)
+                    let totalBgScale = bgLayerScale2
+                    if (bgScaleRef.current) {
+                        const rect = cachedRect.current || containerRef.current?.getBoundingClientRect()
+                        if (rect && rect.width > 0 && rect.height > 0) {
+                            const minDim = Math.min(rect.width, rect.height)
+                            totalBgScale *= 1 + (2 * cfg.current.parallaxAmount) / minDim
+                        }
+                    }
+                    const scaleStr = totalBgScale !== 1 ? ` scale(${totalBgScale.toFixed(4)})` : ""
                     bgRef.current.style.transform =
-                        `translate3d(${(cf.bg * pc.tx).toFixed(2)}px, ${(cf.bg * pc.ty).toFixed(2)}px, 0)`
+                        `translate3d(${tx}px, ${ty}px, 0)${scaleStr}`
+                }
 
                 for (let i = 0; i < lc; i++) {
                     const ref = midRefs.current[i]
                     if (ref) {
+                        const dirMul = midDirs2[i] === "inverted" ? -1 : 1
+                        const s = (midScales2[i] || 100) / 100
+                        const scaleStr = s !== 1 ? ` scale(${s.toFixed(4)})` : ""
                         ref.style.transform =
-                            `translate3d(${(cf.mid[i] * pc.tx).toFixed(2)}px, ${(cf.mid[i] * pc.ty).toFixed(2)}px, 0)`
+                            `translate3d(${(cf.mid[i] * pc.tx * dirMul).toFixed(2)}px, ${(cf.mid[i] * pc.ty * dirMul).toFixed(2)}px, 0)${scaleStr}`
                     }
                 }
 
-                if (fgRef.current)
-                    fgRef.current.style.transform =
-                        `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
+                if (fgRef.current) {
+                    const fgDirMul2 = cfg.current.contentDirection === "inverted" ? -1 : 1
+                    const fgTx2 = (cf.fg * pc.tx * fgDirMul2).toFixed(2)
+                    const fgTy2 = (cf.fg * pc.ty * fgDirMul2).toFixed(2)
+                    if (fgContentRef.current && bgScaleRef.current) {
+                        fgRef.current.style.transform =
+                            `translate3d(${fgTx2}px, ${fgTy2}px, 0)`
+                        const scaleStr = fgScale2 !== 1 ? `scale(${fgScale2.toFixed(4)})` : ""
+                        fgContentRef.current.style.transform = scaleStr
+                    } else {
+                        const scaleStr = fgScale2 !== 1 ? ` scale(${fgScale2.toFixed(4)})` : ""
+                        fgRef.current.style.transform =
+                            `translate3d(${fgTx2}px, ${fgTy2}px, 0)${scaleStr}`
+                    }
+                }
+            }
+
+            // Snap hover opacity
+            hoverOpCurrent.current = hoverOpTarget.current
+            const finalHo = hoverOpCurrent.current
+            // Snap per-layer stagger ops to their individual targets
+            for (let li = 0; li < totalLayerCount; li++) {
+                const lt = stagger > 0 ? (layerHoverTargets.current[li] ?? 0) : finalHo
+                layerHoverOps.current[li] = lt
+            }
+            const finalBgHo = stagger > 0 ? layerHoverOps.current[0] : finalHo
+            const finalFgHo = stagger > 0 ? layerHoverOps.current[totalLayerCount - 1] : finalHo
+            if (bgRef.current) {
+                const op = lerp(bgI, bgH, finalBgHo) / 100
+                bgRef.current.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
+            }
+            const fgSnapEl = fgContentRef.current || fgRef.current
+            if (fgSnapEl) {
+                const op = lerp(fgI, fgH, finalFgHo) / 100
+                fgSnapEl.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
+            }
+            for (let i = 0; i < lc; i++) {
+                const ref = midRefs.current[i]
+                if (ref) {
+                    const finalMidHo = stagger > 0 ? layerHoverOps.current[i + 1] : finalHo
+                    const op = lerp(midIdleArr[i], midHoverArr[i], finalMidHo) / 100
+                    ref.style.opacity = op < 1 ? String(op.toFixed(3)) : "1"
+                }
             }
 
             loopRunning.current = false
@@ -455,7 +809,8 @@ export default function DepthMotionStack(props: Props) {
     const onPointerEnter = useCallback(() => {
         if (isCanvas) return
 
-        // Cancel any pending leave reset
+        // Cancel any pending leave reset — prevents stutter from
+        // brief pointerleave/pointerenter cycles at layer boundaries.
         if (leaveTimer.current) {
             clearTimeout(leaveTimer.current)
             leaveTimer.current = null
@@ -472,7 +827,13 @@ export default function DepthMotionStack(props: Props) {
             (act === "click" && clickActive.current)
 
         if (act === "hover") {
+            if (!hovering.current) {
+                const s = cfg.current.hoverStagger || 0
+                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
+            }
             hovering.current = true
+            emitActivationEvent(true)
+            hoverOpTarget.current = 1
         }
 
         const el = containerRef.current
@@ -522,14 +883,16 @@ export default function DepthMotionStack(props: Props) {
 
             const tiltOn = cfg.current.tilt
             const mode = cfg.current.interaction
-            const act = cfg.current.activation
 
-            // What does this event need to drive?
+            const act = cfg.current.activation
             // Click mode gates all hover-triggered behavior behind clickActive
             const needsTilt =
                 tiltOn &&
                 mode === "cursor" &&
                 (act !== "click" || clickActive.current)
+            // "always": parallax tracks cursor inside the element (no page-level).
+            // "click": only track when click-activated.
+            // "hover": only when parallaxTracking === "hover".
             const needsCursorParallax =
                 cfg.current.parallax &&
                 cfg.current.parallaxSource === "cursor" &&
@@ -563,14 +926,12 @@ export default function DepthMotionStack(props: Props) {
                 1
             )
 
-            // Tilt rotation — only in cursor tilt mode
             if (needsTilt) {
                 const dir = cfg.current.behavior === "repel" ? -1 : 1
                 target.current.rx = -ny * cfg.current.tiltLimit * dir
                 target.current.ry = nx * cfg.current.tiltLimit * dir
             }
 
-            // Cursor-source parallax (hover tracking, or hover-cursor in auto)
             if (needsCursorParallax || needsHoverCursorParallax) {
                 const pDir =
                     cfg.current.parallaxDirection === "away" ? -1 : 1
@@ -591,7 +952,13 @@ export default function DepthMotionStack(props: Props) {
         const act = cfg.current.activation
 
         if (act === "hover") {
+            if (hovering.current) {
+                const s = cfg.current.hoverStagger || 0
+                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
+            }
             hovering.current = false
+            emitActivationEvent(false)
+            hoverOpTarget.current = 0
             cachedRect.current = null
 
             if (tiltOn && mode === "cursor") {
@@ -610,12 +977,22 @@ export default function DepthMotionStack(props: Props) {
                 pTarget.current.ty = 0
             }
         } else if (act === "click") {
-            if (tiltOn && mode === "cursor") {
-                target.current.rx = 0
-                target.current.ry = 0
-                target.current.s = 1
-            }
+            // Only reset tilt/parallax when click is NOT active.
+            // When active, keep responding to cursor movement.
             if (!clickActive.current) {
+                if (tiltOn && mode === "cursor") {
+                    target.current.rx = 0
+                    target.current.ry = 0
+                    target.current.s = 1
+                }
+                if (
+                    cfg.current.parallax &&
+                    cfg.current.parallaxSource === "cursor" &&
+                    cfg.current.parallaxTracking !== "page"
+                ) {
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                }
                 cachedRect.current = null
             }
         } else if (act === "always") {
@@ -637,17 +1014,21 @@ export default function DepthMotionStack(props: Props) {
     }, [isCanvas, doLeave])
 
     // ── Touch Drag Handlers (hold-to-activate) ─────────────
-    // A brief hold (~300 ms) with minimal movement activates the
-    // effect.  Quick swipes pass through as normal page scrolls.
 
-    const HOLD_DELAY = 300   // ms before activation
-    const HOLD_SLOP  = 10    // px movement tolerance during hold
+    const HOLD_DELAY = 300
+    const HOLD_SLOP  = 10
 
     const activateTouch = useCallback(
         (pointerId: number, el: HTMLElement) => {
             el.setPointerCapture(pointerId)
             touchCaptured.current = true
+            if (!hovering.current) {
+                const s = cfg.current.hoverStagger || 0
+                if (s > 0) triggerStagger(1, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
+            }
             hovering.current = true
+            emitActivationEvent(true)
+            hoverOpTarget.current = 1
 
             const container = containerRef.current
             if (container) cachedRect.current = container.getBoundingClientRect()
@@ -661,25 +1042,18 @@ export default function DepthMotionStack(props: Props) {
         [startLoop]
     )
 
-
     const onPointerDown = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
 
-            // Click-to-activate for mouse (non-touch) events
-            if (cfg.current.activation === "click" && e.pointerType !== "touch") {
-                clickActive.current = !clickActive.current
-                if (clickActive.current) {
-                    hovering.current = true
-                    const el = containerRef.current
-                    if (el) cachedRect.current = el.getBoundingClientRect()
-                } else {
-                    hovering.current = false
-                    pTarget.current.tx = 0
-                    pTarget.current.ty = 0
-                }
-                startLoop()
-                return
+            // Click mode: capture touch pointer for smooth parallax tracking
+            // when active. Without capture, touch move events stop at element bounds.
+            if (cfg.current.activation === "click" && e.pointerType === "touch" && clickActive.current) {
+                try {
+                    (e.target as HTMLElement).setPointerCapture(e.pointerId)
+                    touchCaptured.current = true
+                    cachedRect.current = containerRef.current?.getBoundingClientRect() ?? null
+                } catch (_) {}
             }
 
             // Touch drag hold-to-activate
@@ -687,7 +1061,6 @@ export default function DepthMotionStack(props: Props) {
             if (cfg.current.interaction !== "cursor") return
             if (e.pointerType !== "touch") return
 
-            // Record start position and begin hold timer
             holdStart.current = {
                 x: e.clientX,
                 y: e.clientY,
@@ -707,25 +1080,61 @@ export default function DepthMotionStack(props: Props) {
     const onPointerUp = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
-            if (!cfg.current.touchDrag) return
             if (e.pointerType !== "touch") return
 
             cancelHold()
 
+            // Click mode: release touch capture on finger lift.
+            // Don't deactivate — the component stays active until next tap.
+            if (cfg.current.activation === "click" && touchCaptured.current) {
+                try {
+                    (e.target as HTMLElement).releasePointerCapture(e.pointerId)
+                } catch (_) {}
+                touchCaptured.current = false
+                // Reset tilt to center on release for a smooth settle
+                if (cfg.current.tilt && cfg.current.interaction === "cursor") {
+                    target.current.rx = 0
+                    target.current.ry = 0
+                }
+                if (cfg.current.parallax && cfg.current.parallaxSource === "cursor") {
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                }
+                startLoop()
+                return
+            }
+
+            // When touchDrag is off but activation is hover, a touch
+            // triggered pointerenter (hover in) but pointerleave won't
+            // fire reliably on mobile. Reset hover on touch up.
+            if (!cfg.current.touchDrag) {
+                if (cfg.current.activation === "hover" && hovering.current) {
+                    hovering.current = false
+                    emitActivationEvent(false)
+                    hoverOpTarget.current = 0
+                    const s = cfg.current.hoverStagger || 0
+                    if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
+                    startLoop()
+                }
+                return
+            }
+
             if (touchCaptured.current) {
                 ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
                 touchCaptured.current = false
+                const s = cfg.current.hoverStagger || 0
+                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
                 hovering.current = false
+                emitActivationEvent(false)
+                hoverOpTarget.current = 0
                 cachedRect.current = null
 
-                // Reset tilt
                 if (cfg.current.tilt && cfg.current.interaction === "cursor") {
                     target.current.rx = 0
                     target.current.ry = 0
                     target.current.s = 1
                 }
 
-                // Reset cursor-source parallax
                 if (
                     cfg.current.parallax &&
                     cfg.current.parallaxSource === "cursor" &&
@@ -746,7 +1155,6 @@ export default function DepthMotionStack(props: Props) {
         const el = containerRef.current
         if (!el || !touchDrag || interaction !== "cursor") return
 
-        // Only block touchmove (scroll) when the effect is actually active
         const blockMove = (e: TouchEvent) => {
             if (touchCaptured.current) e.preventDefault()
         }
@@ -778,6 +1186,8 @@ export default function DepthMotionStack(props: Props) {
         return () => {
             cancelAnimationFrame(rafId.current)
             loopRunning.current = false
+            staggerTimers.current.forEach(t => clearTimeout(t))
+            staggerTimers.current = []
         }
     }, [tilt, interaction, isCanvas, startLoop])
 
@@ -793,7 +1203,23 @@ export default function DepthMotionStack(props: Props) {
 
     useEffect(() => {
         if (isCanvas || activation !== "always") return
+
+        // Immediately activate hover state + opacity (parallax tracks via onPointerMove)
+        const s = cfg.current.hoverStagger || 0
+        const count = 2 + cfg.current.layerCount
+        if (s > 0) {
+            triggerStagger(1, s, count, startLoop, cfg.current.reverseStagger)
+        } else {
+            // No stagger: set all per-layer targets to 1 immediately
+            for (let i = 0; i < count; i++) {
+                layerHoverTargets.current[i] = 1
+                layerHoverOps.current[i] = 1
+            }
+        }
         hovering.current = true
+        emitActivationEvent(true)
+        hoverOpTarget.current = 1
+        hoverOpCurrent.current = 1
         startLoop()
     }, [activation, isCanvas, startLoop])
 
@@ -802,31 +1228,92 @@ export default function DepthMotionStack(props: Props) {
     useEffect(() => {
         clickActive.current = false
         if (activation !== "always") {
+            if (hovering.current) {
+                const s = cfg.current.hoverStagger || 0
+                if (s > 0) triggerStagger(0, s, 2 + cfg.current.layerCount, startLoop, cfg.current.reverseStagger)
+            }
             hovering.current = false
+            emitActivationEvent(false)
+            hoverOpTarget.current = 0
         }
         startLoop()
     }, [activation, startLoop])
 
-    // ── Click-outside deactivation ───────────────────────
+    // ── Click activation via native DOM listener ─────────
+    // Uses a native 'click' listener on the container element to ensure
+    // the event always fires regardless of Framer's event handling.
 
     useEffect(() => {
         if (isCanvas || activation !== "click") return
+        const el = containerRef.current
+        if (!el) return
 
-        const onWindowDown = (e: PointerEvent) => {
-            if (e.pointerType === "touch") return
-            if (!clickActive.current) return
-            const el = containerRef.current
-            if (el && !el.contains(e.target as Node)) {
-                clickActive.current = false
-                hovering.current = false
-                pTarget.current.tx = 0
-                pTarget.current.ty = 0
+        let lastClickTime = 0
+
+        // Use document-level click in capture phase — this catches ALL clicks
+        // regardless of where they land in the DOM tree, even inside Framer
+        // component instances that might not bubble to our container.
+        const handleDocClick = (e: MouseEvent) => {
+            const clickedInside = el.contains(e.target as Node)
+
+            if (clickedInside) {
+                // Debounce: ignore clicks within 300ms
+                const now = Date.now()
+                if (now - lastClickTime < 300) return
+                lastClickTime = now
+
+                clickActive.current = !clickActive.current
+
+                const s = cfg.current.hoverStagger || 0
+                const count = 2 + cfg.current.layerCount
+
+                if (clickActive.current) {
+                    // Activate
+                    if (s > 0) triggerStagger(1, s, count, startLoop, cfg.current.reverseStagger)
+                    hovering.current = true
+                    emitActivationEvent(true)
+                    hoverOpTarget.current = 1
+                    cachedRect.current = el.getBoundingClientRect()
+                    if (cfg.current.tilt && cfg.current.interaction === "cursor") {
+                        target.current.s = cfg.current.hoverScale
+                    }
+                } else {
+                    // Deactivate
+                    if (s > 0) triggerStagger(0, s, count, startLoop, cfg.current.reverseStagger)
+                    hovering.current = false
+                    emitActivationEvent(false)
+                    hoverOpTarget.current = 0
+                    target.current.rx = 0
+                    target.current.ry = 0
+                    target.current.s = 1
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                    cachedRect.current = null
+                }
                 startLoop()
+            } else {
+                // Click outside — deactivate if active
+                if (clickActive.current) {
+                    clickActive.current = false
+                    hovering.current = false
+                    emitActivationEvent(false)
+                    hoverOpTarget.current = 0
+                    target.current.rx = 0
+                    target.current.ry = 0
+                    target.current.s = 1
+                    pTarget.current.tx = 0
+                    pTarget.current.ty = 0
+                    cachedRect.current = null
+                    startLoop()
+                }
             }
         }
 
-        window.addEventListener("pointerdown", onWindowDown)
-        return () => window.removeEventListener("pointerdown", onWindowDown)
+        document.addEventListener("click", handleDocClick, true)
+
+        return () => {
+            document.removeEventListener("click", handleDocClick, true)
+        }
     }, [activation, isCanvas, startLoop])
 
     // ── Page-level Parallax Tracking ─────────────────────
@@ -883,6 +1370,31 @@ export default function DepthMotionStack(props: Props) {
         cancelAnimationFrame(rafId.current)
         if (leaveTimer.current) clearTimeout(leaveTimer.current)
     }, [])
+
+    // ── Copy fg slot child border-radius to clip wrapper ──
+    // clipRadius prop provides the value directly (works on canvas + preview).
+    // The useEffect is a fallback that reads from the fg slot child's DOM.
+    useEffect(() => {
+        if (!clipToForeground || !parallax) return
+        if (clipRadius > 0) return // prop takes priority, skip DOM read
+        const wrapper = fgRef.current
+        const contentEl = fgContentRef.current
+        if (!wrapper || !contentEl) return
+
+        const slotChild = contentEl.firstElementChild as HTMLElement | null
+        if (!slotChild) return
+
+        const br = getComputedStyle(slotChild).borderRadius
+        if (br && br !== "0px") {
+            wrapper.style.borderRadius = br
+        }
+
+        return () => {
+            if (wrapper) wrapper.style.borderRadius = ""
+        }
+    }, [clipToForeground, parallax, clipRadius])
+
+
 
     // ── Empty State ─────────────────────────────────────
 
@@ -941,6 +1453,53 @@ export default function DepthMotionStack(props: Props) {
         `}</style>
     )
 
+    // ── Convert B&W mask to alpha-channel mask (cross-browser) ──
+    // mask-mode: luminance isn't supported on iOS Safari, so we convert
+    // the luminance values to alpha via canvas once on load.
+    const [processedMask, setProcessedMask] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (!alphaMask) { setProcessedMask(null); return }
+
+        const img = new Image()
+        img.crossOrigin = "anonymous"
+        img.onload = () => {
+            const canvas = document.createElement("canvas")
+            canvas.width = img.naturalWidth
+            canvas.height = img.naturalHeight
+            const ctx = canvas.getContext("2d")
+            if (!ctx) return
+
+            ctx.drawImage(img, 0, 0)
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+            const d = imgData.data
+
+            for (let i = 0; i < d.length; i += 4) {
+                // Convert luminance to alpha: bright = opaque, dark = transparent
+                const luminance = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114
+                const alpha = invertMask ? 255 - luminance : luminance
+                d[i] = 255     // R — white
+                d[i + 1] = 255 // G — white
+                d[i + 2] = 255 // B — white
+                d[i + 3] = alpha
+            }
+
+            ctx.putImageData(imgData, 0, 0)
+            setProcessedMask(canvas.toDataURL("image/png"))
+        }
+        img.src = alphaMask
+    }, [alphaMask, invertMask])
+
+    // Initial opacity values — "always" starts at hover values to prevent flicker
+    const isAlways = activation === "always"
+    const bgInitOp = isAlways ? bgOpacityHover : bgOpacityIdle
+    const fgInitOp = isAlways ? contentOpacityHover : contentOpacityIdle
+    const bgInitialOpacity = bgInitOp < 100 ? bgInitOp / 100 : undefined
+    const fgInitialOpacity = fgInitOp < 100 ? fgInitOp / 100 : undefined
+    const midIdleArr_ = [mid1OpacityIdle, mid2OpacityIdle, mid3OpacityIdle, mid4OpacityIdle, mid5OpacityIdle, mid6OpacityIdle, mid7OpacityIdle]
+    const midHoverArr_ = [mid1OpacityHover, mid2OpacityHover, mid3OpacityHover, mid4OpacityHover, mid5OpacityHover, mid6OpacityHover, mid7OpacityHover]
+    const midInitialOpacities = isAlways ? midHoverArr_ : midIdleArr_
+
     // When parallax is off, render flat (no layer splitting).
     if (!parallax) {
         return (
@@ -950,8 +1509,8 @@ export default function DepthMotionStack(props: Props) {
                 onPointerEnter={onPointerEnter}
                 onPointerMove={onPointerMove}
                 onPointerLeave={onPointerLeave}
-                onPointerDown={onPointerDown}
-                onPointerUp={onPointerUp}
+                onPointerDownCapture={onPointerDown}
+                onPointerUpCapture={onPointerUp}
                 onPointerCancel={onPointerUp}
             >
                 {fillStyle}
@@ -961,7 +1520,7 @@ export default function DepthMotionStack(props: Props) {
                     style={{
                         width: "100%",
                         height: "100%",
-                        overflow: clipContent ? "hidden" : "visible",
+                        overflow: "visible",
                         willChange: tilt ? "transform" : undefined,
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
@@ -972,77 +1531,134 @@ export default function DepthMotionStack(props: Props) {
         )
     }
 
-    const layerContents: React.ReactNode[] = [background, ...midLayersArr, content]
-    const layerClassNames = [bgClass, ...new Array(layerCount).fill(fillClass), fillClass]
-    const layerBlends: (string | undefined)[] = [
-        undefined,
-        ...midBlendsArr.map((b: string) => b !== "normal" ? b : undefined),
-        contentBlend !== "normal" ? contentBlend : undefined,
-    ]
-    const layerOpacities: (number | undefined)[] = [
-        bgOpacity < 100 ? bgOpacity / 100 : undefined,
-        ...midOpacitiesArr.map((o: number) => o < 100 ? o / 100 : undefined),
-        contentOpacity < 100 ? contentOpacity / 100 : undefined,
-    ]
-
-    const renderLayer = (layerIdx: number, isRoot: boolean): React.ReactNode => {
-        if (layerIdx > 0 && layerIdx <= layerCount && !midLayersArr[layerIdx - 1]) return null
-
-        const hasClipChildren = childrenOf[layerIdx].length > 0
-        const nestedChildren = childrenOf[layerIdx]
-            .map(ci => renderLayer(ci, false))
-            .filter(Boolean)
-
-        const refCb = (el: HTMLDivElement | null) => {
-            if (layerIdx === 0) (bgRef as React.MutableRefObject<HTMLDivElement | null>).current = el
-            else if (layerIdx <= layerCount) midRefs.current[layerIdx - 1] = el
-            else (fgRef as React.MutableRefObject<HTMLDivElement | null>).current = el
-        }
-
-        const style: React.CSSProperties = isRoot
-            ? {
-                ...gridCell,
-                overflow: (clipContent || hasClipChildren) ? "hidden" : "visible",
-                mixBlendMode: layerBlends[layerIdx] as any,
-                opacity: layerOpacities[layerIdx],
-            }
-            : {
-                position: "absolute",
-                inset: 0,
-                willChange: "transform",
-                overflow: hasClipChildren ? "hidden" : undefined,
-                mixBlendMode: layerBlends[layerIdx] as any,
-                opacity: layerOpacities[layerIdx],
-            }
-
-        return (
-            <div
-                key={`layer-${layerIdx}`}
-                ref={refCb}
-                className={layerClassNames[layerIdx]}
-                style={style}
-            >
-                {nestedChildren}
-                {layerContents[layerIdx]}
-            </div>
-        )
-    }
-
     // Grid cell style — all layers overlap in the same cell.
     // pointer-events: none on wrapper so stacked layers don't block each other;
     // children get pointer-events: auto via CSS class below.
     const gridCell: React.CSSProperties = {
         gridRow: 1,
         gridColumn: 1,
-        willChange: "transform",
         pointerEvents: "none",
     }
 
-    // Parallax on: multi-layer structure (CSS Grid stacking).
-    // All layers overlap in a single grid cell. The background's
-    // intrinsic dimensions size the component when in Fit mode.
-    // DOM order = visual stack order (bottom to top):
-    // Background → Layer 1 → Layer 2 → Layer 3 → Content
+
+    // ── Parallax render ──────────────────────────────────────
+
+    if (clipToForeground) {
+        // Clip-to-foreground layout:
+        // The fg wrapper acts as the clipping parent with overflow:hidden.
+        // BG and mid layers are absolute children inside it, behind the
+        // fg content. They inherit the fg's clip shape (including border-radius).
+        // The fg content renders on top via position:relative and z-index.
+        return (
+            <div
+                ref={containerRef}
+                style={containerStyle}
+                onPointerEnter={onPointerEnter}
+                onPointerMove={onPointerMove}
+                onPointerLeave={onPointerLeave}
+                onPointerDownCapture={onPointerDown}
+                onPointerUpCapture={onPointerUp}
+                onPointerCancel={onPointerUp}
+            >
+                {fillStyle}
+                <div
+                    ref={surfaceRef}
+                    style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "grid",
+                        gridTemplate: "1fr / 1fr",
+                        isolation: "isolate",
+                        willChange: tilt ? "transform" : undefined,
+                        ...(touchActive ? { pointerEvents: "none" as const } : {}),
+                    }}
+                >
+                    {/* Foreground wrapper — clips all layers to its shape */}
+                    <div
+                        ref={fgRef}
+                        className={fillClass}
+                        style={{
+                            ...gridCell,
+                            overflow: "hidden",
+                            position: "relative",
+                            // Clip radius — prop value takes priority, useEffect fallback reads from DOM
+                            ...(clipRadius > 0 ? { borderRadius: clipRadius } : {}),
+                            // Hide until mask is ready to prevent unmasked flash
+                            ...(alphaMask && !processedMask ? { visibility: "hidden" as const } : {}),
+                            ...(processedMask ? {
+                                WebkitMaskImage: `url(${processedMask})`,
+                                maskImage: `url(${processedMask})`,
+                                WebkitMaskSize: "100% 100%",
+                                maskSize: "100% 100%",
+                                WebkitMaskRepeat: "no-repeat",
+                                maskRepeat: "no-repeat",
+                            } : {}),
+                        }}
+                    >
+                        {/* Background — scaled up by tick loop to cover parallax travel */}
+                        {background && (
+                            <div
+                                ref={bgRef}
+                                className={fillClass}
+                                style={{
+                                    position: "absolute",
+                                    inset: 0,
+                                    willChange: "transform",
+                                    pointerEvents: "none",
+                                    opacity: bgInitialOpacity,
+                                    zIndex: 0,
+                                }}
+                            >
+                                {background}
+                            </div>
+                        )}
+
+                        {/* Mid layers — behind fg content */}
+                        {midLayersArr.map((mid, i) => {
+                            if (!mid) return null
+                            const midOp = midInitialOpacities[i]
+                            return (
+                                <div
+                                    key={`layer-mid-${i}`}
+                                    ref={(el) => { midRefs.current[i] = el }}
+                                    className={fillClass}
+                                    style={{
+                                        position: "absolute",
+                                        inset: 0,
+                                        willChange: "transform",
+                                        pointerEvents: "none",
+                                        mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
+                                        opacity: midOp < 100 ? midOp / 100 : undefined,
+                                        zIndex: layerCount - i,
+                                    }}
+                                >
+                                    {mid}
+                                </div>
+                            )
+                        })}
+
+                        {/* FG content on top */}
+                        <div ref={fgContentRef} className={fillClass} style={{
+                            position: "relative",
+                            width: "100%",
+                            height: "100%",
+                            pointerEvents: "none",
+                            zIndex: layerCount + 2,
+                            opacity: fgInitialOpacity,
+                            mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
+                        }}>
+                            {content}
+                        </div>
+
+                    </div>
+
+                </div>
+            </div>
+        )
+    }
+
+    // ── Flat parallax render (no clipping) ──────────────────
+
     return (
         <div
             ref={containerRef}
@@ -1066,9 +1682,58 @@ export default function DepthMotionStack(props: Props) {
                     ...(touchActive ? { pointerEvents: "none" as const } : {}),
                 }}
             >
-                {Array.from({ length: totalLayers }, (_, i) => i)
-                    .filter(i => parentOf[i] === -1)
-                    .map(i => renderLayer(i, true))}
+                {/* Background */}
+                {background && (
+                    <div
+                        ref={bgRef}
+                        className={bgClass}
+                        style={{
+                            ...gridCell,
+                            overflow: "visible",
+                            opacity: bgInitialOpacity,
+                        }}
+                    >
+                        {background}
+                    </div>
+                )}
+
+                {/* Mid layers — reversed DOM order so Layer 1 (closest to fg)
+                     is last in DOM = painted on top. Refs use original index
+                     so parallax depth assignments stay correct. */}
+                {[...midLayersArr].reverse().map((mid, ri) => {
+                    const i = layerCount - 1 - ri
+                    if (!mid) return null
+                    const midOp = midInitialOpacities[i]
+                    return (
+                        <div
+                            key={`layer-mid-${i}`}
+                            ref={(el) => { midRefs.current[i] = el }}
+                            className={fillClass}
+                            style={{
+                                ...gridCell,
+                                overflow: "visible",
+                                mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
+                                opacity: midOp < 100 ? midOp / 100 : undefined,
+                            }}
+                        >
+                            {mid}
+                        </div>
+                    )
+                })}
+
+                {/* Foreground */}
+                <div
+                    ref={fgRef}
+                    className={fillClass}
+                    style={{
+                        ...gridCell,
+                        overflow: "visible",
+                        mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
+                        opacity: fgInitialOpacity,
+                    }}
+                >
+                    {content}
+                </div>
             </div>
         </div>
     )
@@ -1083,6 +1748,8 @@ const BLEND_OPTIONS = [
     "overlay",
     "soft-light",
     "hard-light",
+    "color-dodge",
+    "color-burn",
     "difference",
     "exclusion",
     "lighten",
@@ -1096,6 +1763,8 @@ const BLEND_TITLES = [
     "Overlay",
     "Soft Light",
     "Hard Light",
+    "Color Dodge",
+    "Color Burn",
     "Difference",
     "Exclusion",
     "Lighten",
@@ -1118,14 +1787,15 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax,
     },
-    contentOpacity: {
-        type: ControlType.Number,
-        title: "Foreground Opacity",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
+    contentAdvanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax,
     },
 
@@ -1153,13 +1823,13 @@ addPropertyControls(DepthMotionStack, {
 
     behavior: {
         type: ControlType.Enum,
-        title: "Cursor Behavior",
+        title: "Tilt Direction",
         options: ["follow", "repel"],
         optionTitles: ["Follow", "Repel"],
         displaySegmentedControl: true,
         defaultValue: "follow",
         description:
-            "Follow moves toward the pointer. Repel moves away from it.",
+            "Follow tilts toward the pointer. Repel tilts away.",
         hidden: (props: any) =>
             !props.tilt || props.interaction === "auto",
     },
@@ -1222,18 +1892,6 @@ addPropertyControls(DepthMotionStack, {
         hidden: (props: any) => !props.tilt,
     },
 
-    // ── Clip ──────────────────────────────────────────────
-
-    clipContent: {
-        type: ControlType.Boolean,
-        title: "Clip Content",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        description:
-            "Clips layers to the component frame. Turn off to let content extend beyond for hologram effects.",
-    },
-
     // ── Parallax ────────────────────────────────────────
 
     parallax: {
@@ -1262,11 +1920,11 @@ addPropertyControls(DepthMotionStack, {
         title: "Mid Layers",
         defaultValue: 0,
         min: 0,
-        max: 5,
+        max: 7,
         step: 1,
         displayStepper: true,
         description:
-            "Add up to 5 depth layers between background and foreground.",
+            "Add up to 7 depth layers between background and foreground.",
         hidden: (props: any) => !props.parallax,
     },
 
@@ -1283,14 +1941,15 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
     },
-    mid1Opacity: {
-        type: ControlType.Number,
-        title: "Layer 1 Opacity",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
+    mid1Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
     },
 
@@ -1307,14 +1966,15 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
     },
-    mid2Opacity: {
-        type: ControlType.Number,
-        title: "Layer 2 Opacity",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
+    mid2Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
     },
 
@@ -1331,14 +1991,15 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
     },
-    mid3Opacity: {
-        type: ControlType.Number,
-        title: "Layer 3 Opacity",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
+    mid3Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
     },
 
@@ -1355,14 +2016,15 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
     },
-    mid4Opacity: {
-        type: ControlType.Number,
-        title: "Layer 4 Opacity",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
+    mid4Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
     },
 
@@ -1379,15 +2041,66 @@ addPropertyControls(DepthMotionStack, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
     },
-    mid5Opacity: {
-        type: ControlType.Number,
-        title: "Layer 5 Opacity",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
+    mid5Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
+    },
+
+    mid6: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 6",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+    mid6Blend: {
+        type: ControlType.Enum,
+        title: "Layer 6 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+    mid6Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+
+    mid7: {
+        type: ControlType.ComponentInstance,
+        title: "Layer 7",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
+    },
+    mid7Blend: {
+        type: ControlType.Enum,
+        title: "Layer 7 Blend",
+        options: BLEND_OPTIONS,
+        optionTitles: BLEND_TITLES,
+        defaultValue: "normal",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
+    },
+    mid7Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
     },
 
     // Background — deepest layer
@@ -1396,65 +2109,96 @@ addPropertyControls(DepthMotionStack, {
         title: "Background",
         hidden: (props: any) => !props.parallax,
     },
-    bgOpacity: {
-        type: ControlType.Number,
-        title: "Background Opacity",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
+    bgAdvanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax,
     },
 
-    bgClipByAbove: {
-        type: ControlType.Boolean,
-        title: "BG Clip by Above",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        description: "Clips the background to the frame bounds of the layer above it.",
+    hoverStagger: {
+        type: ControlType.Number,
+        title: "Activation Stagger",
+        defaultValue: 0,
+        min: 0,
+        max: 500,
+        step: 10,
+        unit: "ms",
+        description:
+            "Delay each layer's activation for a cascading reveal.",
         hidden: (props: any) => !props.parallax,
     },
-    mid1ClipByAbove: {
+
+    reverseStagger: {
         type: ControlType.Boolean,
-        title: "L1 Clip by Above",
+        title: "Reverse Stagger",
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
+        description:
+            "Background reveals first, foreground last.",
+        hidden: (props: any) => !props.parallax || !props.hoverStagger,
     },
-    mid2ClipByAbove: {
-        type: ControlType.Boolean,
-        title: "L2 Clip by Above",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
+
+    // ── Activation Events ─────────────────────────────────
+    // These appear in the Interactions panel in Framer.
+    // Designers can wire them to transitions, overlays, text
+    // variant swaps, or any parent-level behavior.
+    // Events fire once per state transition, not continuously.
+
+    onActivate: {
+        type: ControlType.EventHandler,
     },
-    mid3ClipByAbove: {
-        type: ControlType.Boolean,
-        title: "L3 Clip by Above",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
+
+    onDeactivate: {
+        type: ControlType.EventHandler,
     },
-    mid4ClipByAbove: {
+
+    // ── Clip to Foreground ────────────────────────────────
+
+    clipToForeground: {
         type: ControlType.Boolean,
-        title: "L4 Clip by Above",
+        title: "Clip to Foreground",
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
+        description:
+            "Clips all layers to the foreground shape.",
+        hidden: (props: any) => !props.parallax,
     },
-    mid5ClipByAbove: {
+
+    clipRadius: {
+        type: ControlType.Number,
+        title: "Clip Radius",
+        defaultValue: 0,
+        min: 0,
+        max: 500,
+        step: 1,
+        description:
+            "Corner radius for the clip shape. Set to 0 to match the foreground layer.",
+        hidden: (props: any) => !props.parallax || !props.clipToForeground,
+    },
+
+    alphaMask: {
+        type: ControlType.Image,
+        title: "Alpha Mask",
+        description:
+            "Optional mask for custom clipping. White areas stay visible. Black or transparent areas are hidden.",
+        hidden: (props: any) => !props.parallax || !props.clipToForeground,
+    },
+
+    invertMask: {
         type: ControlType.Boolean,
-        title: "L5 Clip by Above",
+        title: "Invert Mask",
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
+        hidden: (props: any) => !props.parallax || !props.clipToForeground,
     },
 
     // ── Motion behavior ─────────────────────────────────
@@ -1486,11 +2230,13 @@ addPropertyControls(DepthMotionStack, {
 
     parallaxDirection: {
         type: ControlType.Enum,
-        title: "Direction",
+        title: "Layer Direction",
         options: ["toward", "away"],
         optionTitles: ["Toward", "Away"],
         displaySegmentedControl: true,
         defaultValue: "toward",
+        description:
+            "Controls whether layers move toward or away from the cursor.",
         hidden: (props: any) => !props.parallax,
     },
 
@@ -1515,6 +2261,8 @@ addPropertyControls(DepthMotionStack, {
         min: 0,
         max: 1,
         step: 0.1,
+        description:
+            "Higher values feel smoother and slower.",
         hidden: (props: any) => !props.parallax,
     },
 })
