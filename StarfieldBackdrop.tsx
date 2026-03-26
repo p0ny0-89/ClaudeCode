@@ -99,6 +99,7 @@ function createShootingStar(w: number, h: number, props: Props): ShootingStar {
 // ─── Component ────────────────────────────────────────────
 
 function StarfieldBackdrop(props: Props) {
+    const containerRef = useRef<HTMLDivElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const starsRef = useRef<Star[]>([])
     const shootingStarsRef = useRef<ShootingStar[]>([])
@@ -119,27 +120,29 @@ function StarfieldBackdrop(props: Props) {
     }, [])
 
     useEffect(() => {
+        const container = containerRef.current
         const canvas = canvasRef.current
-        if (!canvas) return
+        if (!container || !canvas) return
 
         const ctx = canvas.getContext("2d")
         if (!ctx) return
 
         const resize = () => {
-            const rect = canvas.parentElement?.getBoundingClientRect()
-            if (!rect) return
+            const w = container.offsetWidth
+            const h = container.offsetHeight
+            if (w === 0 || h === 0) return
             const dpr = window.devicePixelRatio || 1
-            canvas.width = rect.width * dpr
-            canvas.height = rect.height * dpr
-            canvas.style.width = `${rect.width}px`
-            canvas.style.height = `${rect.height}px`
+            canvas.width = w * dpr
+            canvas.height = h * dpr
+            canvas.style.width = `${w}px`
+            canvas.style.height = `${h}px`
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-            initStars(rect.width, rect.height)
+            initStars(w, h)
         }
 
         resize()
         const ro = new ResizeObserver(resize)
-        if (canvas.parentElement) ro.observe(canvas.parentElement)
+        ro.observe(container)
 
         lastTimeRef.current = performance.now()
         shootingTimerRef.current = 0
@@ -291,14 +294,22 @@ function StarfieldBackdrop(props: Props) {
     }, [initStars])
 
     return (
-        <div style={{ width: "100%", height: "100%", position: "relative" }}>
+        <div
+            ref={containerRef}
+            style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                overflow: "hidden",
+            }}
+        >
             <canvas
                 ref={canvasRef}
                 style={{
+                    display: "block",
                     position: "absolute",
                     inset: 0,
-                    width: "100%",
-                    height: "100%",
                 }}
             />
         </div>
