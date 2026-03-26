@@ -1460,7 +1460,9 @@ export default function DepthMotionStack(props: Props) {
     const fillStyle = (
         <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
+.${fillClass} > * > * { width: 100% !important; height: 100% !important; }
 .${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
+.${bgFillClass} > * > * { min-width: 100% !important; min-height: 100% !important; }
         `}</style>
     )
 
@@ -1490,11 +1492,20 @@ export default function DepthMotionStack(props: Props) {
         const applyAll = () => {
             containerEl.querySelectorAll(`.${fillClass}`).forEach(wrapper => {
                 const child = wrapper.firstElementChild as HTMLElement | null
-                if (child) forceFill(child, false)
+                if (child) {
+                    forceFill(child, false)
+                    // Also target Framer's inner wrapper (two levels deep)
+                    const grandchild = child.firstElementChild as HTMLElement | null
+                    if (grandchild) forceFill(grandchild, false)
+                }
             })
             containerEl.querySelectorAll(`.${bgFillClass}`).forEach(wrapper => {
                 const child = wrapper.firstElementChild as HTMLElement | null
-                if (child) forceFill(child, true)
+                if (child) {
+                    forceFill(child, true)
+                    const grandchild = child.firstElementChild as HTMLElement | null
+                    if (grandchild) forceFill(grandchild, true)
+                }
             })
         }
 
