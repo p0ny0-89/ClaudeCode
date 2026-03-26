@@ -1,5 +1,5 @@
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
-import React, { useRef, useEffect, useLayoutEffect, useCallback, useId, useState } from "react"
+import React, { useRef, useEffect, useCallback, useId, useState } from "react"
 
 // ─── Constants ────────────────────────────────────────────
 
@@ -1460,92 +1460,9 @@ export default function DepthMotionStack(props: Props) {
     const fillStyle = (
         <style>{`
 .${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
-.${fillClass} > * > * { width: 100% !important; height: 100% !important; }
 .${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
-.${bgFillClass} > * > * { min-width: 100% !important; min-height: 100% !important; }
         `}</style>
     )
-
-    // ── Force slot children to fill (handles Framer inline !important) ──
-    // Framer may re-apply inline dimensions on slot children after our
-    // effects run. A MutationObserver watches for attribute changes on
-    // direct children and re-applies our fill overrides whenever Framer
-    // touches the styles.
-    useEffect(() => {
-        const containerEl = containerRef.current
-        if (!containerEl) return
-
-        const forceFill = (child: HTMLElement, useMin: boolean) => {
-            if (useMin) {
-                if (child.style.getPropertyValue("min-width") !== "100%") {
-                    child.style.setProperty("min-width", "100%", "important")
-                    child.style.setProperty("min-height", "100%", "important")
-                }
-            } else {
-                if (child.style.getPropertyValue("width") !== "100%") {
-                    child.style.setProperty("width", "100%", "important")
-                    child.style.setProperty("height", "100%", "important")
-                }
-            }
-        }
-
-        // Measure and scale-transform slot children that resist CSS overrides
-        const scaleToFill = (wrapper: Element, child: HTMLElement) => {
-            const wRect = wrapper.getBoundingClientRect()
-            const cRect = child.getBoundingClientRect()
-            if (wRect.width < 1 || cRect.width < 1) return
-            // If child doesn't match wrapper within 2px tolerance, scale it
-            if (Math.abs(wRect.width - cRect.width) > 2 ||
-                Math.abs(wRect.height - cRect.height) > 2) {
-                const sx = wRect.width / cRect.width
-                const sy = wRect.height / cRect.height
-                child.style.setProperty("transform", `scale(${sx}, ${sy})`, "important")
-                child.style.setProperty("transform-origin", "0 0", "important")
-            }
-        }
-
-        const applyAll = () => {
-            containerEl.querySelectorAll(`.${fillClass}`).forEach(wrapper => {
-                const child = wrapper.firstElementChild as HTMLElement | null
-                if (child) {
-                    forceFill(child, false)
-                    const grandchild = child.firstElementChild as HTMLElement | null
-                    if (grandchild) forceFill(grandchild, false)
-                }
-            })
-            containerEl.querySelectorAll(`.${bgFillClass}`).forEach(wrapper => {
-                const child = wrapper.firstElementChild as HTMLElement | null
-                if (child) {
-                    forceFill(child, true)
-                    const grandchild = child.firstElementChild as HTMLElement | null
-                    if (grandchild) forceFill(grandchild, true)
-                }
-            })
-            // After CSS overrides, check if children actually filled.
-            // If not, use transform scale as a bulletproof fallback.
-            requestAnimationFrame(() => {
-                containerEl.querySelectorAll(`.${fillClass}, .${bgFillClass}`).forEach(wrapper => {
-                    const child = wrapper.firstElementChild as HTMLElement | null
-                    if (child) scaleToFill(wrapper, child)
-                })
-            })
-        }
-
-        // Apply immediately
-        applyAll()
-
-        // Watch for Framer re-applying styles on slot children
-        const observer = new MutationObserver(() => applyAll())
-        observer.observe(containerEl, {
-            attributes: true,
-            attributeFilter: ["style"],
-            subtree: true,
-            childList: true,
-        })
-
-        return () => observer.disconnect()
-    }, [fillClass, bgFillClass, content, background,
-        mid1, mid2, mid3, mid4, mid5, mid6, mid7])
 
     // ── Convert B&W mask to alpha-channel mask (cross-browser) ──
     // mask-mode: luminance isn't supported on iOS Safari, so we convert
