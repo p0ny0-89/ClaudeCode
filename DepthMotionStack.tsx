@@ -1465,29 +1465,54 @@ export default function DepthMotionStack(props: Props) {
     )
 
     // ── Force slot children to fill (handles Framer inline !important) ──
-    // Framer may set inline !important dimensions on newly connected slot
-    // children that override stylesheet !important. Direct DOM manipulation
-    // with setProperty has the highest specificity and wins in all cases.
-    const slotDeps = [fillClass, bgFillClass, content, background,
-        mid1, mid2, mid3, mid4, mid5, mid6, mid7]
-    useLayoutEffect(() => {
-        const applyFill = (selector: string, useMin: boolean) => {
-            document.querySelectorAll(selector).forEach(wrapper => {
-                const child = wrapper.firstElementChild as HTMLElement | null
-                if (!child) return
-                if (useMin) {
+    // Framer may re-apply inline dimensions on slot children after our
+    // effects run. A MutationObserver watches for attribute changes on
+    // direct children and re-applies our fill overrides whenever Framer
+    // touches the styles.
+    useEffect(() => {
+        const containerEl = containerRef.current
+        if (!containerEl) return
+
+        const forceFill = (child: HTMLElement, useMin: boolean) => {
+            if (useMin) {
+                if (child.style.getPropertyValue("min-width") !== "100%") {
                     child.style.setProperty("min-width", "100%", "important")
                     child.style.setProperty("min-height", "100%", "important")
-                } else {
+                }
+            } else {
+                if (child.style.getPropertyValue("width") !== "100%") {
                     child.style.setProperty("width", "100%", "important")
                     child.style.setProperty("height", "100%", "important")
                 }
-                child.style.setProperty("pointer-events", "auto")
+            }
+        }
+
+        const applyAll = () => {
+            containerEl.querySelectorAll(`.${fillClass}`).forEach(wrapper => {
+                const child = wrapper.firstElementChild as HTMLElement | null
+                if (child) forceFill(child, false)
+            })
+            containerEl.querySelectorAll(`.${bgFillClass}`).forEach(wrapper => {
+                const child = wrapper.firstElementChild as HTMLElement | null
+                if (child) forceFill(child, true)
             })
         }
-        applyFill(`.${fillClass}`, false)
-        applyFill(`.${bgFillClass}`, true)
-    }, slotDeps)
+
+        // Apply immediately
+        applyAll()
+
+        // Watch for Framer re-applying styles on slot children
+        const observer = new MutationObserver(() => applyAll())
+        observer.observe(containerEl, {
+            attributes: true,
+            attributeFilter: ["style"],
+            subtree: true,
+            childList: true,
+        })
+
+        return () => observer.disconnect()
+    }, [fillClass, bgFillClass, content, background,
+        mid1, mid2, mid3, mid4, mid5, mid6, mid7])
 
     // ── Convert B&W mask to alpha-channel mask (cross-browser) ──
     // mask-mode: luminance isn't supported on iOS Safari, so we convert
