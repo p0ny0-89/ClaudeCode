@@ -1489,12 +1489,26 @@ export default function DepthMotionStack(props: Props) {
             }
         }
 
+        // Measure and scale-transform slot children that resist CSS overrides
+        const scaleToFill = (wrapper: Element, child: HTMLElement) => {
+            const wRect = wrapper.getBoundingClientRect()
+            const cRect = child.getBoundingClientRect()
+            if (wRect.width < 1 || cRect.width < 1) return
+            // If child doesn't match wrapper within 2px tolerance, scale it
+            if (Math.abs(wRect.width - cRect.width) > 2 ||
+                Math.abs(wRect.height - cRect.height) > 2) {
+                const sx = wRect.width / cRect.width
+                const sy = wRect.height / cRect.height
+                child.style.setProperty("transform", `scale(${sx}, ${sy})`, "important")
+                child.style.setProperty("transform-origin", "0 0", "important")
+            }
+        }
+
         const applyAll = () => {
             containerEl.querySelectorAll(`.${fillClass}`).forEach(wrapper => {
                 const child = wrapper.firstElementChild as HTMLElement | null
                 if (child) {
                     forceFill(child, false)
-                    // Also target Framer's inner wrapper (two levels deep)
                     const grandchild = child.firstElementChild as HTMLElement | null
                     if (grandchild) forceFill(grandchild, false)
                 }
@@ -1506,6 +1520,14 @@ export default function DepthMotionStack(props: Props) {
                     const grandchild = child.firstElementChild as HTMLElement | null
                     if (grandchild) forceFill(grandchild, true)
                 }
+            })
+            // After CSS overrides, check if children actually filled.
+            // If not, use transform scale as a bulletproof fallback.
+            requestAnimationFrame(() => {
+                containerEl.querySelectorAll(`.${fillClass}, .${bgFillClass}`).forEach(wrapper => {
+                    const child = wrapper.firstElementChild as HTMLElement | null
+                    if (child) scaleToFill(wrapper, child)
+                })
             })
         }
 
