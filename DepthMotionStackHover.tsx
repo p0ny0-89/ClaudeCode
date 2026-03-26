@@ -66,44 +66,16 @@ interface Props {
     mid5Blend: BlendMode
     mid6Blend: BlendMode
     mid7Blend: BlendMode
-    // Per-layer opacity: idle and hover values
-    contentOpacityIdle: number
-    contentOpacityHover: number
-    mid1OpacityIdle: number
-    mid1OpacityHover: number
-    mid2OpacityIdle: number
-    mid2OpacityHover: number
-    mid3OpacityIdle: number
-    mid3OpacityHover: number
-    mid4OpacityIdle: number
-    mid4OpacityHover: number
-    mid5OpacityIdle: number
-    mid5OpacityHover: number
-    mid6OpacityIdle: number
-    mid6OpacityHover: number
-    mid7OpacityIdle: number
-    mid7OpacityHover: number
-    bgOpacityIdle: number
-    bgOpacityHover: number
-    // Per-layer scale (percentage, 100 = normal)
-    contentScale: number
-    mid1Scale: number
-    mid2Scale: number
-    mid3Scale: number
-    mid4Scale: number
-    mid5Scale: number
-    mid6Scale: number
-    mid7Scale: number
-    bgScale: number
-    // Per-layer parallax direction ("default" follows global, "inverted" flips)
-    mid1Direction: "default" | "inverted"
-    mid2Direction: "default" | "inverted"
-    mid3Direction: "default" | "inverted"
-    mid4Direction: "default" | "inverted"
-    mid5Direction: "default" | "inverted"
-    mid6Direction: "default" | "inverted"
-    mid7Direction: "default" | "inverted"
-    bgDirection: "default" | "inverted"
+    // Per-layer advanced settings (collapsible ControlType.Object sections)
+    contentAdvanced: { opacityIdle: number; opacityActive: number; scale: number }
+    mid1Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid2Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid3Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid4Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid5Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid6Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    mid7Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    bgAdvanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
     clipToForeground: boolean
     clipRadius: number
     alphaMask: string
@@ -173,41 +145,15 @@ export default function DepthMotionStackHover(props: Props) {
         mid5Blend = "normal" as BlendMode,
         mid6Blend = "normal" as BlendMode,
         mid7Blend = "normal" as BlendMode,
-        contentOpacityIdle = 100,
-        contentOpacityHover = 100,
-        mid1OpacityIdle = 100,
-        mid1OpacityHover = 100,
-        mid2OpacityIdle = 100,
-        mid2OpacityHover = 100,
-        mid3OpacityIdle = 100,
-        mid3OpacityHover = 100,
-        mid4OpacityIdle = 100,
-        mid4OpacityHover = 100,
-        mid5OpacityIdle = 100,
-        mid5OpacityHover = 100,
-        mid6OpacityIdle = 100,
-        mid6OpacityHover = 100,
-        mid7OpacityIdle = 100,
-        mid7OpacityHover = 100,
-        bgOpacityIdle = 100,
-        bgOpacityHover = 100,
-        contentScale = 100,
-        mid1Scale = 100,
-        mid2Scale = 100,
-        mid3Scale = 100,
-        mid4Scale = 100,
-        mid5Scale = 100,
-        mid6Scale = 100,
-        mid7Scale = 100,
-        bgScale = 100,
-        mid1Direction = "default" as const,
-        mid2Direction = "default" as const,
-        mid3Direction = "default" as const,
-        mid4Direction = "default" as const,
-        mid5Direction = "default" as const,
-        mid6Direction = "default" as const,
-        mid7Direction = "default" as const,
-        bgDirection = "default" as const,
+        contentAdvanced = { opacityIdle: 100, opacityActive: 100, scale: 100 },
+        mid1Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid2Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid3Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid4Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid5Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid6Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        mid7Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        bgAdvanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
         clipToForeground = false,
         clipRadius = 0,
         alphaMask,
@@ -218,6 +164,43 @@ export default function DepthMotionStackHover(props: Props) {
         onDeactivate,
         style,
     } = props
+
+    // Extract flat variable names from Advanced objects for compatibility with the rest of the code
+    const contentOpacityIdle = contentAdvanced.opacityIdle
+    const contentOpacityHover = contentAdvanced.opacityActive
+    const contentScale = contentAdvanced.scale
+    const mid1OpacityIdle = mid1Advanced.opacityIdle
+    const mid1OpacityHover = mid1Advanced.opacityActive
+    const mid1Scale = mid1Advanced.scale
+    const mid1Direction = mid1Advanced.direction
+    const mid2OpacityIdle = mid2Advanced.opacityIdle
+    const mid2OpacityHover = mid2Advanced.opacityActive
+    const mid2Scale = mid2Advanced.scale
+    const mid2Direction = mid2Advanced.direction
+    const mid3OpacityIdle = mid3Advanced.opacityIdle
+    const mid3OpacityHover = mid3Advanced.opacityActive
+    const mid3Scale = mid3Advanced.scale
+    const mid3Direction = mid3Advanced.direction
+    const mid4OpacityIdle = mid4Advanced.opacityIdle
+    const mid4OpacityHover = mid4Advanced.opacityActive
+    const mid4Scale = mid4Advanced.scale
+    const mid4Direction = mid4Advanced.direction
+    const mid5OpacityIdle = mid5Advanced.opacityIdle
+    const mid5OpacityHover = mid5Advanced.opacityActive
+    const mid5Scale = mid5Advanced.scale
+    const mid5Direction = mid5Advanced.direction
+    const mid6OpacityIdle = mid6Advanced.opacityIdle
+    const mid6OpacityHover = mid6Advanced.opacityActive
+    const mid6Scale = mid6Advanced.scale
+    const mid6Direction = mid6Advanced.direction
+    const mid7OpacityIdle = mid7Advanced.opacityIdle
+    const mid7OpacityHover = mid7Advanced.opacityActive
+    const mid7Scale = mid7Advanced.scale
+    const mid7Direction = mid7Advanced.direction
+    const bgOpacityIdle = bgAdvanced.opacityIdle
+    const bgOpacityHover = bgAdvanced.opacityActive
+    const bgScale = bgAdvanced.scale
+    const bgDirection = bgAdvanced.direction
 
     // Build ordered arrays from individual layer props
     const midLayersArr = [mid1, mid2, mid3, mid4, mid5, mid6, mid7].slice(0, layerCount)
@@ -1782,34 +1765,14 @@ addPropertyControls(DepthMotionStackHover, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax,
     },
-    contentOpacityIdle: {
-        type: ControlType.Number,
-        title: "FG Opacity Idle",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax,
-    },
-    contentOpacityHover: {
-        type: ControlType.Number,
-        title: "FG Opacity Hover",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax,
-    },
-    contentScale: {
-        type: ControlType.Number,
-        title: "FG Scale",
-        defaultValue: 100,
-        min: 50,
-        max: 300,
-        step: 1,
-        unit: "%",
+    contentAdvanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+        },
         hidden: (props: any) => !props.parallax,
     },
 
@@ -1955,42 +1918,15 @@ addPropertyControls(DepthMotionStackHover, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
     },
-    mid1OpacityIdle: {
-        type: ControlType.Number,
-        title: "L1 Opacity Idle",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
-    },
-    mid1OpacityHover: {
-        type: ControlType.Number,
-        title: "L1 Opacity Hover",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
-    },
-    mid1Scale: {
-        type: ControlType.Number,
-        title: "L1 Scale",
-        defaultValue: 100,
-        min: 50,
-        max: 300,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
-    },
-    mid1Direction: {
-        type: ControlType.Enum,
-        title: "L1 Direction",
-        options: ["default", "inverted"],
-        optionTitles: ["Default", "Inverted"],
-        defaultValue: "default",
+    mid1Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
     },
 
@@ -2007,42 +1943,15 @@ addPropertyControls(DepthMotionStackHover, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
     },
-    mid2OpacityIdle: {
-        type: ControlType.Number,
-        title: "L2 Opacity Idle",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
-    },
-    mid2OpacityHover: {
-        type: ControlType.Number,
-        title: "L2 Opacity Hover",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
-    },
-    mid2Scale: {
-        type: ControlType.Number,
-        title: "L2 Scale",
-        defaultValue: 100,
-        min: 50,
-        max: 300,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
-    },
-    mid2Direction: {
-        type: ControlType.Enum,
-        title: "L2 Direction",
-        options: ["default", "inverted"],
-        optionTitles: ["Default", "Inverted"],
-        defaultValue: "default",
+    mid2Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
     },
 
@@ -2059,42 +1968,15 @@ addPropertyControls(DepthMotionStackHover, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
     },
-    mid3OpacityIdle: {
-        type: ControlType.Number,
-        title: "L3 Opacity Idle",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
-    },
-    mid3OpacityHover: {
-        type: ControlType.Number,
-        title: "L3 Opacity Hover",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
-    },
-    mid3Scale: {
-        type: ControlType.Number,
-        title: "L3 Scale",
-        defaultValue: 100,
-        min: 50,
-        max: 300,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
-    },
-    mid3Direction: {
-        type: ControlType.Enum,
-        title: "L3 Direction",
-        options: ["default", "inverted"],
-        optionTitles: ["Default", "Inverted"],
-        defaultValue: "default",
+    mid3Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
     },
 
@@ -2111,42 +1993,15 @@ addPropertyControls(DepthMotionStackHover, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
     },
-    mid4OpacityIdle: {
-        type: ControlType.Number,
-        title: "L4 Opacity Idle",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
-    },
-    mid4OpacityHover: {
-        type: ControlType.Number,
-        title: "L4 Opacity Hover",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
-    },
-    mid4Scale: {
-        type: ControlType.Number,
-        title: "L4 Scale",
-        defaultValue: 100,
-        min: 50,
-        max: 300,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
-    },
-    mid4Direction: {
-        type: ControlType.Enum,
-        title: "L4 Direction",
-        options: ["default", "inverted"],
-        optionTitles: ["Default", "Inverted"],
-        defaultValue: "default",
+    mid4Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
     },
 
@@ -2163,42 +2018,15 @@ addPropertyControls(DepthMotionStackHover, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
     },
-    mid5OpacityIdle: {
-        type: ControlType.Number,
-        title: "L5 Opacity Idle",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
-    },
-    mid5OpacityHover: {
-        type: ControlType.Number,
-        title: "L5 Opacity Hover",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
-    },
-    mid5Scale: {
-        type: ControlType.Number,
-        title: "L5 Scale",
-        defaultValue: 100,
-        min: 50,
-        max: 300,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
-    },
-    mid5Direction: {
-        type: ControlType.Enum,
-        title: "L5 Direction",
-        options: ["default", "inverted"],
-        optionTitles: ["Default", "Inverted"],
-        defaultValue: "default",
+    mid5Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
     },
 
@@ -2215,42 +2043,15 @@ addPropertyControls(DepthMotionStackHover, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
     },
-    mid6OpacityIdle: {
-        type: ControlType.Number,
-        title: "L6 Opacity Idle",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
-    },
-    mid6OpacityHover: {
-        type: ControlType.Number,
-        title: "L6 Opacity Hover",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
-    },
-    mid6Scale: {
-        type: ControlType.Number,
-        title: "L6 Scale",
-        defaultValue: 100,
-        min: 50,
-        max: 300,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
-    },
-    mid6Direction: {
-        type: ControlType.Enum,
-        title: "L6 Direction",
-        options: ["default", "inverted"],
-        optionTitles: ["Default", "Inverted"],
-        defaultValue: "default",
+    mid6Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
     },
 
@@ -2267,42 +2068,15 @@ addPropertyControls(DepthMotionStackHover, {
         defaultValue: "normal",
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
     },
-    mid7OpacityIdle: {
-        type: ControlType.Number,
-        title: "L7 Opacity Idle",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
-    },
-    mid7OpacityHover: {
-        type: ControlType.Number,
-        title: "L7 Opacity Hover",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
-    },
-    mid7Scale: {
-        type: ControlType.Number,
-        title: "L7 Scale",
-        defaultValue: 100,
-        min: 50,
-        max: 300,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
-    },
-    mid7Direction: {
-        type: ControlType.Enum,
-        title: "L7 Direction",
-        options: ["default", "inverted"],
-        optionTitles: ["Default", "Inverted"],
-        defaultValue: "default",
+    mid7Advanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
     },
 
@@ -2312,42 +2086,15 @@ addPropertyControls(DepthMotionStackHover, {
         title: "Background",
         hidden: (props: any) => !props.parallax,
     },
-    bgOpacityIdle: {
-        type: ControlType.Number,
-        title: "BG Opacity Idle",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax,
-    },
-    bgOpacityHover: {
-        type: ControlType.Number,
-        title: "BG Opacity Hover",
-        defaultValue: 100,
-        min: 0,
-        max: 100,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax,
-    },
-    bgScale: {
-        type: ControlType.Number,
-        title: "BG Scale",
-        defaultValue: 100,
-        min: 50,
-        max: 300,
-        step: 1,
-        unit: "%",
-        hidden: (props: any) => !props.parallax,
-    },
-    bgDirection: {
-        type: ControlType.Enum,
-        title: "BG Direction",
-        options: ["default", "inverted"],
-        optionTitles: ["Default", "Inverted"],
-        defaultValue: "default",
+    bgAdvanced: {
+        type: ControlType.Object,
+        title: "Advanced",
+        controls: {
+            opacityIdle: { type: ControlType.Number, title: "Idle Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
+            scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
+            direction: { type: ControlType.Enum, title: "Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+        },
         hidden: (props: any) => !props.parallax,
     },
 
