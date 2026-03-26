@@ -206,6 +206,9 @@ export default function DepthMotionStack(props: Props) {
     // Build ordered arrays from individual layer props
     const midLayersArr = [mid1, mid2, mid3, mid4, mid5, mid6, mid7].slice(0, layerCount)
     const midBlendsArr = [mid1Blend, mid2Blend, mid3Blend, mid4Blend, mid5Blend, mid6Blend, mid7Blend].slice(0, layerCount)
+    const midScalesArr = [mid1Scale, mid2Scale, mid3Scale, mid4Scale, mid5Scale, mid6Scale, mid7Scale].slice(0, layerCount)
+    const fgScaleVal = (contentScale || 100) / 100
+    const bgScaleVal = (bgScale || 100) / 100
 
     // ── Depth factors for parallax ──
     const totalLayers = 2 + layerCount
@@ -1615,6 +1618,7 @@ export default function DepthMotionStack(props: Props) {
                                     pointerEvents: "none",
                                     opacity: bgInitialOpacity,
                                     zIndex: 0,
+                                    transform: bgScaleVal !== 1 ? `scale(${bgScaleVal})` : undefined,
                                 }}
                             >
                                 {background}
@@ -1625,6 +1629,7 @@ export default function DepthMotionStack(props: Props) {
                         {midLayersArr.map((mid, i) => {
                             if (!mid) return null
                             const midOp = midInitialOpacities[i]
+                            const midS = (midScalesArr[i] || 100) / 100
                             return (
                                 <div
                                     key={`layer-mid-${i}`}
@@ -1638,6 +1643,7 @@ export default function DepthMotionStack(props: Props) {
                                         mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                         opacity: midOp < 100 ? midOp / 100 : undefined,
                                         zIndex: layerCount - i,
+                                        transform: midS !== 1 ? `scale(${midS})` : undefined,
                                     }}
                                 >
                                     {mid}
@@ -1654,6 +1660,7 @@ export default function DepthMotionStack(props: Props) {
                             zIndex: layerCount + 2,
                             opacity: fgInitialOpacity,
                             mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
+                            transform: fgScaleVal !== 1 ? `scale(${fgScaleVal})` : undefined,
                         }}>
                             {content}
                         </div>
@@ -1699,6 +1706,7 @@ export default function DepthMotionStack(props: Props) {
                             ...gridCell,
                             overflow: "visible",
                             opacity: bgInitialOpacity,
+                            transform: bgScaleVal !== 1 ? `scale(${bgScaleVal})` : undefined,
                         }}
                     >
                         {background}
@@ -1712,6 +1720,7 @@ export default function DepthMotionStack(props: Props) {
                     const i = layerCount - 1 - ri
                     if (!mid) return null
                     const midOp = midInitialOpacities[i]
+                    const midS = (midScalesArr[i] || 100) / 100
                     return (
                         <div
                             key={`layer-mid-${i}`}
@@ -1722,6 +1731,7 @@ export default function DepthMotionStack(props: Props) {
                                 overflow: "visible",
                                 mixBlendMode: (midBlendsArr[i] !== "normal" ? midBlendsArr[i] : undefined) as any,
                                 opacity: midOp < 100 ? midOp / 100 : undefined,
+                                transform: midS !== 1 ? `scale(${midS})` : undefined,
                             }}
                         >
                             {mid}
@@ -1738,6 +1748,7 @@ export default function DepthMotionStack(props: Props) {
                         overflow: "visible",
                         mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                         opacity: fgInitialOpacity,
+                        transform: fgScaleVal !== 1 ? `scale(${fgScaleVal})` : undefined,
                     }}
                 >
                     {content}
