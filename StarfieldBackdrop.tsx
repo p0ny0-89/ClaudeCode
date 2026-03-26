@@ -41,6 +41,7 @@ interface Props {
     bgGradientEdge: string
     depth: boolean
     glowIntensity: number
+    style?: React.CSSProperties
 }
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -297,10 +298,8 @@ function StarfieldBackdrop(props: Props) {
         <div
             ref={containerRef}
             style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
+                ...props.style,
+                position: "relative",
                 overflow: "hidden",
             }}
         >
