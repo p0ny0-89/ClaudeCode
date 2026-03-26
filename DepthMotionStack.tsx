@@ -578,15 +578,20 @@ export default function DepthMotionStack(props: Props) {
 
             if (fgRef.current) {
                 const fgDirMul = cfg.current.contentDirection === "inverted" ? -1 : 1
-                const fgTx = (cf.fg * pc.tx * fgDirMul).toFixed(2)
-                const fgTy = (cf.fg * pc.ty * fgDirMul).toFixed(2)
-                // In clip mode, fgRef is the clip container — apply scale to fgContentRef instead
+                // In clip mode, fgRef is the clip container — direction + scale go on fgContentRef
                 if (fgContentRef.current && bgScaleRef.current) {
+                    // Clip container moves without direction/scale (affects all layers)
                     fgRef.current.style.transform =
-                        `translate3d(${fgTx}px, ${fgTy}px, 0)`
-                    const scaleStr = fgScale !== 1 ? `scale(${fgScale.toFixed(4)})` : ""
-                    fgContentRef.current.style.transform = scaleStr
+                        `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
+                    // FG content gets its own direction offset + scale
+                    const dirTx = fgDirMul === -1 ? (cf.fg * pc.tx * -2).toFixed(2) : "0"
+                    const dirTy = fgDirMul === -1 ? (cf.fg * pc.ty * -2).toFixed(2) : "0"
+                    const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
+                    const dirStr = fgDirMul === -1 ? `translate3d(${dirTx}px, ${dirTy}px, 0)` : ""
+                    fgContentRef.current.style.transform = `${dirStr}${scaleStr}`.trim() || "none"
                 } else {
+                    const fgTx = (cf.fg * pc.tx * fgDirMul).toFixed(2)
+                    const fgTy = (cf.fg * pc.ty * fgDirMul).toFixed(2)
                     const scaleStr = fgScale !== 1 ? ` scale(${fgScale.toFixed(4)})` : ""
                     fgRef.current.style.transform =
                         `translate3d(${fgTx}px, ${fgTy}px, 0)${scaleStr}`
@@ -749,14 +754,17 @@ export default function DepthMotionStack(props: Props) {
 
                 if (fgRef.current) {
                     const fgDirMul2 = cfg.current.contentDirection === "inverted" ? -1 : 1
-                    const fgTx2 = (cf.fg * pc.tx * fgDirMul2).toFixed(2)
-                    const fgTy2 = (cf.fg * pc.ty * fgDirMul2).toFixed(2)
                     if (fgContentRef.current && bgScaleRef.current) {
                         fgRef.current.style.transform =
-                            `translate3d(${fgTx2}px, ${fgTy2}px, 0)`
-                        const scaleStr = fgScale2 !== 1 ? `scale(${fgScale2.toFixed(4)})` : ""
-                        fgContentRef.current.style.transform = scaleStr
+                            `translate3d(${(cf.fg * pc.tx).toFixed(2)}px, ${(cf.fg * pc.ty).toFixed(2)}px, 0)`
+                        const dirTx = fgDirMul2 === -1 ? (cf.fg * pc.tx * -2).toFixed(2) : "0"
+                        const dirTy = fgDirMul2 === -1 ? (cf.fg * pc.ty * -2).toFixed(2) : "0"
+                        const scaleStr = fgScale2 !== 1 ? ` scale(${fgScale2.toFixed(4)})` : ""
+                        const dirStr = fgDirMul2 === -1 ? `translate3d(${dirTx}px, ${dirTy}px, 0)` : ""
+                        fgContentRef.current.style.transform = `${dirStr}${scaleStr}`.trim() || "none"
                     } else {
+                        const fgTx2 = (cf.fg * pc.tx * fgDirMul2).toFixed(2)
+                        const fgTy2 = (cf.fg * pc.ty * fgDirMul2).toFixed(2)
                         const scaleStr = fgScale2 !== 1 ? ` scale(${fgScale2.toFixed(4)})` : ""
                         fgRef.current.style.transform =
                             `translate3d(${fgTx2}px, ${fgTy2}px, 0)${scaleStr}`
