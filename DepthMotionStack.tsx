@@ -132,9 +132,9 @@ function clamp(v: number, lo: number, hi: number): number {
 
 // ── Responsive source: breakpoint detection ──────────────
 // Detects viewport width to select per-layer source variants.
-// Breakpoint detection uses the component's own rendered width (not the
-// viewport). This works on both the Framer canvas and in live preview,
-// since each breakpoint renders the component at its actual responsive size.
+// Breakpoint detection for responsive source selection.
+// Uses component width when available (works on canvas + preview),
+// falls back to window.innerWidth for initial render.
 // Thresholds: Mobile <= 390px, Tablet <= 810px, Desktop > 810px.
 
 type Breakpoint = "desktop" | "tablet" | "mobile"
@@ -143,6 +143,11 @@ function getBreakpointFromWidth(w: number): Breakpoint {
     if (w <= 390) return "mobile"
     if (w <= 810) return "tablet"
     return "desktop"
+}
+
+function getViewportBreakpoint(): Breakpoint {
+    if (typeof window === "undefined") return "desktop"
+    return getBreakpointFromWidth(window.innerWidth)
 }
 
 // Resolve responsive source: use breakpoint-specific source if available, fall back to primary
@@ -609,29 +614,31 @@ export default function DepthMotionStack(props: Props) {
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
-    // ── Responsive source: breakpoint from component width ──
-    // Uses ResizeObserver on the container to detect the component's own
-    // rendered width. Works on both canvas (each breakpoint renders at its
-    // responsive size) and live preview (viewport drives component width).
-    const [breakpoint, setBreakpoint] = useState<Breakpoint>("desktop")
+    // ── Responsive source: breakpoint detection ──────────────
+    // Primary: measure the component's own width via ResizeObserver (works
+    // on both canvas and live preview). Falls back to window.innerWidth.
+    const [breakpoint, setBreakpoint] = useState<Breakpoint>(getViewportBreakpoint)
 
     useEffect(() => {
-        const el = containerRef.current
-        if (!el) return
+        // Use window resize for live preview breakpoint detection.
+        // This avoids ResizeObserver conflicts with interactive slot children.
+        const onResize = () => {
+            const bp = getViewportBreakpoint()
+            setBreakpoint(prev => prev !== bp ? bp : prev)
+        }
+        window.addEventListener("resize", onResize)
 
-        // Use contentRect from the observer entry (avoids forced layout/reflow).
-        // Only update state when the breakpoint actually changes.
-        const ro = new ResizeObserver((entries) => {
-            const entry = entries[0]
-            if (!entry) return
-            const w = entry.contentRect.width
+        // For canvas: measure container width once after mount
+        const el = containerRef.current
+        if (el) {
+            const w = el.getBoundingClientRect().width
             if (w > 0) {
                 const bp = getBreakpointFromWidth(w)
                 setBreakpoint(prev => prev !== bp ? bp : prev)
             }
-        })
-        ro.observe(el)
-        return () => ro.disconnect()
+        }
+
+        return () => window.removeEventListener("resize", onResize)
     }, [])
 
     // Resolve per-layer sources based on breakpoint
