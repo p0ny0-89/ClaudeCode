@@ -619,19 +619,17 @@ export default function DepthMotionStack(props: Props) {
         const el = containerRef.current
         if (!el) return
 
-        const measure = () => {
-            const w = el.getBoundingClientRect().width
+        // Use contentRect from the observer entry (avoids forced layout/reflow).
+        // Only update state when the breakpoint actually changes.
+        const ro = new ResizeObserver((entries) => {
+            const entry = entries[0]
+            if (!entry) return
+            const w = entry.contentRect.width
             if (w > 0) {
                 const bp = getBreakpointFromWidth(w)
                 setBreakpoint(prev => prev !== bp ? bp : prev)
             }
-        }
-
-        // Measure immediately
-        measure()
-
-        // Watch for size changes
-        const ro = new ResizeObserver(measure)
+        })
         ro.observe(el)
         return () => ro.disconnect()
     }, [])
