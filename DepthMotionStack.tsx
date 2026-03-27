@@ -141,8 +141,8 @@ type Breakpoint = "desktop" | "tablet" | "mobile"
 function getBreakpoint(): Breakpoint {
     if (typeof window === "undefined") return "desktop"
     const w = window.innerWidth
-    if (w < 390) return "mobile"
-    if (w < 810) return "tablet"
+    if (w <= 390) return "mobile"
+    if (w <= 810) return "tablet"
     return "desktop"
 }
 
