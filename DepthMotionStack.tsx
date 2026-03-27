@@ -156,10 +156,12 @@ function resolveSource(
     bp: Breakpoint
 ): React.ReactNode {
     if (!responsive) return primary
-    if (bp === "mobile" && mobile) return mobile
-    if (bp === "tablet" && tablet) return tablet
-    if (bp === "desktop" && desktop) return desktop
-    return primary // fallback to primary if breakpoint source is empty
+    // Cascade: mobile → tablet → desktop → primary
+    // Each breakpoint falls back to the next larger if its slot is empty.
+    if (bp === "mobile") return mobile || tablet || desktop || primary
+    if (bp === "tablet") return tablet || desktop || primary
+    if (bp === "desktop") return desktop || primary
+    return primary
 }
 
 /**
