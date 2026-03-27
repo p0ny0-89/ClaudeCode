@@ -132,15 +132,14 @@ function clamp(v: number, lo: number, hi: number): number {
 
 // ── Responsive source: breakpoint detection ──────────────
 // Detects viewport width to select per-layer source variants.
-// Desktop >= 810px, Tablet 390-809px, Mobile < 390px.
-// Falls back to primary source when responsive is off or
-// breakpoint-specific source is not connected.
+// Breakpoint detection uses the component's own rendered width (not the
+// viewport). This works on both the Framer canvas and in live preview,
+// since each breakpoint renders the component at its actual responsive size.
+// Thresholds: Mobile <= 390px, Tablet <= 810px, Desktop > 810px.
 
 type Breakpoint = "desktop" | "tablet" | "mobile"
 
-function getBreakpoint(): Breakpoint {
-    if (typeof window === "undefined") return "desktop"
-    const w = window.innerWidth
+function getBreakpointFromWidth(w: number): Breakpoint {
     if (w <= 390) return "mobile"
     if (w <= 810) return "tablet"
     return "desktop"
@@ -610,20 +609,32 @@ export default function DepthMotionStack(props: Props) {
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
-    // ── Responsive source: breakpoint state ──────────────
-    const [breakpoint, setBreakpoint] = useState<Breakpoint>(() =>
-        isCanvas ? "desktop" : getBreakpoint()
-    )
+    // ── Responsive source: breakpoint from component width ──
+    // Uses ResizeObserver on the container to detect the component's own
+    // rendered width. Works on both canvas (each breakpoint renders at its
+    // responsive size) and live preview (viewport drives component width).
+    const [breakpoint, setBreakpoint] = useState<Breakpoint>("desktop")
 
     useEffect(() => {
-        if (isCanvas) return
-        const onResize = () => {
-            const bp = getBreakpoint()
-            setBreakpoint(prev => prev !== bp ? bp : prev)
+        const el = containerRef.current
+        if (!el) return
+
+        const measure = () => {
+            const w = el.getBoundingClientRect().width
+            if (w > 0) {
+                const bp = getBreakpointFromWidth(w)
+                setBreakpoint(prev => prev !== bp ? bp : prev)
+            }
         }
-        window.addEventListener("resize", onResize)
-        return () => window.removeEventListener("resize", onResize)
-    }, [isCanvas])
+
+        // Measure immediately
+        measure()
+
+        // Watch for size changes
+        const ro = new ResizeObserver(measure)
+        ro.observe(el)
+        return () => ro.disconnect()
+    }, [])
 
     // Resolve per-layer sources based on breakpoint
     const resolvedContent = resolveSource(content, contentResponsive, contentDesktop, contentTablet, contentMobile, breakpoint)
