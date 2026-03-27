@@ -939,9 +939,6 @@ export default function DepthMotionStack(props: Props) {
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (isCanvas) return
 
-            // Skip synthetic events we dispatched to avoid infinite loops
-            if ((e.nativeEvent as any).__dms_synthetic) return
-
             // Cancel hold if finger moves too far before activation
             if (holdStart.current && !touchCaptured.current && e.pointerType === "touch") {
                 const dx = e.clientX - holdStart.current.x
@@ -1009,52 +1006,6 @@ export default function DepthMotionStack(props: Props) {
                 const pAmt = cfg.current.parallaxAmount
                 pTarget.current.tx = nx * pAmt * pDir
                 pTarget.current.ty = ny * pAmt * pDir
-            }
-
-            // ── Forward pointer events to mid layer slot children ──
-            // Mid layers are behind the foreground in the stacking order, so
-            // they never receive native pointer events (the foreground occludes
-            // them). Dispatch synthetic events so interactive components inside
-            // mid layers (e.g. cursor-following video) can track the cursor.
-            if (cfg.current.parallax) {
-                const lc = cfg.current.layerCount
-                for (let i = 0; i < lc; i++) {
-                    const ref = midRefs.current[i]
-                    if (!ref) continue
-                    const child = ref.firstElementChild
-                    if (!child) continue
-                    try {
-                        const synth = new PointerEvent("pointermove", {
-                            clientX: e.clientX,
-                            clientY: e.clientY,
-                            screenX: e.screenX,
-                            screenY: e.screenY,
-                            bubbles: true,
-                            cancelable: true,
-                            pointerType: e.pointerType,
-                            pointerId: e.pointerId,
-                        })
-                        ;(synth as any).__dms_synthetic = true
-                        child.dispatchEvent(synth)
-                    } catch (_) {}
-                }
-                // Also forward to bg layer
-                if (bgRef.current?.firstElementChild) {
-                    try {
-                        const synth = new PointerEvent("pointermove", {
-                            clientX: e.clientX,
-                            clientY: e.clientY,
-                            screenX: e.screenX,
-                            screenY: e.screenY,
-                            bubbles: true,
-                            cancelable: true,
-                            pointerType: e.pointerType,
-                            pointerId: e.pointerId,
-                        })
-                        ;(synth as any).__dms_synthetic = true
-                        bgRef.current.firstElementChild.dispatchEvent(synth)
-                    } catch (_) {}
-                }
             }
 
             startLoop()
@@ -1563,10 +1514,8 @@ export default function DepthMotionStack(props: Props) {
 
     const fillStyle = (
         <style>{`
-.${fillClass} > * { width: 100% !important; height: 100% !important; }
-.${fillClass} * { pointer-events: auto; }
-.${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; }
-.${bgFillClass} * { pointer-events: auto; }
+.${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
+.${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
         `}</style>
     )
 
