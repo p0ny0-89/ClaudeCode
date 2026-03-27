@@ -615,23 +615,12 @@ export default function DepthMotionStack(props: Props) {
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
     // ── Responsive source: breakpoint detection ──────────────
-    // Uses window.innerWidth to detect the current breakpoint.
-    // Canvas always shows the desktop/primary source (Framer's canvas
-    // renders all breakpoints simultaneously, so viewport width is not
-    // meaningful there). Live preview correctly switches sources.
-    const [breakpoint, setBreakpoint] = useState<Breakpoint>(() =>
-        isCanvas ? "desktop" : getViewportBreakpoint()
-    )
-
-    useEffect(() => {
-        if (isCanvas) return
-        const onResize = () => {
-            const bp = getViewportBreakpoint()
-            setBreakpoint(prev => prev !== bp ? bp : prev)
-        }
-        window.addEventListener("resize", onResize)
-        return () => window.removeEventListener("resize", onResize)
-    }, [isCanvas])
+    // Computed synchronously at render time — no state, no effects.
+    // Framer already re-renders the component when the viewport changes
+    // (responsive layout). Using state here would trigger an extra re-render
+    // that causes Framer to recreate slot children, breaking interactive
+    // components like cursor-tracking video overlays.
+    const breakpoint: Breakpoint = isCanvas ? "desktop" : getViewportBreakpoint()
 
     // Resolve per-layer sources based on breakpoint
     const resolvedContent = resolveSource(content, contentResponsive, contentDesktop, contentTablet, contentMobile, breakpoint)
