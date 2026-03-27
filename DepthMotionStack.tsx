@@ -67,15 +67,43 @@ interface Props {
     mid6Blend: BlendMode
     mid7Blend: BlendMode
     // Per-layer advanced settings (collapsible ControlType.Object sections)
-    contentAdvanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
-    mid1Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
-    mid2Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
-    mid3Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
-    mid4Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
-    mid5Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
-    mid6Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
-    mid7Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
-    bgAdvanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted" }
+    contentAdvanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted"; responsiveSource: boolean }
+    mid1Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted"; responsiveSource: boolean }
+    mid2Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted"; responsiveSource: boolean }
+    mid3Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted"; responsiveSource: boolean }
+    mid4Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted"; responsiveSource: boolean }
+    mid5Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted"; responsiveSource: boolean }
+    mid6Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted"; responsiveSource: boolean }
+    mid7Advanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted"; responsiveSource: boolean }
+    bgAdvanced: { opacityIdle: number; opacityActive: number; scale: number; direction: "default" | "inverted"; responsiveSource: boolean }
+    // Per-layer responsive source inputs
+    contentDesktop: React.ReactNode
+    contentTablet: React.ReactNode
+    contentMobile: React.ReactNode
+    mid1Desktop: React.ReactNode
+    mid1Tablet: React.ReactNode
+    mid1Mobile: React.ReactNode
+    mid2Desktop: React.ReactNode
+    mid2Tablet: React.ReactNode
+    mid2Mobile: React.ReactNode
+    mid3Desktop: React.ReactNode
+    mid3Tablet: React.ReactNode
+    mid3Mobile: React.ReactNode
+    mid4Desktop: React.ReactNode
+    mid4Tablet: React.ReactNode
+    mid4Mobile: React.ReactNode
+    mid5Desktop: React.ReactNode
+    mid5Tablet: React.ReactNode
+    mid5Mobile: React.ReactNode
+    mid6Desktop: React.ReactNode
+    mid6Tablet: React.ReactNode
+    mid6Mobile: React.ReactNode
+    mid7Desktop: React.ReactNode
+    mid7Tablet: React.ReactNode
+    mid7Mobile: React.ReactNode
+    bgDesktop: React.ReactNode
+    bgTablet: React.ReactNode
+    bgMobile: React.ReactNode
     clipToForeground: boolean
     clipRadius: number
     alphaMask: string
@@ -100,6 +128,38 @@ function lerp(a: number, b: number, t: number): number {
 
 function clamp(v: number, lo: number, hi: number): number {
     return Math.min(Math.max(v, lo), hi)
+}
+
+// ── Responsive source: breakpoint detection ──────────────
+// Detects viewport width to select per-layer source variants.
+// Desktop >= 810px, Tablet 390-809px, Mobile < 390px.
+// Falls back to primary source when responsive is off or
+// breakpoint-specific source is not connected.
+
+type Breakpoint = "desktop" | "tablet" | "mobile"
+
+function getBreakpoint(): Breakpoint {
+    if (typeof window === "undefined") return "desktop"
+    const w = window.innerWidth
+    if (w < 390) return "mobile"
+    if (w < 810) return "tablet"
+    return "desktop"
+}
+
+// Resolve responsive source: use breakpoint-specific source if available, fall back to primary
+function resolveSource(
+    primary: React.ReactNode,
+    responsive: boolean,
+    desktop: React.ReactNode,
+    tablet: React.ReactNode,
+    mobile: React.ReactNode,
+    bp: Breakpoint
+): React.ReactNode {
+    if (!responsive) return primary
+    if (bp === "mobile" && mobile) return mobile
+    if (bp === "tablet" && tablet) return tablet
+    if (bp === "desktop" && desktop) return desktop
+    return primary // fallback to primary if breakpoint source is empty
 }
 
 /**
@@ -232,15 +292,43 @@ export default function DepthMotionStack(props: Props) {
         mid5Blend = "normal" as BlendMode,
         mid6Blend = "normal" as BlendMode,
         mid7Blend = "normal" as BlendMode,
-        contentAdvanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
-        mid1Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
-        mid2Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
-        mid3Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
-        mid4Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
-        mid5Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
-        mid6Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
-        mid7Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
-        bgAdvanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const },
+        contentAdvanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const, responsiveSource: false },
+        mid1Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const, responsiveSource: false },
+        mid2Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const, responsiveSource: false },
+        mid3Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const, responsiveSource: false },
+        mid4Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const, responsiveSource: false },
+        mid5Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const, responsiveSource: false },
+        mid6Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const, responsiveSource: false },
+        mid7Advanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const, responsiveSource: false },
+        bgAdvanced = { opacityIdle: 100, opacityActive: 100, scale: 100, direction: "default" as const, responsiveSource: false },
+        // Per-layer responsive source inputs
+        contentDesktop = null,
+        contentTablet = null,
+        contentMobile = null,
+        mid1Desktop = null,
+        mid1Tablet = null,
+        mid1Mobile = null,
+        mid2Desktop = null,
+        mid2Tablet = null,
+        mid2Mobile = null,
+        mid3Desktop = null,
+        mid3Tablet = null,
+        mid3Mobile = null,
+        mid4Desktop = null,
+        mid4Tablet = null,
+        mid4Mobile = null,
+        mid5Desktop = null,
+        mid5Tablet = null,
+        mid5Mobile = null,
+        mid6Desktop = null,
+        mid6Tablet = null,
+        mid6Mobile = null,
+        mid7Desktop = null,
+        mid7Tablet = null,
+        mid7Mobile = null,
+        bgDesktop = null,
+        bgTablet = null,
+        bgMobile = null,
         clipToForeground = false,
         clipRadius = 0,
         alphaMask,
@@ -289,6 +377,17 @@ export default function DepthMotionStack(props: Props) {
     const bgOpacityHover = bgAdvanced.opacityActive
     const bgScale = bgAdvanced.scale
     const bgDirection = bgAdvanced.direction
+
+    // Extract responsive source booleans from Advanced objects
+    const contentResponsive = contentAdvanced.responsiveSource
+    const mid1Responsive = mid1Advanced.responsiveSource
+    const mid2Responsive = mid2Advanced.responsiveSource
+    const mid3Responsive = mid3Advanced.responsiveSource
+    const mid4Responsive = mid4Advanced.responsiveSource
+    const mid5Responsive = mid5Advanced.responsiveSource
+    const mid6Responsive = mid6Advanced.responsiveSource
+    const mid7Responsive = mid7Advanced.responsiveSource
+    const bgResponsive = bgAdvanced.responsiveSource
 
     // Build ordered arrays from individual layer props
     const midLayersArr = [mid1, mid2, mid3, mid4, mid5, mid6, mid7].slice(0, layerCount)
@@ -488,6 +587,33 @@ export default function DepthMotionStack(props: Props) {
     bgScaleRef.current = clipToForeground && parallax ? 1 : 0
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
+
+    // ── Responsive source: breakpoint state ──────────────
+    const [breakpoint, setBreakpoint] = useState<Breakpoint>(() =>
+        isCanvas ? "desktop" : getBreakpoint()
+    )
+
+    useEffect(() => {
+        if (isCanvas) return
+        const onResize = () => {
+            const bp = getBreakpoint()
+            setBreakpoint(prev => prev !== bp ? bp : prev)
+        }
+        window.addEventListener("resize", onResize)
+        return () => window.removeEventListener("resize", onResize)
+    }, [isCanvas])
+
+    // Resolve per-layer sources based on breakpoint
+    const resolvedContent = resolveSource(content, contentResponsive, contentDesktop, contentTablet, contentMobile, breakpoint)
+    const resolvedMid1 = resolveSource(mid1, mid1Responsive, mid1Desktop, mid1Tablet, mid1Mobile, breakpoint)
+    const resolvedMid2 = resolveSource(mid2, mid2Responsive, mid2Desktop, mid2Tablet, mid2Mobile, breakpoint)
+    const resolvedMid3 = resolveSource(mid3, mid3Responsive, mid3Desktop, mid3Tablet, mid3Mobile, breakpoint)
+    const resolvedMid4 = resolveSource(mid4, mid4Responsive, mid4Desktop, mid4Tablet, mid4Mobile, breakpoint)
+    const resolvedMid5 = resolveSource(mid5, mid5Responsive, mid5Desktop, mid5Tablet, mid5Mobile, breakpoint)
+    const resolvedMid6 = resolveSource(mid6, mid6Responsive, mid6Desktop, mid6Tablet, mid6Mobile, breakpoint)
+    const resolvedMid7 = resolveSource(mid7, mid7Responsive, mid7Desktop, mid7Tablet, mid7Mobile, breakpoint)
+    const resolvedBg = resolveSource(background, bgResponsive, bgDesktop, bgTablet, bgMobile, breakpoint)
+    const resolvedMidLayersArr = [resolvedMid1, resolvedMid2, resolvedMid3, resolvedMid4, resolvedMid5, resolvedMid6, resolvedMid7].slice(0, layerCount)
 
     // ── Render Loop ─────────────────────────────────────
 
@@ -1338,7 +1464,7 @@ export default function DepthMotionStack(props: Props) {
 
     // ── Empty State ─────────────────────────────────────
 
-    if (!content) {
+    if (!resolvedContent) {
         return (
             <div
                 style={{
@@ -1465,7 +1591,7 @@ export default function DepthMotionStack(props: Props) {
                         ...(touchActive ? { pointerEvents: "none" as const } : {}),
                     }}
                 >
-                    {content}
+                    {resolvedContent}
                 </div>
             </div>
         )
@@ -1535,7 +1661,7 @@ export default function DepthMotionStack(props: Props) {
                         }}
                     >
                         {/* Background — scaled up by tick loop to cover parallax travel */}
-                        {background && (
+                        {resolvedBg && (
                             <div
                                 ref={bgRef}
                                 className={fillClass}
@@ -1549,12 +1675,12 @@ export default function DepthMotionStack(props: Props) {
                                     transform: bgScaleVal !== 1 ? `scale(${bgScaleVal})` : undefined,
                                 }}
                             >
-                                {background}
+                                {resolvedBg}
                             </div>
                         )}
 
                         {/* Mid layers — behind fg content */}
-                        {midLayersArr.map((mid, i) => {
+                        {resolvedMidLayersArr.map((mid, i) => {
                             if (!mid) return null
                             const midOp = midInitialOpacities[i]
                             const midS = (midScalesArr[i] || 100) / 100
@@ -1590,7 +1716,7 @@ export default function DepthMotionStack(props: Props) {
                             mixBlendMode: (contentBlend !== "normal" ? contentBlend : undefined) as any,
                             transform: fgScaleVal !== 1 ? `scale(${fgScaleVal})` : undefined,
                         }}>
-                            {content}
+                            {resolvedContent}
                         </div>
 
                     </div>
@@ -1626,7 +1752,7 @@ export default function DepthMotionStack(props: Props) {
                 }}
             >
                 {/* Background */}
-                {background && (
+                {resolvedBg && (
                     <div
                         ref={bgRef}
                         className={bgClass}
@@ -1637,14 +1763,14 @@ export default function DepthMotionStack(props: Props) {
                             transform: bgScaleVal !== 1 ? `scale(${bgScaleVal})` : undefined,
                         }}
                     >
-                        {background}
+                        {resolvedBg}
                     </div>
                 )}
 
                 {/* Mid layers — reversed DOM order so Layer 1 (closest to fg)
                      is last in DOM = painted on top. Refs use original index
                      so parallax depth assignments stay correct. */}
-                {[...midLayersArr].reverse().map((mid, ri) => {
+                {[...resolvedMidLayersArr].reverse().map((mid, ri) => {
                     const i = layerCount - 1 - ri
                     if (!mid) return null
                     const midOp = midInitialOpacities[i]
@@ -1679,7 +1805,7 @@ export default function DepthMotionStack(props: Props) {
                         transform: fgScaleVal !== 1 ? `scale(${fgScaleVal})` : undefined,
                     }}
                 >
-                    {content}
+                    {resolvedContent}
                 </div>
             </div>
         </div>
@@ -1742,8 +1868,24 @@ addPropertyControls(DepthMotionStack, {
             opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
             scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
             direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+            responsiveSource: { type: ControlType.Boolean, title: "Responsive Source", defaultValue: false, enabledTitle: "On", disabledTitle: "Off" },
         },
         hidden: (props: any) => !props.parallax,
+    },
+    contentDesktop: {
+        type: ControlType.ComponentInstance,
+        title: "FG Desktop",
+        hidden: (props: any) => !props.parallax || !props.contentAdvanced?.responsiveSource,
+    },
+    contentTablet: {
+        type: ControlType.ComponentInstance,
+        title: "FG Tablet",
+        hidden: (props: any) => !props.parallax || !props.contentAdvanced?.responsiveSource,
+    },
+    contentMobile: {
+        type: ControlType.ComponentInstance,
+        title: "FG Mobile",
+        hidden: (props: any) => !props.parallax || !props.contentAdvanced?.responsiveSource,
     },
 
     // ── Tilt ─────────────────────────────────────────────
@@ -1896,8 +2038,24 @@ addPropertyControls(DepthMotionStack, {
             opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
             scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
             direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+            responsiveSource: { type: ControlType.Boolean, title: "Responsive Source", defaultValue: false, enabledTitle: "On", disabledTitle: "Off" },
         },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1,
+    },
+    mid1Desktop: {
+        type: ControlType.ComponentInstance,
+        title: "L1 Desktop",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1 || !props.mid1Advanced?.responsiveSource,
+    },
+    mid1Tablet: {
+        type: ControlType.ComponentInstance,
+        title: "L1 Tablet",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1 || !props.mid1Advanced?.responsiveSource,
+    },
+    mid1Mobile: {
+        type: ControlType.ComponentInstance,
+        title: "L1 Mobile",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 1 || !props.mid1Advanced?.responsiveSource,
     },
 
     mid2: {
@@ -1921,8 +2079,24 @@ addPropertyControls(DepthMotionStack, {
             opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
             scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
             direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+            responsiveSource: { type: ControlType.Boolean, title: "Responsive Source", defaultValue: false, enabledTitle: "On", disabledTitle: "Off" },
         },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2,
+    },
+    mid2Desktop: {
+        type: ControlType.ComponentInstance,
+        title: "L2 Desktop",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2 || !props.mid2Advanced?.responsiveSource,
+    },
+    mid2Tablet: {
+        type: ControlType.ComponentInstance,
+        title: "L2 Tablet",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2 || !props.mid2Advanced?.responsiveSource,
+    },
+    mid2Mobile: {
+        type: ControlType.ComponentInstance,
+        title: "L2 Mobile",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 2 || !props.mid2Advanced?.responsiveSource,
     },
 
     mid3: {
@@ -1946,8 +2120,24 @@ addPropertyControls(DepthMotionStack, {
             opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
             scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
             direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+            responsiveSource: { type: ControlType.Boolean, title: "Responsive Source", defaultValue: false, enabledTitle: "On", disabledTitle: "Off" },
         },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3,
+    },
+    mid3Desktop: {
+        type: ControlType.ComponentInstance,
+        title: "L3 Desktop",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3 || !props.mid3Advanced?.responsiveSource,
+    },
+    mid3Tablet: {
+        type: ControlType.ComponentInstance,
+        title: "L3 Tablet",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3 || !props.mid3Advanced?.responsiveSource,
+    },
+    mid3Mobile: {
+        type: ControlType.ComponentInstance,
+        title: "L3 Mobile",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 3 || !props.mid3Advanced?.responsiveSource,
     },
 
     mid4: {
@@ -1971,8 +2161,24 @@ addPropertyControls(DepthMotionStack, {
             opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
             scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
             direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+            responsiveSource: { type: ControlType.Boolean, title: "Responsive Source", defaultValue: false, enabledTitle: "On", disabledTitle: "Off" },
         },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4,
+    },
+    mid4Desktop: {
+        type: ControlType.ComponentInstance,
+        title: "L4 Desktop",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4 || !props.mid4Advanced?.responsiveSource,
+    },
+    mid4Tablet: {
+        type: ControlType.ComponentInstance,
+        title: "L4 Tablet",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4 || !props.mid4Advanced?.responsiveSource,
+    },
+    mid4Mobile: {
+        type: ControlType.ComponentInstance,
+        title: "L4 Mobile",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 4 || !props.mid4Advanced?.responsiveSource,
     },
 
     mid5: {
@@ -1996,8 +2202,24 @@ addPropertyControls(DepthMotionStack, {
             opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
             scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
             direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+            responsiveSource: { type: ControlType.Boolean, title: "Responsive Source", defaultValue: false, enabledTitle: "On", disabledTitle: "Off" },
         },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5,
+    },
+    mid5Desktop: {
+        type: ControlType.ComponentInstance,
+        title: "L5 Desktop",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5 || !props.mid5Advanced?.responsiveSource,
+    },
+    mid5Tablet: {
+        type: ControlType.ComponentInstance,
+        title: "L5 Tablet",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5 || !props.mid5Advanced?.responsiveSource,
+    },
+    mid5Mobile: {
+        type: ControlType.ComponentInstance,
+        title: "L5 Mobile",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 5 || !props.mid5Advanced?.responsiveSource,
     },
 
     mid6: {
@@ -2021,8 +2243,24 @@ addPropertyControls(DepthMotionStack, {
             opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
             scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
             direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+            responsiveSource: { type: ControlType.Boolean, title: "Responsive Source", defaultValue: false, enabledTitle: "On", disabledTitle: "Off" },
         },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6,
+    },
+    mid6Desktop: {
+        type: ControlType.ComponentInstance,
+        title: "L6 Desktop",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6 || !props.mid6Advanced?.responsiveSource,
+    },
+    mid6Tablet: {
+        type: ControlType.ComponentInstance,
+        title: "L6 Tablet",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6 || !props.mid6Advanced?.responsiveSource,
+    },
+    mid6Mobile: {
+        type: ControlType.ComponentInstance,
+        title: "L6 Mobile",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 6 || !props.mid6Advanced?.responsiveSource,
     },
 
     mid7: {
@@ -2046,8 +2284,24 @@ addPropertyControls(DepthMotionStack, {
             opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
             scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
             direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+            responsiveSource: { type: ControlType.Boolean, title: "Responsive Source", defaultValue: false, enabledTitle: "On", disabledTitle: "Off" },
         },
         hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7,
+    },
+    mid7Desktop: {
+        type: ControlType.ComponentInstance,
+        title: "L7 Desktop",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7 || !props.mid7Advanced?.responsiveSource,
+    },
+    mid7Tablet: {
+        type: ControlType.ComponentInstance,
+        title: "L7 Tablet",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7 || !props.mid7Advanced?.responsiveSource,
+    },
+    mid7Mobile: {
+        type: ControlType.ComponentInstance,
+        title: "L7 Mobile",
+        hidden: (props: any) => !props.parallax || (props.layers ?? 0) < 7 || !props.mid7Advanced?.responsiveSource,
     },
 
     // Background — deepest layer
@@ -2064,8 +2318,24 @@ addPropertyControls(DepthMotionStack, {
             opacityActive: { type: ControlType.Number, title: "Active Opacity", defaultValue: 100, min: 0, max: 100, step: 1, unit: "%" },
             scale: { type: ControlType.Number, title: "Scale", defaultValue: 100, min: 50, max: 300, step: 1, unit: "%" },
             direction: { type: ControlType.Enum, title: "Layer Direction", options: ["default", "inverted"], optionTitles: ["Default", "Inverted"], defaultValue: "default" },
+            responsiveSource: { type: ControlType.Boolean, title: "Responsive Source", defaultValue: false, enabledTitle: "On", disabledTitle: "Off" },
         },
         hidden: (props: any) => !props.parallax,
+    },
+    bgDesktop: {
+        type: ControlType.ComponentInstance,
+        title: "BG Desktop",
+        hidden: (props: any) => !props.parallax || !props.bgAdvanced?.responsiveSource,
+    },
+    bgTablet: {
+        type: ControlType.ComponentInstance,
+        title: "BG Tablet",
+        hidden: (props: any) => !props.parallax || !props.bgAdvanced?.responsiveSource,
+    },
+    bgMobile: {
+        type: ControlType.ComponentInstance,
+        title: "BG Mobile",
+        hidden: (props: any) => !props.parallax || !props.bgAdvanced?.responsiveSource,
     },
 
     hoverStagger: {
