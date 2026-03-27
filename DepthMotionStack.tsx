@@ -615,31 +615,23 @@ export default function DepthMotionStack(props: Props) {
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
     // ── Responsive source: breakpoint detection ──────────────
-    // Primary: measure the component's own width via ResizeObserver (works
-    // on both canvas and live preview). Falls back to window.innerWidth.
-    const [breakpoint, setBreakpoint] = useState<Breakpoint>(getViewportBreakpoint)
+    // Uses window.innerWidth to detect the current breakpoint.
+    // Canvas always shows the desktop/primary source (Framer's canvas
+    // renders all breakpoints simultaneously, so viewport width is not
+    // meaningful there). Live preview correctly switches sources.
+    const [breakpoint, setBreakpoint] = useState<Breakpoint>(() =>
+        isCanvas ? "desktop" : getViewportBreakpoint()
+    )
 
     useEffect(() => {
-        // Use window resize for live preview breakpoint detection.
-        // This avoids ResizeObserver conflicts with interactive slot children.
+        if (isCanvas) return
         const onResize = () => {
             const bp = getViewportBreakpoint()
             setBreakpoint(prev => prev !== bp ? bp : prev)
         }
         window.addEventListener("resize", onResize)
-
-        // For canvas: measure container width once after mount
-        const el = containerRef.current
-        if (el) {
-            const w = el.getBoundingClientRect().width
-            if (w > 0) {
-                const bp = getBreakpointFromWidth(w)
-                setBreakpoint(prev => prev !== bp ? bp : prev)
-            }
-        }
-
         return () => window.removeEventListener("resize", onResize)
-    }, [])
+    }, [isCanvas])
 
     // Resolve per-layer sources based on breakpoint
     const resolvedContent = resolveSource(content, contentResponsive, contentDesktop, contentTablet, contentMobile, breakpoint)
