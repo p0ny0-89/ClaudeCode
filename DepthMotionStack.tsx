@@ -1514,8 +1514,10 @@ export default function DepthMotionStack(props: Props) {
 
     const fillStyle = (
         <style>{`
-.${fillClass} > * { width: 100% !important; height: 100% !important; pointer-events: auto; }
-.${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; pointer-events: auto; }
+.${fillClass} > * { width: 100% !important; height: 100% !important; }
+.${fillClass} * { pointer-events: auto; }
+.${bgFillClass} > * { min-width: 100% !important; min-height: 100% !important; }
+.${bgFillClass} * { pointer-events: auto; }
         `}</style>
     )
 
