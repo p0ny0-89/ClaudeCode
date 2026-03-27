@@ -147,6 +147,14 @@ function getBreakpoint(): Breakpoint {
 }
 
 // Resolve responsive source: use breakpoint-specific source if available, fall back to primary
+// Check if a Framer ComponentInstance slot has content.
+// Unconnected slots may be null, undefined, or an empty array [].
+function hasSlotContent(node: React.ReactNode): boolean {
+    if (node == null) return false
+    if (Array.isArray(node) && node.length === 0) return false
+    return true
+}
+
 function resolveSource(
     primary: React.ReactNode,
     responsive: boolean,
@@ -158,9 +166,21 @@ function resolveSource(
     if (!responsive) return primary
     // Cascade: mobile → tablet → desktop → primary
     // Each breakpoint falls back to the next larger if its slot is empty.
-    if (bp === "mobile") return mobile || tablet || desktop || primary
-    if (bp === "tablet") return tablet || desktop || primary
-    if (bp === "desktop") return desktop || primary
+    if (bp === "mobile") {
+        if (hasSlotContent(mobile)) return mobile
+        if (hasSlotContent(tablet)) return tablet
+        if (hasSlotContent(desktop)) return desktop
+        return primary
+    }
+    if (bp === "tablet") {
+        if (hasSlotContent(tablet)) return tablet
+        if (hasSlotContent(desktop)) return desktop
+        return primary
+    }
+    if (bp === "desktop") {
+        if (hasSlotContent(desktop)) return desktop
+        return primary
+    }
     return primary
 }
 
