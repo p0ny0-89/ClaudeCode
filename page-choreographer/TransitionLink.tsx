@@ -88,10 +88,6 @@ export default function TransitionLink(props: any) {
 TransitionLink.displayName = "Transition Link"
 
 addPropertyControls(TransitionLink, {
-    children: {
-        type: ControlType.ComponentInstance,
-        title: "Content",
-    },
     href: {
         type: ControlType.String,
         title: "Link",

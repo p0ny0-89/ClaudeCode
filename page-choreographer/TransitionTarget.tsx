@@ -110,10 +110,6 @@ export default function TransitionTarget(props: any) {
 TransitionTarget.displayName = "Transition Target"
 
 addPropertyControls(TransitionTarget, {
-    children: {
-        type: ControlType.ComponentInstance,
-        title: "Content",
-    },
     group: {
         type: ControlType.String,
         title: "Group",
