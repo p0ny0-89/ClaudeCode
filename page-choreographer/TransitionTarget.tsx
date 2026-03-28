@@ -1,17 +1,26 @@
 import * as React from "react"
 import { addPropertyControls, ControlType } from "framer"
-import { choreographerStore } from "./choreographer_store"
-import { resolveEnterPreset } from "./choreographer_presets"
 
-// ─── Stable ID counter (avoids React.useId which needs React 18+) ───────────
+// ─── Access shared store from window (created by PageChoreographer) ──────────
 
-let idCounter = 0
+const STORE_KEY = "__pageChoreographerStore"
 
-function useStableId(): string {
-    const ref = React.useRef("")
+function getStore(): any {
+    if (typeof window !== "undefined" && (window as any)[STORE_KEY]) {
+        return (window as any)[STORE_KEY]
+    }
+    return null
+}
+
+// ─── Stable ID counter ──────────────────────────────────────────────────────
+
+var idCounter = 0
+
+function useStableId() {
+    var ref = React.useRef("")
     if (ref.current === "") {
         idCounter += 1
-        ref.current = "choreographer-target-" + idCounter
+        ref.current = "target-" + idCounter
     }
     return ref.current
 }
@@ -19,7 +28,7 @@ function useStableId(): string {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function TransitionTarget(props: any) {
-    const {
+    var {
         children,
         group = "default",
         enterPreset = "fadeUp",
@@ -33,12 +42,15 @@ export default function TransitionTarget(props: any) {
         style,
     } = props
 
-    const ref = React.useRef<HTMLDivElement>(null)
-    const id = useStableId()
+    var ref = React.useRef<HTMLDivElement>(null)
+    var id = useStableId()
 
     // Register with store
     React.useEffect(function () {
-        choreographerStore.registerTarget({
+        var store = getStore()
+        if (!store) return
+
+        store.registerTarget({
             id: id,
             ref: ref,
             group: group,
@@ -53,7 +65,8 @@ export default function TransitionTarget(props: any) {
         })
 
         return function () {
-            choreographerStore.unregisterTarget(id)
+            var s = getStore()
+            if (s) s.unregisterTarget(id)
         }
     }, [
         id, group, enterPreset, exitPreset,
@@ -65,13 +78,16 @@ export default function TransitionTarget(props: any) {
     React.useEffect(function () {
         if (!enterEnabled || !ref.current) return
 
-        var el = ref.current
-        var config = choreographerStore.getConfig()
-        var preset = resolveEnterPreset(enterPreset, config)
+        var store = getStore()
+        if (!store) return
 
-        for (var key in preset.from) {
-            if (preset.from.hasOwnProperty(key)) {
-                ;(el.style as any)[key] = preset.from[key]
+        var cfg = store.getConfig()
+        var kf = store.getEnterKeyframes(enterPreset, cfg)
+
+        var el = ref.current
+        for (var k in kf.from) {
+            if (kf.from.hasOwnProperty(k)) {
+                ;(el.style as any)[k] = kf.from[k]
             }
         }
     }, [enterEnabled, enterPreset])
@@ -92,8 +108,6 @@ export default function TransitionTarget(props: any) {
 }
 
 TransitionTarget.displayName = "Transition Target"
-
-// ─── Property Controls ───────────────────────────────────────────────────────
 
 addPropertyControls(TransitionTarget, {
     children: {

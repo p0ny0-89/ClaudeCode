@@ -1,11 +1,21 @@
 import * as React from "react"
 import { addPropertyControls, ControlType } from "framer"
-import { choreographerStore } from "./choreographer_store"
+
+// ─── Access shared store from window (created by PageChoreographer) ──────────
+
+const STORE_KEY = "__pageChoreographerStore"
+
+function getStore(): any {
+    if (typeof window !== "undefined" && (window as any)[STORE_KEY]) {
+        return (window as any)[STORE_KEY]
+    }
+    return null
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function TransitionLink(props: any) {
-    const {
+    var {
         children,
         href = "/",
         openInNewTab = false,
@@ -13,10 +23,10 @@ export default function TransitionLink(props: any) {
         style,
     } = props
 
-    const isNavigating = React.useRef(false)
-    const [busy, setBusy] = React.useState(false)
+    var isNavigating = React.useRef(false)
+    var [busy, setBusy] = React.useState(false)
 
-    const handleClick = React.useCallback(
+    var handleClick = React.useCallback(
         function (e: any) {
             if (openInNewTab) {
                 window.open(href, "_blank", "noopener")
@@ -29,15 +39,17 @@ export default function TransitionLink(props: any) {
             isNavigating.current = true
             setBusy(true)
 
-            // If no targets registered, navigate immediately
-            if (choreographerStore.getTargetCount() === 0) {
+            var store = getStore()
+
+            // No store or no targets — navigate immediately
+            if (!store || store.getTargetCount() === 0) {
                 window.location.href = href
                 return
             }
 
             // Race exit vs safety timeout
             Promise.race([
-                choreographerStore.playExit(),
+                store.playExit(),
                 new Promise(function (resolve) {
                     setTimeout(resolve, exitTimeout * 1000)
                 }),
@@ -74,8 +86,6 @@ export default function TransitionLink(props: any) {
 }
 
 TransitionLink.displayName = "Transition Link"
-
-// ─── Property Controls ───────────────────────────────────────────────────────
 
 addPropertyControls(TransitionLink, {
     children: {

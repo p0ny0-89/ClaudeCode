@@ -1,6 +1,350 @@
 import * as React from "react"
 import { addPropertyControls, ControlType } from "framer"
-import { choreographerStore } from "./choreographer_store"
+
+// ─── Store (shared via window global) ────────────────────────────────────────
+
+const STORE_KEY = "__pageChoreographerStore"
+
+interface TargetEntry {
+    id: string
+    ref: { current: HTMLDivElement | null }
+    group: string
+    enterPreset: string
+    exitPreset: string
+    enterEnabled: boolean
+    exitEnabled: boolean
+    sortPriority: number
+    delayOffset: number
+    mobileEnabled: boolean
+    visibilityThreshold: number
+}
+
+interface StoreConfig {
+    duration: number
+    stagger: number
+    easing: number[]
+    staggerDirection: string
+    onlyAnimateInView: boolean
+    lockInteractionsDuringExit: boolean
+    distance: number
+    blurAmount: number
+    scaleFrom: number
+    respectReducedMotion: boolean
+}
+
+function easingToCss(e: number[]): string {
+    return "cubic-bezier(" + e[0] + "," + e[1] + "," + e[2] + "," + e[3] + ")"
+}
+
+function getEnterKeyframes(preset: string, cfg: StoreConfig) {
+    var d = cfg.distance
+    switch (preset) {
+        case "maskRevealX":
+            return {
+                from: { clipPath: "inset(0 100% 0 0)" },
+                to: { clipPath: "inset(0 0% 0 0)" },
+            }
+        case "maskRevealY":
+            return {
+                from: { clipPath: "inset(100% 0 0 0)" },
+                to: { clipPath: "inset(0% 0 0 0)" },
+            }
+        case "fadeUp":
+        default:
+            return {
+                from: { opacity: "0", transform: "translateY(" + d + "px)" },
+                to: { opacity: "1", transform: "translateY(0px)" },
+            }
+    }
+}
+
+function getExitKeyframes(preset: string, cfg: StoreConfig) {
+    switch (preset) {
+        case "blurLift":
+            return {
+                from: { opacity: "1", transform: "translateY(0px)", filter: "blur(0px)" },
+                to: {
+                    opacity: "0",
+                    transform: "translateY(" + -(cfg.distance * 0.5) + "px)",
+                    filter: "blur(" + cfg.blurAmount + "px)",
+                },
+            }
+        case "scaleFadeGrid":
+            return {
+                from: { opacity: "1", transform: "scale(1)" },
+                to: { opacity: "0", transform: "scale(" + cfg.scaleFrom + ")" },
+            }
+        case "riseWave":
+        default:
+            return {
+                from: { opacity: "1", transform: "translateY(0px)" },
+                to: { opacity: "0", transform: "translateY(" + -cfg.distance + "px)" },
+            }
+    }
+}
+
+function createStore() {
+    var targets: Record<string, TargetEntry> = {}
+    var config: StoreConfig = {
+        duration: 0.6,
+        stagger: 0.06,
+        easing: [0.4, 0, 0.2, 1],
+        staggerDirection: "leftToRight",
+        onlyAnimateInView: true,
+        lockInteractionsDuringExit: true,
+        distance: 40,
+        blurAmount: 8,
+        scaleFrom: 0.92,
+        respectReducedMotion: true,
+    }
+    var activeAnims: Animation[] = []
+    var phase = "idle"
+    var overlay: HTMLDivElement | null = null
+
+    function registerTarget(t: TargetEntry) {
+        targets[t.id] = t
+    }
+
+    function unregisterTarget(id: string) {
+        delete targets[id]
+    }
+
+    function getTargetCount() {
+        return Object.keys(targets).length
+    }
+
+    function updateConfig(c: Partial<StoreConfig>) {
+        for (var k in c) {
+            if (c.hasOwnProperty(k)) {
+                ;(config as any)[k] = (c as any)[k]
+            }
+        }
+    }
+
+    function getConfig() {
+        var copy: any = {}
+        for (var k in config) {
+            if (config.hasOwnProperty(k)) copy[k] = (config as any)[k]
+        }
+        return copy as StoreConfig
+    }
+
+    function getVisibleTargets() {
+        var vh = window.innerHeight
+        var vw = window.innerWidth
+        var result: TargetEntry[] = []
+        for (var id in targets) {
+            var t = targets[id]
+            var el = t.ref.current
+            if (!el) continue
+            var r = el.getBoundingClientRect()
+            var visH = Math.min(r.bottom, vh) - Math.max(r.top, 0)
+            var visW = Math.min(r.right, vw) - Math.max(r.left, 0)
+            if (visH <= 0 || visW <= 0) continue
+            var area = r.width * r.height
+            if (area === 0) continue
+            if ((visH * visW) / area >= t.visibilityThreshold) {
+                result.push(t)
+            }
+        }
+        return result
+    }
+
+    function sortTargets(list: TargetEntry[], direction: string) {
+        var sorted = list.slice()
+        sorted.sort(function (a, b) {
+            if (a.sortPriority !== b.sortPriority) return a.sortPriority - b.sortPriority
+            var elA = a.ref.current
+            var elB = b.ref.current
+            if (!elA || !elB) return 0
+            var rA = elA.getBoundingClientRect()
+            var rB = elB.getBoundingClientRect()
+            var cxA = rA.left + rA.width / 2
+            var cyA = rA.top + rA.height / 2
+            var cxB = rB.left + rB.width / 2
+            var cyB = rB.top + rB.height / 2
+            switch (direction) {
+                case "rightToLeft": return cxB - cxA
+                case "topToBottom": return cyA - cyB
+                case "bottomToTop": return cyB - cyA
+                case "rowMajor": {
+                    var rowA = Math.round(rA.top / 80)
+                    var rowB = Math.round(rB.top / 80)
+                    if (rowA !== rowB) return rowA - rowB
+                    return cxA - cxB
+                }
+                case "columnMajor": {
+                    var colA = Math.round(rA.left / 200)
+                    var colB = Math.round(rB.left / 200)
+                    if (colA !== colB) return colA - colB
+                    return cyA - cyB
+                }
+                case "leftToRight":
+                default: return cxA - cxB
+            }
+        })
+        return sorted
+    }
+
+    function cancelActive() {
+        for (var i = 0; i < activeAnims.length; i++) {
+            try { activeAnims[i].cancel() } catch (e) {}
+        }
+        activeAnims = []
+    }
+
+    function lockInteractions() {
+        if (overlay) return
+        overlay = document.createElement("div")
+        overlay.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;cursor:wait;"
+        document.body.appendChild(overlay)
+    }
+
+    function unlockInteractions() {
+        if (overlay) {
+            overlay.remove()
+            overlay = null
+        }
+    }
+
+    function playEnter() {
+        if (phase === "entering") return Promise.resolve()
+        cancelActive()
+        phase = "entering"
+
+        var reduced = config.respectReducedMotion &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        var mobile = window.innerWidth < 768
+
+        var eligible = config.onlyAnimateInView ? getVisibleTargets() : Object.values(targets)
+        eligible = eligible.filter(function (t) {
+            return t.enterEnabled && (t.mobileEnabled || !mobile) && t.ref.current
+        })
+
+        var sorted = sortTargets(eligible, config.staggerDirection)
+        var stagger = reduced ? 0 : config.stagger
+        var promises: Promise<any>[] = []
+
+        sorted.forEach(function (target, i) {
+            var el = target.ref.current
+            if (!el) return
+
+            var kf = reduced
+                ? { from: { opacity: "0" }, to: { opacity: "1" } }
+                : getEnterKeyframes(target.enterPreset, config)
+
+            var delay = stagger * i + target.delayOffset
+            var dur = reduced ? 10 : config.duration * 1000
+
+            // Set initial hidden state
+            for (var k in kf.from) {
+                ;(el.style as any)[k] = (kf.from as any)[k]
+            }
+
+            var anim = el.animate([kf.from, kf.to], {
+                duration: dur,
+                delay: delay * 1000,
+                easing: easingToCss(config.easing),
+                fill: "forwards",
+            })
+            activeAnims.push(anim)
+
+            promises.push(
+                anim.finished.then(function () {
+                    // Clear inline styles so Framer layout takes over
+                    for (var k in kf.to) {
+                        ;(el.style as any)[k] = ""
+                    }
+                })
+            )
+        })
+
+        return Promise.all(promises).then(function () {
+            activeAnims = []
+            phase = "idle"
+        })
+    }
+
+    function playExit() {
+        if (phase === "exiting") return Promise.resolve()
+        cancelActive()
+        phase = "exiting"
+
+        if (config.lockInteractionsDuringExit) lockInteractions()
+
+        var reduced = config.respectReducedMotion &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        var mobile = window.innerWidth < 768
+
+        var eligible = config.onlyAnimateInView ? getVisibleTargets() : Object.values(targets)
+        eligible = eligible.filter(function (t) {
+            return t.exitEnabled && (t.mobileEnabled || !mobile) && t.ref.current
+        })
+
+        var sorted = sortTargets(eligible, config.staggerDirection)
+        var stagger = reduced ? 0 : config.stagger
+        var promises: Promise<any>[] = []
+
+        sorted.forEach(function (target, i) {
+            var el = target.ref.current
+            if (!el) return
+
+            var kf = reduced
+                ? { from: { opacity: "1" }, to: { opacity: "0" } }
+                : getExitKeyframes(target.exitPreset, config)
+
+            var delay = stagger * i + target.delayOffset
+
+            var anim = el.animate([kf.from, kf.to], {
+                duration: reduced ? 10 : config.duration * 1000,
+                delay: delay * 1000,
+                easing: easingToCss(config.easing),
+                fill: "forwards",
+            })
+            activeAnims.push(anim)
+            promises.push(anim.finished)
+        })
+
+        return Promise.all(promises).then(function () {
+            activeAnims = []
+            unlockInteractions()
+            phase = "done"
+        })
+    }
+
+    function reset() {
+        cancelActive()
+        unlockInteractions()
+        targets = {}
+        phase = "idle"
+    }
+
+    return {
+        registerTarget: registerTarget,
+        unregisterTarget: unregisterTarget,
+        getTargetCount: getTargetCount,
+        updateConfig: updateConfig,
+        getConfig: getConfig,
+        getVisibleTargets: getVisibleTargets,
+        sortTargets: sortTargets,
+        playEnter: playEnter,
+        playExit: playExit,
+        cancelActive: cancelActive,
+        reset: reset,
+        getEnterKeyframes: getEnterKeyframes,
+        getExitKeyframes: getExitKeyframes,
+    }
+}
+
+function getStore() {
+    if (typeof window !== "undefined") {
+        if (!(window as any)[STORE_KEY]) {
+            ;(window as any)[STORE_KEY] = createStore()
+        }
+        return (window as any)[STORE_KEY]
+    }
+    return createStore()
+}
 
 // ─── Easing presets ──────────────────────────────────────────────────────────
 
@@ -15,7 +359,7 @@ const EASING_MAP: Record<string, number[]> = {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function PageChoreographer(props: any) {
-    const {
+    var {
         duration = 0.6,
         stagger = 0.06,
         easingPreset = "smooth",
@@ -31,16 +375,14 @@ export default function PageChoreographer(props: any) {
         style,
     } = props
 
-    const hasPlayed = React.useRef(false)
+    var hasPlayed = React.useRef(false)
 
-    // Push config to store whenever props change
-    React.useEffect(() => {
-        const easing = EASING_MAP[easingPreset] || EASING_MAP.smooth
-
-        choreographerStore.updateConfig({
+    React.useEffect(function () {
+        var store = getStore()
+        store.updateConfig({
             duration: duration,
             stagger: stagger,
-            easing: easing,
+            easing: EASING_MAP[easingPreset] || EASING_MAP.smooth,
             staggerDirection: staggerDirection,
             onlyAnimateInView: onlyAnimateInView,
             distance: distance,
@@ -55,35 +397,26 @@ export default function PageChoreographer(props: any) {
         lockInteractionsDuringExit, respectReducedMotion,
     ])
 
-    // Auto-play enter on mount
-    React.useEffect(() => {
+    React.useEffect(function () {
         if (!autoPlayEnter || hasPlayed.current) return
         hasPlayed.current = true
 
-        // Two rAF frames ensures targets have registered
         requestAnimationFrame(function () {
             requestAnimationFrame(function () {
                 var delayMs = enterDelay * 1000
                 if (delayMs > 0) {
-                    setTimeout(function () {
-                        choreographerStore.playEnter()
-                    }, delayMs)
+                    setTimeout(function () { getStore().playEnter() }, delayMs)
                 } else {
-                    choreographerStore.playEnter()
+                    getStore().playEnter()
                 }
             })
         })
 
-        return function () {
-            choreographerStore.cancelActive()
-        }
+        return function () { getStore().cancelActive() }
     }, [])
 
-    // Reset on unmount
     React.useEffect(function () {
-        return function () {
-            choreographerStore.reset()
-        }
+        return function () { getStore().reset() }
     }, [])
 
     return (
@@ -119,8 +452,6 @@ export default function PageChoreographer(props: any) {
 }
 
 PageChoreographer.displayName = "Page Choreographer"
-
-// ─── Property Controls ───────────────────────────────────────────────────────
 
 addPropertyControls(PageChoreographer, {
     duration: {
