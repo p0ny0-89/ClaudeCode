@@ -1,85 +1,60 @@
 // ─── Page Choreographer — Animation Presets ──────────────────────────────────
-// Each preset defines `from` and `to` keyframes for use with framer-motion's
-// `animate()` function. Exit presets animate FROM visible TO hidden; enter
-// presets animate FROM hidden TO visible.
+// Presets return CSS keyframe pairs for the Web Animations API.
+// All values are CSS strings (not framer-motion shorthand).
 
 import type { PresetKeyframes, ChoreographerConfig } from "./choreographer_types"
 
 // ─── Exit Presets ────────────────────────────────────────────────────────────
 
-/**
- * Rise Wave — elements translate upward and fade out.
- * Classic editorial exit that works well with left-to-right stagger.
- */
 export function exitRiseWave(config: ChoreographerConfig): PresetKeyframes {
     return {
-        from: { opacity: 1, y: 0 },
-        to: { opacity: 0, y: -config.distance },
+        from: { opacity: "1", transform: "translateY(0px)" },
+        to: { opacity: "0", transform: `translateY(${-config.distance}px)` },
     }
 }
 
-/**
- * Blur Lift — elements drift upward with a gaussian blur and fade.
- * Premium, soft exit suitable for hero sections and feature cards.
- */
 export function exitBlurLift(config: ChoreographerConfig): PresetKeyframes {
     return {
-        from: { opacity: 1, y: 0, filter: "blur(0px)" },
+        from: { opacity: "1", transform: "translateY(0px)", filter: "blur(0px)" },
         to: {
-            opacity: 0,
-            y: -(config.distance * 0.5),
+            opacity: "0",
+            transform: `translateY(${-(config.distance * 0.5)}px)`,
             filter: `blur(${config.blurAmount}px)`,
         },
     }
 }
 
-/**
- * Scale Fade Grid — elements scale down slightly and fade out.
- * Works well for card grids and tiled layouts.
- */
 export function exitScaleFadeGrid(config: ChoreographerConfig): PresetKeyframes {
     return {
-        from: { opacity: 1, scale: 1 },
-        to: { opacity: 0, scale: config.scaleFrom },
+        from: { opacity: "1", transform: "scale(1)" },
+        to: { opacity: "0", transform: `scale(${config.scaleFrom})` },
     }
 }
 
 // ─── Enter Presets ───────────────────────────────────────────────────────────
 
-/**
- * Fade Up — elements fade in while moving upward into their final position.
- * The workhorse enter animation. Clean and versatile.
- */
 export function enterFadeUp(config: ChoreographerConfig): PresetKeyframes {
     return {
-        from: { opacity: 0, y: config.distance },
-        to: { opacity: 1, y: 0 },
+        from: { opacity: "0", transform: `translateY(${config.distance}px)` },
+        to: { opacity: "1", transform: "translateY(0px)" },
     }
 }
 
-/**
- * Mask Reveal X — horizontal clip-path reveal from left to right.
- * Sharp, editorial feel. Great for text blocks and images.
- */
 export function enterMaskRevealX(_config: ChoreographerConfig): PresetKeyframes {
     return {
-        from: { opacity: 1, clipPath: "inset(0 100% 0 0)" },
-        to: { opacity: 1, clipPath: "inset(0 0% 0 0)" },
+        from: { clipPath: "inset(0 100% 0 0)" },
+        to: { clipPath: "inset(0 0% 0 0)" },
     }
 }
 
-/**
- * Mask Reveal Y — vertical clip-path reveal from bottom to top.
- * Dramatic entrance for hero elements and headings.
- */
 export function enterMaskRevealY(_config: ChoreographerConfig): PresetKeyframes {
     return {
-        from: { opacity: 1, clipPath: "inset(100% 0 0 0)" },
-        to: { opacity: 1, clipPath: "inset(0% 0 0 0)" },
+        from: { clipPath: "inset(100% 0 0 0)" },
+        to: { clipPath: "inset(0% 0 0 0)" },
     }
 }
 
-// ─── Preset Resolvers ────────────────────────────────────────────────────────
+// ─── Resolvers ───────────────────────────────────────────────────────────────
 
 const EXIT_PRESETS = {
     riseWave: exitRiseWave,
@@ -107,19 +82,18 @@ export function resolveEnterPreset(
     return ENTER_PRESETS[name](config)
 }
 
-// ─── Reduced Motion Fallback ─────────────────────────────────────────────────
+// ─── Reduced Motion ──────────────────────────────────────────────────────────
 
-/** Instant fade with no spatial movement — safe for vestibular disorders. */
 export function reducedMotionEnter(): PresetKeyframes {
     return {
-        from: { opacity: 0 },
-        to: { opacity: 1 },
+        from: { opacity: "0" },
+        to: { opacity: "1" },
     }
 }
 
 export function reducedMotionExit(): PresetKeyframes {
     return {
-        from: { opacity: 1 },
-        to: { opacity: 0 },
+        from: { opacity: "1" },
+        to: { opacity: "0" },
     }
 }

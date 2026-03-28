@@ -1,16 +1,14 @@
 // ─── Page Choreographer — Singleton Store ────────────────────────────────────
-// Module-level store that coordinates all transition targets.
-// Uses a singleton pattern because Framer code components are rendered as
-// siblings on the canvas — React Context can't bridge them. Instead, targets
-// and the choreographer communicate through this shared store.
+// Uses the native Web Animations API (element.animate()) instead of
+// framer-motion to avoid import issues inside Framer's bundler.
 
-import { animate } from "framer-motion"
 import type {
     TargetConfig,
     ChoreographerConfig,
     AnimationPhase,
     StoreListener,
     StaggerDirection,
+    PresetKeyframes,
 } from "./choreographer_types"
 import {
     resolveEnterPreset,
@@ -38,18 +36,17 @@ function centerOf(r: Rect) {
     return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 }
 }
 
-/** Row-major sort: primary by row band, secondary by x. */
 function rowMajorKey(r: Rect, rowHeight: number) {
     const row = Math.round(r.y / rowHeight)
-    return row * 100_000 + r.x
+    return row * 100000 + r.x
 }
 
 function columnMajorKey(r: Rect, colWidth: number) {
     const col = Math.round(r.x / colWidth)
-    return col * 100_000 + r.y
+    return col * 100000 + r.y
 }
 
-// ─── Reduced motion query ────────────────────────────────────────────────────
+// ─── Utilities ───────────────────────────────────────────────────────────────
 
 function prefersReducedMotion(): boolean {
     if (typeof window === "undefined") return false
@@ -61,17 +58,39 @@ function isMobile(): boolean {
     return window.innerWidth < 768
 }
 
+function easingToCss(easing: number[]): string {
+    return "cubic-bezier(" + easing.join(", ") + ")"
+}
+
+// Apply a keyframe's CSS properties as inline styles on an element.
+function applyStyles(el: HTMLElement, kf: Record<string, string>): void {
+    for (var key in kf) {
+        if (kf.hasOwnProperty(key)) {
+            ;(el.style as any)[key] = kf[key]
+        }
+    }
+}
+
+// Remove inline styles that were set by a keyframe.
+function clearStyles(el: HTMLElement, kf: Record<string, string>): void {
+    for (var key in kf) {
+        if (kf.hasOwnProperty(key)) {
+            ;(el.style as any)[key] = ""
+        }
+    }
+}
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 class ChoreographerStore {
-    private targets = new Map<string, TargetConfig>()
-    private config: ChoreographerConfig = { ...DEFAULT_CONFIG }
+    private targets: Map<string, TargetConfig> = new Map()
+    private config: ChoreographerConfig = Object.assign({}, DEFAULT_CONFIG)
     private phase: AnimationPhase = "idle"
-    private listeners = new Set<StoreListener>()
+    private listeners: Set<StoreListener> = new Set()
     private overlay: HTMLDivElement | null = null
-    private activeAnimations: Array<{ stop: () => void }> = []
+    private activeAnimations: Animation[] = []
 
-    // ── Target registry ──────────────────────────────────────────────────
+    // ── Registry ─────────────────────────────────────────────────────────
 
     registerTarget(target: TargetConfig): void {
         this.targets.set(target.id, target)
@@ -85,14 +104,14 @@ class ChoreographerStore {
         return this.targets.size
     }
 
-    // ── Configuration ────────────────────────────────────────────────────
+    // ── Config ───────────────────────────────────────────────────────────
 
     updateConfig(partial: Partial<ChoreographerConfig>): void {
-        this.config = { ...this.config, ...partial }
+        this.config = Object.assign({}, this.config, partial)
     }
 
     getConfig(): ChoreographerConfig {
-        return { ...this.config }
+        return Object.assign({}, this.config)
     }
 
     // ── Phase ────────────────────────────────────────────────────────────
@@ -101,65 +120,64 @@ class ChoreographerStore {
         return this.phase
     }
 
-    private setPhase(phase: AnimationPhase) {
+    private setPhase(phase: AnimationPhase): void {
         this.phase = phase
-        this.listeners.forEach((fn) => fn(phase))
+        this.listeners.forEach(function (fn) {
+            fn(phase)
+        })
     }
 
     subscribe(fn: StoreListener): () => void {
         this.listeners.add(fn)
-        return () => this.listeners.delete(fn)
+        var self = this
+        return function () {
+            self.listeners.delete(fn)
+        }
     }
 
     // ── Visibility ───────────────────────────────────────────────────────
 
     getVisibleTargets(): TargetConfig[] {
-        const vh = window.innerHeight
-        const vw = window.innerWidth
-        return Array.from(this.targets.values()).filter((t) => {
-            const el = t.ref.current
-            if (!el) return false
-            const r = el.getBoundingClientRect()
-            const threshold = t.visibilityThreshold
-            // Element is "visible" if it overlaps the viewport by at least threshold %
-            const visibleHeight =
-                Math.min(r.bottom, vh) - Math.max(r.top, 0)
-            const visibleWidth =
-                Math.min(r.right, vw) - Math.max(r.left, 0)
-            if (visibleHeight <= 0 || visibleWidth <= 0) return false
-            const visibleArea = visibleHeight * visibleWidth
-            const elementArea = r.width * r.height
-            if (elementArea === 0) return false
-            return visibleArea / elementArea >= threshold
+        var vh = window.innerHeight
+        var vw = window.innerWidth
+        var result: TargetConfig[] = []
+
+        this.targets.forEach(function (t) {
+            var el = t.ref.current
+            if (!el) return
+            var r = el.getBoundingClientRect()
+            var visH = Math.min(r.bottom, vh) - Math.max(r.top, 0)
+            var visW = Math.min(r.right, vw) - Math.max(r.left, 0)
+            if (visH <= 0 || visW <= 0) return
+            var area = r.width * r.height
+            if (area === 0) return
+            if ((visH * visW) / area >= t.visibilityThreshold) {
+                result.push(t)
+            }
         })
+
+        return result
     }
 
     // ── Sorting ──────────────────────────────────────────────────────────
 
-    sortTargets(
-        targets: TargetConfig[],
-        direction: StaggerDirection,
-    ): TargetConfig[] {
-        const sorted = [...targets]
+    sortTargets(targets: TargetConfig[], direction: StaggerDirection): TargetConfig[] {
+        var sorted = targets.slice()
 
-        // Precompute rects
-        const rects = new Map<string, Rect>()
-        sorted.forEach((t) => {
-            if (t.ref.current) rects.set(t.id, getRect(t.ref.current))
+        var rects: Record<string, Rect> = {}
+        sorted.forEach(function (t) {
+            if (t.ref.current) rects[t.id] = getRect(t.ref.current)
         })
 
-        sorted.sort((a, b) => {
-            // Sort priority takes precedence
+        sorted.sort(function (a, b) {
             if (a.sortPriority !== b.sortPriority) {
                 return a.sortPriority - b.sortPriority
             }
-
-            const ra = rects.get(a.id)
-            const rb = rects.get(b.id)
+            var ra = rects[a.id]
+            var rb = rects[b.id]
             if (!ra || !rb) return 0
-
-            const ca = centerOf(ra)
-            const cb = centerOf(rb)
+            var ca = centerOf(ra)
+            var cb = centerOf(rb)
 
             switch (direction) {
                 case "leftToRight":
@@ -171,21 +189,18 @@ class ChoreographerStore {
                 case "bottomToTop":
                     return cb.cy - ca.cy
                 case "rowMajor": {
-                    // Use median height as row band
-                    const heights = Array.from(rects.values()).map(
-                        (r) => r.height,
-                    )
-                    heights.sort((x, y) => x - y)
-                    const band = heights[Math.floor(heights.length / 2)] || 80
+                    var heights: number[] = []
+                    for (var k in rects) heights.push(rects[k].height)
+                    heights.sort(function (x, y) { return x - y })
+                    var band = heights[Math.floor(heights.length / 2)] || 80
                     return rowMajorKey(ra, band) - rowMajorKey(rb, band)
                 }
                 case "columnMajor": {
-                    const widths = Array.from(rects.values()).map(
-                        (r) => r.width,
-                    )
-                    widths.sort((x, y) => x - y)
-                    const band = widths[Math.floor(widths.length / 2)] || 200
-                    return columnMajorKey(ra, band) - columnMajorKey(rb, band)
+                    var widths: number[] = []
+                    for (var k2 in rects) widths.push(rects[k2].width)
+                    widths.sort(function (x, y) { return x - y })
+                    var colBand = widths[Math.floor(widths.length / 2)] || 200
+                    return columnMajorKey(ra, colBand) - columnMajorKey(rb, colBand)
                 }
                 default:
                     return 0
@@ -195,6 +210,25 @@ class ChoreographerStore {
         return sorted
     }
 
+    // ── Animate a single element using Web Animations API ────────────────
+
+    private animateElement(
+        el: HTMLElement,
+        preset: PresetKeyframes,
+        duration: number,
+        delay: number,
+        easing: number[],
+        fillForward: boolean,
+    ): Animation {
+        var anim = el.animate([preset.from, preset.to], {
+            duration: duration * 1000,
+            delay: delay * 1000,
+            easing: easingToCss(easing),
+            fill: fillForward ? "forwards" : "none",
+        })
+        return anim
+    }
+
     // ── Play Enter ───────────────────────────────────────────────────────
 
     async playEnter(): Promise<void> {
@@ -202,48 +236,52 @@ class ChoreographerStore {
         this.cancelActive()
         this.setPhase("entering")
 
-        const useReduced =
-            this.config.respectReducedMotion && prefersReducedMotion()
-        const mobile = isMobile()
+        var useReduced = this.config.respectReducedMotion && prefersReducedMotion()
+        var mobile = isMobile()
 
-        // Collect eligible targets
-        let eligible = this.config.onlyAnimateInView
+        var eligible = this.config.onlyAnimateInView
             ? this.getVisibleTargets()
             : Array.from(this.targets.values())
 
-        eligible = eligible.filter((t) => {
+        eligible = eligible.filter(function (t) {
             if (!t.enterEnabled) return false
             if (mobile && !t.mobileEnabled) return false
             return !!t.ref.current
         })
 
-        const sorted = this.sortTargets(eligible, this.config.staggerDirection)
-        const duration = this.config.enterDuration ?? this.config.duration
-        const easing = this.config.enterEasing ?? this.config.easing
-        const stagger = useReduced ? 0 : this.config.stagger
+        var sorted = this.sortTargets(eligible, this.config.staggerDirection)
+        var duration = this.config.enterDuration != null ? this.config.enterDuration : this.config.duration
+        var easing = this.config.enterEasing != null ? this.config.enterEasing : this.config.easing
+        var stagger = useReduced ? 0 : this.config.stagger
 
-        const promises = sorted.map((target, i) => {
-            const el = target.ref.current!
-            const preset = useReduced
+        var promises: Promise<void>[] = []
+        var self = this
+
+        sorted.forEach(function (target, i) {
+            var el = target.ref.current
+            if (!el) return
+
+            var preset = useReduced
                 ? reducedMotionEnter()
-                : resolveEnterPreset(target.enterPreset, this.config)
+                : resolveEnterPreset(target.enterPreset, self.config)
 
-            const delay = stagger * i + target.delayOffset
-            const dur = useReduced ? 0.01 : duration
+            var delay = stagger * i + target.delayOffset
+            var dur = useReduced ? 0.01 : duration
 
-            // Set initial state immediately (prevents flash of final state)
-            Object.assign(el.style, styleFromKeyframes(preset.from))
+            // Set initial hidden state
+            applyStyles(el, preset.from)
 
-            const ctrl = animate(el, preset.to, {
-                duration: dur,
-                delay,
-                ease: easing as any,
-            })
-            this.activeAnimations.push(ctrl)
-            return ctrl.then(() => {
-                // Clean up inline styles so Framer layout isn't disrupted
-                clearInlineAnimation(el, preset.to)
-            })
+            var anim = self.animateElement(el, preset, dur, delay, easing, false)
+            self.activeAnimations.push(anim)
+
+            promises.push(
+                anim.finished.then(function () {
+                    // Apply final state and clean up
+                    applyStyles(el, preset.to)
+                    // Then clear so Framer layout takes over
+                    clearStyles(el, preset.to)
+                })
+            )
         })
 
         await Promise.all(promises)
@@ -262,40 +300,41 @@ class ChoreographerStore {
             this.lockInteractions()
         }
 
-        const useReduced =
-            this.config.respectReducedMotion && prefersReducedMotion()
-        const mobile = isMobile()
+        var useReduced = this.config.respectReducedMotion && prefersReducedMotion()
+        var mobile = isMobile()
 
-        let eligible = this.config.onlyAnimateInView
+        var eligible = this.config.onlyAnimateInView
             ? this.getVisibleTargets()
             : Array.from(this.targets.values())
 
-        eligible = eligible.filter((t) => {
+        eligible = eligible.filter(function (t) {
             if (!t.exitEnabled) return false
             if (mobile && !t.mobileEnabled) return false
             return !!t.ref.current
         })
 
-        const sorted = this.sortTargets(eligible, this.config.staggerDirection)
-        const duration = this.config.exitDuration ?? this.config.duration
-        const easing = this.config.exitEasing ?? this.config.easing
-        const stagger = useReduced ? 0 : this.config.stagger
+        var sorted = this.sortTargets(eligible, this.config.staggerDirection)
+        var duration = this.config.exitDuration != null ? this.config.exitDuration : this.config.duration
+        var easing = this.config.exitEasing != null ? this.config.exitEasing : this.config.easing
+        var stagger = useReduced ? 0 : this.config.stagger
 
-        const promises = sorted.map((target, i) => {
-            const el = target.ref.current!
-            const preset = useReduced
+        var promises: Promise<Animation>[] = []
+        var self = this
+
+        sorted.forEach(function (target, i) {
+            var el = target.ref.current
+            if (!el) return
+
+            var preset = useReduced
                 ? reducedMotionExit()
-                : resolveExitPreset(target.exitPreset, this.config)
+                : resolveExitPreset(target.exitPreset, self.config)
 
-            const delay = stagger * i + target.delayOffset
+            var delay = stagger * i + target.delayOffset
 
-            const ctrl = animate(el, preset.to, {
-                duration: useReduced ? 0.01 : duration,
-                delay,
-                ease: easing as any,
-            })
-            this.activeAnimations.push(ctrl)
-            return ctrl
+            // fill: forwards keeps the exit state visible until navigation
+            var anim = self.animateElement(el, preset, useReduced ? 0.01 : duration, delay, easing, true)
+            self.activeAnimations.push(anim)
+            promises.push(anim.finished)
         })
 
         await Promise.all(promises)
@@ -307,7 +346,9 @@ class ChoreographerStore {
     // ── Cancel ───────────────────────────────────────────────────────────
 
     cancelActive(): void {
-        this.activeAnimations.forEach((a) => a.stop())
+        this.activeAnimations.forEach(function (a) {
+            try { a.cancel() } catch (e) { /* already finished */ }
+        })
         this.activeAnimations = []
     }
 
@@ -315,14 +356,14 @@ class ChoreographerStore {
 
     private lockInteractions(): void {
         if (this.overlay) return
-        const div = document.createElement("div")
-        Object.assign(div.style, {
-            position: "fixed",
-            inset: "0",
-            zIndex: "99999",
-            cursor: "wait",
-            // Transparent — blocks clicks without visual noise
-        } as CSSStyleDeclaration)
+        var div = document.createElement("div")
+        div.style.position = "fixed"
+        div.style.top = "0"
+        div.style.left = "0"
+        div.style.right = "0"
+        div.style.bottom = "0"
+        div.style.zIndex = "99999"
+        div.style.cursor = "wait"
         document.body.appendChild(div)
         this.overlay = div
     }
@@ -334,7 +375,7 @@ class ChoreographerStore {
         }
     }
 
-    // ── Reset (useful when navigating away) ──────────────────────────────
+    // ── Reset ────────────────────────────────────────────────────────────
 
     reset(): void {
         this.cancelActive()
@@ -344,47 +385,6 @@ class ChoreographerStore {
     }
 }
 
-// ─── Style helpers ───────────────────────────────────────────────────────────
-
-/** Convert animation keyframe values to inline CSS properties. */
-function styleFromKeyframes(kf: Record<string, string | number>): Record<string, string> {
-    const style: Record<string, string> = {}
-    for (const [key, value] of Object.entries(kf)) {
-        if (key === "y") {
-            style.transform = `translateY(${value}px)`
-        } else if (key === "x") {
-            style.transform = `translateX(${value}px)`
-        } else if (key === "scale") {
-            style.transform = `scale(${value})`
-        } else if (key === "opacity") {
-            style.opacity = String(value)
-        } else if (key === "filter") {
-            style.filter = String(value)
-        } else if (key === "clipPath") {
-            style.clipPath = String(value)
-        }
-    }
-    return style
-}
-
-/** Remove inline animation styles so Framer's layout engine takes over. */
-function clearInlineAnimation(
-    el: HTMLElement,
-    kf: Record<string, string | number>,
-): void {
-    for (const key of Object.keys(kf)) {
-        if (key === "y" || key === "x" || key === "scale") {
-            el.style.transform = ""
-        } else if (key === "opacity") {
-            el.style.opacity = ""
-        } else if (key === "filter") {
-            el.style.filter = ""
-        } else if (key === "clipPath") {
-            el.style.clipPath = ""
-        }
-    }
-}
-
-// ─── Singleton export ────────────────────────────────────────────────────────
+// ─── Singleton ───────────────────────────────────────────────────────────────
 
 export const choreographerStore = new ChoreographerStore()

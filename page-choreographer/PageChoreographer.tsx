@@ -1,53 +1,20 @@
-// ─── Page Choreographer — Main Orchestrator ──────────────────────────────────
-// Place one PageChoreographer component per page (or on a shared layout).
-// It configures shared transition settings and triggers enter animations on
-// mount. Renders as an invisible element — no visual footprint.
-
-import { useEffect, useRef } from "react"
+import * as React from "react"
 import { addPropertyControls, ControlType } from "framer"
 import { choreographerStore } from "./choreographer_store"
-import type { StaggerDirection, ChoreographerConfig } from "./choreographer_types"
 
-// ─── Props ───────────────────────────────────────────────────────────────────
-
-interface Props {
-    // Timing
-    duration: number
-    stagger: number
-    easingPreset: "smooth" | "snappy" | "dramatic" | "gentle" | "linear"
-
-    // Stagger
-    staggerDirection: StaggerDirection
-    onlyAnimateInView: boolean
-
-    // Motion values
-    distance: number
-    blurAmount: number
-    scaleFrom: number
-
-    // Behavior
-    lockInteractionsDuringExit: boolean
-    respectReducedMotion: boolean
-    autoPlayEnter: boolean
-    enterDelay: number
-
-    // Canvas indicator
-    style: React.CSSProperties
-}
-
-// ─── Easing presets (cubic-bezier) ───────────────────────────────────────────
+// ─── Easing presets ──────────────────────────────────────────────────────────
 
 const EASING_MAP: Record<string, number[]> = {
-    smooth: [0.4, 0, 0.2, 1],       // Material standard
-    snappy: [0.16, 1, 0.3, 1],      // Framer-style overshoot feel
-    dramatic: [0.76, 0, 0.24, 1],   // Strong ease-in-out
-    gentle: [0.25, 0.1, 0.25, 1],   // Subtle, classic
+    smooth: [0.4, 0, 0.2, 1],
+    snappy: [0.16, 1, 0.3, 1],
+    dramatic: [0.76, 0, 0.24, 1],
+    gentle: [0.25, 0.1, 0.25, 1],
     linear: [0, 0, 1, 1],
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function PageChoreographer(props: Props) {
+export default function PageChoreographer(props: any) {
     const {
         duration = 0.6,
         stagger = 0.06,
@@ -64,74 +31,61 @@ export default function PageChoreographer(props: Props) {
         style,
     } = props
 
-    const hasPlayed = useRef(false)
+    const hasPlayed = React.useRef(false)
 
-    // Push config to the singleton store whenever props change
-    useEffect(() => {
-        const easing = EASING_MAP[easingPreset] ?? EASING_MAP.smooth
+    // Push config to store whenever props change
+    React.useEffect(() => {
+        const easing = EASING_MAP[easingPreset] || EASING_MAP.smooth
 
-        const config: Partial<ChoreographerConfig> = {
-            duration,
-            stagger,
-            easing,
-            staggerDirection,
-            onlyAnimateInView,
-            distance,
-            blurAmount,
-            scaleFrom,
-            lockInteractionsDuringExit,
-            respectReducedMotion,
-        }
-
-        choreographerStore.updateConfig(config)
+        choreographerStore.updateConfig({
+            duration: duration,
+            stagger: stagger,
+            easing: easing,
+            staggerDirection: staggerDirection,
+            onlyAnimateInView: onlyAnimateInView,
+            distance: distance,
+            blurAmount: blurAmount,
+            scaleFrom: scaleFrom,
+            lockInteractionsDuringExit: lockInteractionsDuringExit,
+            respectReducedMotion: respectReducedMotion,
+        })
     }, [
-        duration,
-        stagger,
-        easingPreset,
-        staggerDirection,
-        onlyAnimateInView,
-        distance,
-        blurAmount,
-        scaleFrom,
-        lockInteractionsDuringExit,
-        respectReducedMotion,
+        duration, stagger, easingPreset, staggerDirection,
+        onlyAnimateInView, distance, blurAmount, scaleFrom,
+        lockInteractionsDuringExit, respectReducedMotion,
     ])
 
     // Auto-play enter on mount
-    useEffect(() => {
+    React.useEffect(() => {
         if (!autoPlayEnter || hasPlayed.current) return
         hasPlayed.current = true
 
-        // Small delay ensures all TransitionTargets have registered.
-        // Two rAF frames + configurable delay covers React commit + layout.
-        const scheduleEnter = () => {
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    const delayMs = enterDelay * 1000
-                    if (delayMs > 0) {
-                        setTimeout(() => choreographerStore.playEnter(), delayMs)
-                    } else {
+        // Two rAF frames ensures targets have registered
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                var delayMs = enterDelay * 1000
+                if (delayMs > 0) {
+                    setTimeout(function () {
                         choreographerStore.playEnter()
-                    }
-                })
+                    }, delayMs)
+                } else {
+                    choreographerStore.playEnter()
+                }
             })
-        }
+        })
 
-        scheduleEnter()
-
-        return () => {
+        return function () {
             choreographerStore.cancelActive()
         }
-    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [])
 
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
+    // Reset on unmount
+    React.useEffect(function () {
+        return function () {
             choreographerStore.reset()
         }
     }, [])
 
-    // Invisible in production — shows a label on the Framer canvas
     return (
         <div
             style={{
@@ -164,14 +118,11 @@ export default function PageChoreographer(props: Props) {
     )
 }
 
-// ─── Display name ────────────────────────────────────────────────────────────
-
 PageChoreographer.displayName = "Page Choreographer"
 
 // ─── Property Controls ───────────────────────────────────────────────────────
 
 addPropertyControls(PageChoreographer, {
-    // ── Timing ───────────────────────────────────────────────────────────
     duration: {
         type: ControlType.Number,
         title: "Duration",
@@ -180,7 +131,6 @@ addPropertyControls(PageChoreographer, {
         max: 3,
         step: 0.05,
         unit: "s",
-        description: "Base animation duration for each element",
     },
     stagger: {
         type: ControlType.Number,
@@ -190,7 +140,6 @@ addPropertyControls(PageChoreographer, {
         max: 0.5,
         step: 0.01,
         unit: "s",
-        description: "Delay between each element in the sequence",
     },
     easingPreset: {
         type: ControlType.Enum,
@@ -199,37 +148,24 @@ addPropertyControls(PageChoreographer, {
         options: ["smooth", "snappy", "dramatic", "gentle", "linear"],
         optionTitles: ["Smooth", "Snappy", "Dramatic", "Gentle", "Linear"],
     },
-
-    // ── Stagger ──────────────────────────────────────────────────────────
     staggerDirection: {
         type: ControlType.Enum,
         title: "Stagger Order",
         defaultValue: "leftToRight",
         options: [
-            "leftToRight",
-            "rightToLeft",
-            "topToBottom",
-            "bottomToTop",
-            "rowMajor",
-            "columnMajor",
+            "leftToRight", "rightToLeft", "topToBottom",
+            "bottomToTop", "rowMajor", "columnMajor",
         ],
         optionTitles: [
-            "Left → Right",
-            "Right → Left",
-            "Top → Bottom",
-            "Bottom → Top",
-            "Row Major",
-            "Column Major",
+            "Left → Right", "Right → Left", "Top → Bottom",
+            "Bottom → Top", "Row Major", "Column Major",
         ],
     },
     onlyAnimateInView: {
         type: ControlType.Boolean,
         title: "In-View Only",
         defaultValue: true,
-        description: "Only animate elements visible in the viewport",
     },
-
-    // ── Motion Values ────────────────────────────────────────────────────
     distance: {
         type: ControlType.Number,
         title: "Distance",
@@ -238,7 +174,6 @@ addPropertyControls(PageChoreographer, {
         max: 200,
         step: 5,
         unit: "px",
-        description: "Translate distance for movement-based presets",
     },
     blurAmount: {
         type: ControlType.Number,
@@ -248,7 +183,6 @@ addPropertyControls(PageChoreographer, {
         max: 30,
         step: 1,
         unit: "px",
-        description: "Blur intensity for Blur Lift preset",
     },
     scaleFrom: {
         type: ControlType.Number,
@@ -257,27 +191,21 @@ addPropertyControls(PageChoreographer, {
         min: 0.5,
         max: 1.5,
         step: 0.01,
-        description: "Scale value for Scale Fade Grid preset",
     },
-
-    // ── Behavior ─────────────────────────────────────────────────────────
     lockInteractionsDuringExit: {
         type: ControlType.Boolean,
         title: "Lock During Exit",
         defaultValue: true,
-        description: "Prevent clicks while exit animation plays",
     },
     respectReducedMotion: {
         type: ControlType.Boolean,
         title: "Reduced Motion",
         defaultValue: true,
-        description: "Honor prefers-reduced-motion accessibility setting",
     },
     autoPlayEnter: {
         type: ControlType.Boolean,
         title: "Auto Enter",
         defaultValue: true,
-        description: "Automatically play enter animations on page load",
     },
     enterDelay: {
         type: ControlType.Number,
@@ -287,6 +215,5 @@ addPropertyControls(PageChoreographer, {
         max: 2,
         step: 0.05,
         unit: "s",
-        description: "Wait before starting enter sequence",
     },
 })

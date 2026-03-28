@@ -1,5 +1,4 @@
 // ─── Page Choreographer — Shared Types ───────────────────────────────────────
-// Core type definitions for the Page Choreographer transition system.
 
 export type StaggerDirection =
     | "leftToRight"
@@ -15,11 +14,15 @@ export type EnterPreset = "fadeUp" | "maskRevealX" | "maskRevealY"
 
 export type AnimationPhase = "idle" | "entering" | "exiting" | "done"
 
-// ─── Target configuration ────────────────────────────────────────────────────
+// Use a plain object type instead of React.RefObject to avoid needing
+// a React import in this utility file.
+export interface TargetRef {
+    current: HTMLDivElement | null
+}
 
 export interface TargetConfig {
     id: string
-    ref: React.RefObject<HTMLDivElement>
+    ref: TargetRef
     group: string
     enterPreset: EnterPreset
     exitPreset: ExitPreset
@@ -31,55 +34,41 @@ export interface TargetConfig {
     visibilityThreshold: number
 }
 
-// ─── Choreographer configuration ─────────────────────────────────────────────
-
 export interface ChoreographerConfig {
-    // Timing
     duration: number
     stagger: number
-    easing: number[] // cubic-bezier [x1, y1, x2, y2]
+    easing: number[]
 
-    // Stagger
     staggerDirection: StaggerDirection
     onlyAnimateInView: boolean
 
-    // Interaction
     lockInteractionsDuringExit: boolean
 
-    // Motion values
     distance: number
     blurAmount: number
     scaleFrom: number
 
-    // Accessibility
     respectReducedMotion: boolean
 
-    // Enter-specific
-    enterDuration: number | null // null = use main duration
-    enterEasing: number[] | null // null = use main easing
-
-    // Exit-specific
+    enterDuration: number | null
+    enterEasing: number[] | null
     exitDuration: number | null
     exitEasing: number[] | null
 }
 
-// ─── Preset keyframes ────────────────────────────────────────────────────────
-
+// Preset keyframes use CSS property names (not framer-motion shorthand).
+// These are fed directly to the Web Animations API.
 export interface PresetKeyframes {
-    from: Record<string, string | number>
-    to: Record<string, string | number>
+    from: Record<string, string>
+    to: Record<string, string>
 }
 
-// ─── Store listener ──────────────────────────────────────────────────────────
-
 export type StoreListener = (phase: AnimationPhase) => void
-
-// ─── Default configuration ───────────────────────────────────────────────────
 
 export const DEFAULT_CONFIG: ChoreographerConfig = {
     duration: 0.6,
     stagger: 0.06,
-    easing: [0.4, 0, 0.2, 1], // material standard
+    easing: [0.4, 0, 0.2, 1],
 
     staggerDirection: "leftToRight",
     onlyAnimateInView: true,

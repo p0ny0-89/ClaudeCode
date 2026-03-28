@@ -1,46 +1,24 @@
-// ─── Page Choreographer — Transition Target ──────────────────────────────────
-// Wrap any element (text, card, image, CMS item) with TransitionTarget to
-// register it for choreographed page transitions.
-//
-// Usage: Drag TransitionTarget onto the canvas, then nest your content inside
-// it. The choreographer will animate this wrapper on enter/exit.
-
-import { useEffect, useRef, useId } from "react"
+import * as React from "react"
 import { addPropertyControls, ControlType } from "framer"
 import { choreographerStore } from "./choreographer_store"
-import type { EnterPreset, ExitPreset } from "./choreographer_types"
 import { resolveEnterPreset } from "./choreographer_presets"
-import { DEFAULT_CONFIG } from "./choreographer_types"
 
-// ─── Props ───────────────────────────────────────────────────────────────────
+// ─── Stable ID counter (avoids React.useId which needs React 18+) ───────────
 
-interface Props {
-    children: React.ReactNode
+let idCounter = 0
 
-    // Identity
-    group: string
-
-    // Presets
-    enterPreset: EnterPreset
-    exitPreset: ExitPreset
-
-    // Participation
-    enterEnabled: boolean
-    exitEnabled: boolean
-    mobileEnabled: boolean
-
-    // Tuning
-    sortPriority: number
-    delayOffset: number
-    visibilityThreshold: number
-
-    // Layout
-    style: React.CSSProperties
+function useStableId(): string {
+    const ref = React.useRef("")
+    if (ref.current === "") {
+        idCounter += 1
+        ref.current = "choreographer-target-" + idCounter
+    }
+    return ref.current
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function TransitionTarget(props: Props) {
+export default function TransitionTarget(props: any) {
     const {
         children,
         group = "default",
@@ -55,67 +33,45 @@ export default function TransitionTarget(props: Props) {
         style,
     } = props
 
-    const ref = useRef<HTMLDivElement>(null)
-    const stableId = useId()
+    const ref = React.useRef<HTMLDivElement>(null)
+    const id = useStableId()
 
-    // Register on mount, unregister on unmount
-    useEffect(() => {
-        const id = stableId
-
+    // Register with store
+    React.useEffect(function () {
         choreographerStore.registerTarget({
-            id,
-            ref: ref as React.RefObject<HTMLDivElement>,
-            group,
-            enterPreset,
-            exitPreset,
-            enterEnabled,
-            exitEnabled,
-            sortPriority,
-            delayOffset,
-            mobileEnabled,
-            visibilityThreshold,
+            id: id,
+            ref: ref,
+            group: group,
+            enterPreset: enterPreset,
+            exitPreset: exitPreset,
+            enterEnabled: enterEnabled,
+            exitEnabled: exitEnabled,
+            sortPriority: sortPriority,
+            delayOffset: delayOffset,
+            mobileEnabled: mobileEnabled,
+            visibilityThreshold: visibilityThreshold,
         })
 
-        return () => {
+        return function () {
             choreographerStore.unregisterTarget(id)
         }
     }, [
-        stableId,
-        group,
-        enterPreset,
-        exitPreset,
-        enterEnabled,
-        exitEnabled,
-        sortPriority,
-        delayOffset,
-        mobileEnabled,
-        visibilityThreshold,
+        id, group, enterPreset, exitPreset,
+        enterEnabled, exitEnabled, sortPriority,
+        delayOffset, mobileEnabled, visibilityThreshold,
     ])
 
-    // Set initial hidden state for enter animations.
-    // This prevents content from flashing in its final position before the
-    // choreographer has a chance to animate it.
-    useEffect(() => {
+    // Set initial hidden state for enter animations
+    React.useEffect(function () {
         if (!enterEnabled || !ref.current) return
 
-        const el = ref.current
-        const config = choreographerStore.getConfig()
-        const preset = resolveEnterPreset(enterPreset, config)
+        var el = ref.current
+        var config = choreographerStore.getConfig()
+        var preset = resolveEnterPreset(enterPreset, config)
 
-        // Apply the "from" state as inline styles
-        for (const [key, value] of Object.entries(preset.from)) {
-            if (key === "y") {
-                el.style.transform = `translateY(${value}px)`
-            } else if (key === "x") {
-                el.style.transform = `translateX(${value}px)`
-            } else if (key === "scale") {
-                el.style.transform = `scale(${value})`
-            } else if (key === "opacity") {
-                el.style.opacity = String(value)
-            } else if (key === "filter") {
-                el.style.filter = String(value)
-            } else if (key === "clipPath") {
-                el.style.clipPath = String(value)
+        for (var key in preset.from) {
+            if (preset.from.hasOwnProperty(key)) {
+                ;(el.style as any)[key] = preset.from[key]
             }
         }
     }, [enterEnabled, enterPreset])
@@ -125,21 +81,15 @@ export default function TransitionTarget(props: Props) {
             ref={ref}
             style={{
                 ...style,
-                // Ensure the wrapper doesn't add unwanted layout.
-                // "contents" is ideal but breaks ref measurement, so we use
-                // a block-level wrapper that passes through width/height.
                 width: "100%",
                 height: "100%",
                 position: "relative",
-                willChange: "transform, opacity, filter, clip-path",
             }}
         >
             {children}
         </div>
     )
 }
-
-// ─── Display name ────────────────────────────────────────────────────────────
 
 TransitionTarget.displayName = "Transition Target"
 
@@ -150,16 +100,11 @@ addPropertyControls(TransitionTarget, {
         type: ControlType.ComponentInstance,
         title: "Content",
     },
-
-    // ── Identity ─────────────────────────────────────────────────────────
     group: {
         type: ControlType.String,
         title: "Group",
         defaultValue: "default",
-        description: "Group name for filtering targets (future use)",
     },
-
-    // ── Presets ──────────────────────────────────────────────────────────
     enterPreset: {
         type: ControlType.Enum,
         title: "Enter Preset",
@@ -174,28 +119,21 @@ addPropertyControls(TransitionTarget, {
         options: ["riseWave", "blurLift", "scaleFadeGrid"],
         optionTitles: ["Rise Wave", "Blur Lift", "Scale Fade Grid"],
     },
-
-    // ── Participation ────────────────────────────────────────────────────
     enterEnabled: {
         type: ControlType.Boolean,
         title: "Enter",
         defaultValue: true,
-        description: "Animate on page enter",
     },
     exitEnabled: {
         type: ControlType.Boolean,
         title: "Exit",
         defaultValue: true,
-        description: "Animate on page exit",
     },
     mobileEnabled: {
         type: ControlType.Boolean,
         title: "Mobile",
         defaultValue: true,
-        description: "Enable transitions on mobile viewports",
     },
-
-    // ── Tuning ───────────────────────────────────────────────────────────
     sortPriority: {
         type: ControlType.Number,
         title: "Priority",
@@ -203,7 +141,6 @@ addPropertyControls(TransitionTarget, {
         min: -10,
         max: 10,
         step: 1,
-        description: "Lower = animates earlier in the stagger sequence",
     },
     delayOffset: {
         type: ControlType.Number,
@@ -213,7 +150,6 @@ addPropertyControls(TransitionTarget, {
         max: 2,
         step: 0.01,
         unit: "s",
-        description: "Extra delay added to this target's stagger position",
     },
     visibilityThreshold: {
         type: ControlType.Number,
@@ -222,6 +158,5 @@ addPropertyControls(TransitionTarget, {
         min: 0,
         max: 1,
         step: 0.05,
-        description: "Fraction of element that must be in-view to animate",
     },
 })
