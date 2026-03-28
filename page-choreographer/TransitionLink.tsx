@@ -10,7 +10,7 @@
 
 import { useCallback, useRef, useState } from "react"
 import { addPropertyControls, ControlType } from "framer"
-import { choreographerStore } from "./choreographer-store"
+import { choreographerStore } from "./choreographer_store"
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 

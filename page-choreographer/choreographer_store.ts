@@ -11,14 +11,14 @@ import type {
     AnimationPhase,
     StoreListener,
     StaggerDirection,
-} from "./choreographer-types"
+} from "./choreographer_types"
 import {
     resolveEnterPreset,
     resolveExitPreset,
     reducedMotionEnter,
     reducedMotionExit,
-} from "./choreographer-presets"
-import { DEFAULT_CONFIG } from "./choreographer-types"
+} from "./choreographer_presets"
+import { DEFAULT_CONFIG } from "./choreographer_types"
 
 // ─── Geometry helpers ────────────────────────────────────────────────────────
 

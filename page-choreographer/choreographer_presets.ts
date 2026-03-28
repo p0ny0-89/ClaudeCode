@@ -3,7 +3,7 @@
 // `animate()` function. Exit presets animate FROM visible TO hidden; enter
 // presets animate FROM hidden TO visible.
 
-import type { PresetKeyframes, ChoreographerConfig } from "./choreographer-types"
+import type { PresetKeyframes, ChoreographerConfig } from "./choreographer_types"
 
 // ─── Exit Presets ────────────────────────────────────────────────────────────
 

@@ -5,8 +5,8 @@
 
 import { useEffect, useRef } from "react"
 import { addPropertyControls, ControlType } from "framer"
-import { choreographerStore } from "./choreographer-store"
-import type { StaggerDirection, ChoreographerConfig } from "./choreographer-types"
+import { choreographerStore } from "./choreographer_store"
+import type { StaggerDirection, ChoreographerConfig } from "./choreographer_types"
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 

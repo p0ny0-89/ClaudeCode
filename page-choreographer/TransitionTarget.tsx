@@ -7,10 +7,10 @@
 
 import { useEffect, useRef, useId } from "react"
 import { addPropertyControls, ControlType } from "framer"
-import { choreographerStore } from "./choreographer-store"
-import type { EnterPreset, ExitPreset } from "./choreographer-types"
-import { resolveEnterPreset } from "./choreographer-presets"
-import { DEFAULT_CONFIG } from "./choreographer-types"
+import { choreographerStore } from "./choreographer_store"
+import type { EnterPreset, ExitPreset } from "./choreographer_types"
+import { resolveEnterPreset } from "./choreographer_presets"
+import { DEFAULT_CONFIG } from "./choreographer_types"
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
