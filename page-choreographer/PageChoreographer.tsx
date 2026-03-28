@@ -419,35 +419,18 @@ export default function PageChoreographer(props: any) {
         return function () { getStore().reset() }
     }, [])
 
+    // Invisible in preview/published — zero size, no pointer events
     return (
         <div
             style={{
                 ...style,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: "100%",
-                minHeight: 40,
+                width: 0,
+                height: 0,
+                overflow: "hidden",
                 pointerEvents: "none",
-                userSelect: "none",
+                position: "absolute",
             }}
-        >
-            <div
-                style={{
-                    padding: "6px 12px",
-                    borderRadius: 6,
-                    background: "rgba(99, 102, 241, 0.08)",
-                    border: "1px dashed rgba(99, 102, 241, 0.3)",
-                    fontSize: 11,
-                    fontWeight: 500,
-                    color: "rgba(99, 102, 241, 0.6)",
-                    fontFamily: "Inter, system-ui, sans-serif",
-                    letterSpacing: "0.02em",
-                }}
-            >
-                Page Choreographer
-            </div>
-        </div>
+        />
     )
 }
 
