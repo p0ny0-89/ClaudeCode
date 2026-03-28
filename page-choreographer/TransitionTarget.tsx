@@ -93,15 +93,7 @@ export default function TransitionTarget(props: any) {
     }, [enterEnabled, enterPreset])
 
     return (
-        <div
-            ref={ref}
-            style={{
-                ...style,
-                width: "100%",
-                height: "100%",
-                position: "relative",
-            }}
-        >
+        <div ref={ref} style={style}>
             {children}
         </div>
     )
