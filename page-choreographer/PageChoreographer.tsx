@@ -1413,7 +1413,6 @@ export default function PageChoreographer(props: any) {
                 // with zero jitter (no JS-per-frame transforms needed)
                 sectionEl.style.setProperty("position", "sticky", "important")
                 sectionEl.style.setProperty("top", "0px", "important")
-                sectionEl.style.setProperty("z-index", "2", "important")
             }
 
             var pinEl: HTMLElement = parent
@@ -1812,7 +1811,6 @@ export default function PageChoreographer(props: any) {
             if (scrollSectionEl) {
                 scrollSectionEl.style.removeProperty("position")
                 scrollSectionEl.style.removeProperty("top")
-                scrollSectionEl.style.removeProperty("z-index")
                 if (scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                     scrollSectionEl.removeAttribute("data-choreo-pin-owner")
                 }
