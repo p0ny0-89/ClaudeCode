@@ -1049,6 +1049,7 @@ export default function PageChoreographer(props: any) {
         maskStart = 0,
         maskPreview = false,
         maskViewportClip = false,
+        maskViewportPadding = 0,
         maskShiftX = 0,
         maskShiftY = 0,
         maskOpacity = 1,
@@ -1617,15 +1618,28 @@ export default function PageChoreographer(props: any) {
             // ── Viewport clip helper ──
             // Clips the wrapper to viewport bounds so the mask reveal
             // aligns with the viewport edge as the element scrolls in.
+            var vpClipPad = maskViewportPadding || 0
             var updateViewportClip = function () {
                 if (!maskViewportClip || !wrapper) return
                 var wRect = wrapper.getBoundingClientRect()
                 var vpH = window.innerHeight
                 var vpW = window.innerWidth
-                var clipTop = Math.max(0, Math.round(-wRect.top))
-                var clipRight = Math.max(0, Math.round(wRect.right - vpW))
-                var clipBottom = Math.max(0, Math.round(wRect.bottom - vpH))
-                var clipLeft = Math.max(0, Math.round(-wRect.left))
+                // Overflow-based clips (content extending past viewport)
+                var overflowTop = Math.max(0, -wRect.top)
+                var overflowRight = Math.max(0, wRect.right - vpW)
+                var overflowBottom = Math.max(0, wRect.bottom - vpH)
+                var overflowLeft = Math.max(0, -wRect.left)
+                // Padding-based clips (inset from viewport edge into the element)
+                // Only apply padding on sides where the element reaches/extends to the viewport edge
+                var padTop = (wRect.top <= vpClipPad) ? Math.max(0, vpClipPad - wRect.top) : 0
+                var padRight = (wRect.right >= vpW - vpClipPad) ? Math.max(0, vpClipPad - (vpW - wRect.right)) : 0
+                var padBottom = (wRect.bottom >= vpH - vpClipPad) ? Math.max(0, vpClipPad - (vpH - wRect.bottom)) : 0
+                var padLeft = (wRect.left <= vpClipPad) ? Math.max(0, vpClipPad - wRect.left) : 0
+                // Use whichever is larger: overflow clip or padding clip
+                var clipTop = Math.round(Math.max(overflowTop, padTop))
+                var clipRight = Math.round(Math.max(overflowRight, padRight))
+                var clipBottom = Math.round(Math.max(overflowBottom, padBottom))
+                var clipLeft = Math.round(Math.max(overflowLeft, padLeft))
                 if (clipTop === 0 && clipRight === 0 && clipBottom === 0 && clipLeft === 0) {
                     wrapper.style.removeProperty("clip-path")
                 } else {
@@ -1844,7 +1858,7 @@ export default function PageChoreographer(props: any) {
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
         easingPreset, staggerDirection, distance,
-        enterMaskDirection, exitMaskDirection, maskStart, maskPreview, maskViewportClip, maskShiftX, maskShiftY, maskOpacity, blurAmount,
+        enterMaskDirection, exitMaskDirection, maskStart, maskPreview, maskViewportClip, maskViewportPadding, maskShiftX, maskShiftY, maskOpacity, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
         enterScale, enterRotateX, enterRotateY, enterRotateZ,
@@ -2346,9 +2360,22 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Boolean,
         title: "↳ Viewport Clip",
         defaultValue: false,
-        description: "Clips the reveal to the viewport edge so the mask aligns with the screen boundary as the element scrolls into view.",
+        description: "Clips the reveal to the viewport edge so the mask never extends past the screen boundary. Use Viewport Padding to add consistent inset from the edges.",
         hidden: function (props: any) {
             return props.enterPreset !== "maskReveal" || props.trigger !== "onScroll"
+        },
+    },
+    maskViewportPadding: {
+        type: ControlType.Number,
+        title: "  ↳ Padding",
+        defaultValue: 0,
+        min: 0,
+        max: 200,
+        step: 1,
+        unit: "px",
+        description: "Inset padding from the viewport edges. The mask reveal will stay this many pixels away from the screen boundary.",
+        hidden: function (props: any) {
+            return props.enterPreset !== "maskReveal" || props.trigger !== "onScroll" || !props.maskViewportClip
         },
     },
     maskOpacity: {
