@@ -1150,6 +1150,11 @@ export default function PageChoreographer(props: any) {
                 var phEl = targets[phi]
                 if (!phEl) continue
                 phEl.style.setProperty("visibility", "hidden")
+                // Also set opacity:0 as fallback — WAAPI fill:both
+                // will override this while animation is active
+                if (trigger === "onScroll") {
+                    phEl.style.setProperty("opacity", "0")
+                }
                 preHiddenEls.push(phEl)
             }
         }
@@ -1440,6 +1445,8 @@ export default function PageChoreographer(props: any) {
                 visibilityRevealed = true
                 for (var ph = 0; ph < preHiddenEls.length; ph++) {
                     preHiddenEls[ph].style.removeProperty("visibility")
+                    // Remove inline opacity — WAAPI now controls it
+                    preHiddenEls[ph].style.removeProperty("opacity")
                 }
             }
 
@@ -1610,9 +1617,17 @@ export default function PageChoreographer(props: any) {
         }
 
         return function () {
-            // Remove pre-hidden visibility
-            for (var rph = 0; rph < preHiddenEls.length; rph++) {
-                try { preHiddenEls[rph].style.removeProperty("visibility") } catch (e) {}
+            // For onScroll, keep visibility:hidden — the scroll handler
+            // removes it when progress > 0. Removing it here would cause
+            // a flash between cleanup and re-render. For other triggers,
+            // the animation itself manages visibility.
+            if (trigger !== "onScroll") {
+                for (var rph = 0; rph < preHiddenEls.length; rph++) {
+                    try {
+                        preHiddenEls[rph].style.removeProperty("visibility")
+                        preHiddenEls[rph].style.removeProperty("opacity")
+                    } catch (e) {}
+                }
             }
             if (mutObs) {
                 try { mutObs.disconnect() } catch (e) {}
