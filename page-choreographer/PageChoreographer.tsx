@@ -1,5 +1,5 @@
 import * as React from "react"
-import { addPropertyControls, ControlType } from "framer"
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 // ─── Store (shared via window global) ────────────────────────────────────────
 
@@ -251,8 +251,13 @@ function createStore() {
 
             promises.push(
                 anim.finished.then(function () {
+                    // Cancel the WAAPI animation layer so CSS hover effects work
+                    try { anim.cancel() } catch (e) {}
                     // Clear inline styles so Framer layout takes over
                     for (var k in kf.to) {
+                        ;(el.style as any)[k] = ""
+                    }
+                    for (var k in kf.from) {
                         ;(el.style as any)[k] = ""
                     }
                 })
@@ -399,6 +404,8 @@ export default function PageChoreographer(props: any) {
 
     React.useEffect(function () {
         if (!autoPlayEnter || hasPlayed.current) return
+        // Don't auto-play on Framer canvas
+        if (RenderTarget.current() === RenderTarget.canvas) return
         hasPlayed.current = true
 
         requestAnimationFrame(function () {

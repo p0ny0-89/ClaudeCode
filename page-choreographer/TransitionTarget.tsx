@@ -8,7 +8,7 @@
 //                  to register individual CMS items
 
 import * as React from "react"
-import { addPropertyControls, ControlType } from "framer"
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 var STORE_KEY = "__pageChoreographerStore"
 
@@ -185,8 +185,9 @@ export default function TransitionTarget(props: any) {
 
             registeredIds.current.push(targetId)
 
-            // Set initial hidden state for enter animation
-            if (enterEnabled) {
+            // Set initial hidden state for enter animation (skip on canvas)
+            var isCanvas = RenderTarget.current() === RenderTarget.canvas
+            if (enterEnabled && !isCanvas) {
                 try {
                     var cfg = store.getConfig()
                     var kf = store.getEnterKeyframes(enterPreset, cfg)
