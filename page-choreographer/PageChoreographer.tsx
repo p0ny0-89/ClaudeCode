@@ -92,16 +92,15 @@ function buildEnterKeyframes(t: TargetEntry) {
                 },
                 to: { opacity: "1", filter: "blur(0px)" },
             }
-        case "maskRevealX":
-            return {
-                from: { clipPath: "inset(0 100% 0 0)" },
-                to: { clipPath: "inset(0 0% 0 0)" },
+        case "maskReveal": {
+            var mFrom = "inset(0 100% 0 0)" // default: left to right
+            switch (t.maskDirection) {
+                case "right":  mFrom = "inset(0 0 0 100%)"; break
+                case "up":     mFrom = "inset(0 0 100% 0)"; break
+                case "down":   mFrom = "inset(100% 0 0 0)"; break
             }
-        case "maskRevealY":
-            return {
-                from: { clipPath: "inset(100% 0 0 0)" },
-                to: { clipPath: "inset(0% 0 0 0)" },
-            }
+            return { from: { clipPath: mFrom }, to: { clipPath: "inset(0 0 0 0)" } }
+        }
         case "fadeUp":
         default:
             return {
@@ -174,6 +173,15 @@ function buildExitKeyframes(t: TargetEntry) {
                 from: { opacity: "1", transform: "translateX(0px)" },
                 to: { opacity: "0", transform: "translateX(" + d + "px)" },
             }
+        case "maskOut": {
+            var mTo = "inset(0 0 0 100%)" // default: left to right
+            switch (t.maskDirection) {
+                case "right":  mTo = "inset(0 100% 0 0)"; break
+                case "up":     mTo = "inset(100% 0 0 0)"; break
+                case "down":   mTo = "inset(0 0 100% 0)"; break
+            }
+            return { from: { clipPath: "inset(0 0 0 0)" }, to: { clipPath: mTo } }
+        }
         case "scaleOut":
             return {
                 from: { opacity: "1", transform: "scale(1)" },
@@ -207,6 +215,7 @@ interface TargetEntry {
     easing: number[]
     staggerDirection: string
     distance: number
+    maskDirection: string
     blurAmount: number
     scaleFrom: number
     // Custom enter
@@ -859,6 +868,7 @@ export default function PageChoreographer(props: any) {
         easingPreset = "smooth",
         staggerDirection = "leftToRight",
         distance = 40,
+        maskDirection = "left",
         blurAmount = 8,
         scaleFrom = 0.92,
         exitTimeout = 3,
@@ -923,6 +933,7 @@ export default function PageChoreographer(props: any) {
                 easing: easing,
                 staggerDirection: staggerDirection,
                 distance: distance,
+                maskDirection: maskDirection,
                 blurAmount: blurAmount,
                 scaleFrom: scaleFrom,
                 enterOpacity: enterOpacity,
@@ -1040,7 +1051,7 @@ export default function PageChoreographer(props: any) {
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, delayOffset,
         mobileEnabled, duration, stagger,
-        easingPreset, staggerDirection, distance, blurAmount,
+        easingPreset, staggerDirection, distance, maskDirection, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
         enterScale, enterRotateX, enterRotateY, enterRotateZ,
@@ -1121,11 +1132,11 @@ addPropertyControls(PageChoreographer, {
         defaultValue: "fadeUp",
         options: [
             "fadeUp", "fadeDown", "fadeLeft", "fadeRight",
-            "maskRevealX", "maskRevealY", "scaleIn", "blurIn", "custom",
+            "maskReveal", "scaleIn", "blurIn", "custom",
         ],
         optionTitles: [
             "Fade Up", "Fade Down", "Fade Left", "Fade Right",
-            "Mask Reveal X", "Mask Reveal Y", "Scale In", "Blur In", "Custom",
+            "Mask Reveal", "Scale In", "Blur In", "Custom",
         ],
         hidden: function (props: any) { return props.enterEnabled === false },
     },
@@ -1250,11 +1261,11 @@ addPropertyControls(PageChoreographer, {
         defaultValue: "riseWave",
         options: [
             "riseWave", "fadeDown", "fadeLeft", "fadeRight",
-            "blurLift", "scaleFadeGrid", "scaleOut", "custom",
+            "maskOut", "blurLift", "scaleFadeGrid", "scaleOut", "custom",
         ],
         optionTitles: [
             "Rise Wave", "Fade Down", "Fade Left", "Fade Right",
-            "Blur Lift", "Scale Fade", "Scale Out", "Custom",
+            "Mask Out", "Blur Lift", "Scale Fade", "Scale Out", "Custom",
         ],
         hidden: function (props: any) { return props.exitEnabled === false },
     },
@@ -1424,6 +1435,16 @@ addPropertyControls(PageChoreographer, {
             var enterUsesDistance = directionalEnter.indexOf(props.enterPreset) !== -1
             var exitUsesDistance = directionalExit.indexOf(props.exitPreset) !== -1
             return !enterUsesDistance && !exitUsesDistance
+        },
+    },
+    maskDirection: {
+        type: ControlType.Enum,
+        title: "Mask Direction",
+        defaultValue: "left",
+        options: ["left", "right", "up", "down"],
+        optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top"],
+        hidden: function (props: any) {
+            return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
         },
     },
     blurAmount: {
