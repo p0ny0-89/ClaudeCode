@@ -1417,6 +1417,7 @@ addPropertyControls(PageChoreographer, {
         max: 500,
         step: 5,
         unit: "px",
+        description: "How far elements travel during directional animations.",
         hidden: function (props: any) {
             var directionalEnter = ["fadeUp", "fadeDown", "fadeLeft", "fadeRight"]
             var directionalExit = ["riseWave", "fadeDown", "fadeLeft", "fadeRight", "blurLift"]
@@ -1462,6 +1463,7 @@ addPropertyControls(PageChoreographer, {
         min: -10,
         max: 10,
         step: 1,
+        description: "Controls animation order across groups. Lower numbers animate first.",
     },
     delayOffset: {
         type: ControlType.Number,
