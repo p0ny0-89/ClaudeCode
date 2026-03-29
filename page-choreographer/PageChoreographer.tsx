@@ -776,6 +776,8 @@ function createStore() {
         registerTarget: registerTarget,
         unregisterTarget: unregisterTarget,
         getTargetCount: getTargetCount,
+        getAllTargets: getAllTargets,
+        sortTargets: sortTargets,
         playEnter: playEnter,
         playEnterGroup: playEnterGroup,
         resetGroup: resetGroup,
@@ -1004,6 +1006,7 @@ export default function PageChoreographer(props: any) {
         trigger = "onLoad",
         viewOffset = 100,
         viewRepeat = false,
+        scrollLength = 500,
         sortPriority = 0,
         priorityGap = 0,
         delayOffset = 0,
@@ -1190,6 +1193,114 @@ export default function PageChoreographer(props: any) {
             } catch (e) {}
         }
 
+        // ─── Scroll-scrub trigger ────────────────────────────────────────────
+        var scrollAnims: Animation[] = []
+        var scrollHandler: (() => void) | null = null
+        var origParentStyles: { position: string; top: string; zIndex: string } | null = null
+        var origGrandparentStyles: { minHeight: string } | null = null
+        var grandparentEl: HTMLElement | null = null
+
+        if (trigger === "onScroll" && parent) {
+            var gp = parent.parentElement as HTMLElement | null
+            grandparentEl = gp
+
+            if (gp) {
+                // Save original styles for cleanup
+                origParentStyles = {
+                    position: parent.style.position,
+                    top: parent.style.top,
+                    zIndex: parent.style.zIndex,
+                }
+                origGrandparentStyles = {
+                    minHeight: gp.style.minHeight,
+                }
+
+                // Make parent sticky and add scroll room to grandparent
+                parent.style.position = "sticky"
+                parent.style.top = "0px"
+                parent.style.zIndex = "1"
+                var parentHeight = parent.offsetHeight
+                gp.style.minHeight = (parentHeight + scrollLength) + "px"
+
+                // Build paused animations for all registered targets
+                var reduced =
+                    window.matchMedia &&
+                    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                var mobile = window.innerWidth < 768
+
+                var allTargets = store.getAllTargets().filter(function (t: any) {
+                    return t.groupId === baseId && t.enterEnabled &&
+                        (t.mobileEnabled || !mobile) && t.ref.current
+                })
+
+                var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
+                var sorted = store.sortTargets(allTargets, direction)
+
+                for (var si = 0; si < sorted.length; si++) {
+                    var target = sorted[si]
+                    var el = target.ref.current
+                    if (!el) continue
+
+                    var kf = reduced
+                        ? { from: { opacity: "0" }, to: { opacity: "1" } }
+                        : buildEnterKeyframes(target)
+
+                    var staggerVal = reduced ? 0 : target.stagger
+                    var itemDelay = staggerVal * si
+                    var dur = reduced ? 10 : target.duration * 1000
+                    // Total timeline = last item's delay + duration
+                    var totalTimeline = (staggerVal * (sorted.length - 1)) * 1000 + dur
+
+                    try {
+                        var scrollAnim = el.animate([kf.from, kf.to], {
+                            duration: dur,
+                            delay: itemDelay * 1000,
+                            easing: easingToCss(target.easing),
+                            fill: "both",
+                        })
+                        scrollAnim.pause()
+                        scrollAnims.push(scrollAnim)
+                    } catch (e) {}
+                }
+
+                // Calculate total timeline duration for progress mapping
+                var timelineDuration = 0
+                if (sorted.length > 0) {
+                    var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
+                    var lastDur = reduced ? 10 : sorted[0].duration * 1000
+                    timelineDuration = lastStagger * 1000 + lastDur
+                }
+
+                // Scroll handler — maps scroll position to animation progress
+                scrollHandler = function () {
+                    if (!gp) return
+                    var gpRect = gp.getBoundingClientRect()
+                    // Progress: 0 when grandparent top is at viewport top,
+                    // 1 when we've scrolled scrollLength pixels past that
+                    var progress = Math.max(0, Math.min(1, -gpRect.top / scrollLength))
+
+                    for (var a = 0; a < scrollAnims.length; a++) {
+                        try {
+                            var anim = scrollAnims[a]
+                            var timing = anim.effect && anim.effect.getComputedTiming
+                                ? anim.effect.getComputedTiming()
+                                : null
+                            var animDelay = timing ? (timing.delay || 0) : 0
+                            var animDur = timing ? (timing.duration || 600) : 600
+                            var animTotal = animDelay + (animDur as number)
+                            // Map global progress to per-animation time
+                            var time = progress * timelineDuration
+                            anim.currentTime = Math.max(0, Math.min(time - animDelay, animDur as number))
+                        } catch (e) {}
+                    }
+                }
+
+                window.addEventListener("scroll", scrollHandler, { passive: true })
+                // Set initial state
+                scrollHandler()
+            }
+        }
+
         return function () {
             if (mutObs) {
                 try { mutObs.disconnect() } catch (e) {}
@@ -1197,10 +1308,25 @@ export default function PageChoreographer(props: any) {
             if (intObs) {
                 try { intObs.disconnect() } catch (e) {}
             }
+            // Clean up scroll-scrub
+            if (scrollHandler) {
+                window.removeEventListener("scroll", scrollHandler)
+            }
+            for (var sa = 0; sa < scrollAnims.length; sa++) {
+                try { scrollAnims[sa].cancel() } catch (e) {}
+            }
+            if (origParentStyles && parent) {
+                parent.style.position = origParentStyles.position
+                parent.style.top = origParentStyles.top
+                parent.style.zIndex = origParentStyles.zIndex
+            }
+            if (origGrandparentStyles && grandparentEl) {
+                grandparentEl.style.minHeight = origGrandparentStyles.minHeight
+            }
             unregisterAll(getStore())
         }
     }, [
-        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat,
+        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
@@ -1264,8 +1390,19 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Enum,
         title: "Trigger",
         defaultValue: "onLoad",
-        options: ["onLoad", "inView"],
-        optionTitles: ["On Load", "In View"],
+        options: ["onLoad", "inView", "onScroll"],
+        optionTitles: ["On Load", "In View", "On Scroll"],
+    },
+    scrollLength: {
+        type: ControlType.Number,
+        title: "Scroll Length",
+        defaultValue: 500,
+        min: 100,
+        max: 5000,
+        step: 50,
+        unit: "px",
+        description: "How many pixels of scrolling to complete the animation. Section stays pinned during this distance.",
+        hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     viewOffset: {
         type: ControlType.Number,
