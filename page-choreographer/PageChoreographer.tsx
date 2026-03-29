@@ -1270,12 +1270,16 @@ export default function PageChoreographer(props: any) {
             var mobile = window.innerWidth < 768
 
             // Create paused WAAPI animations for scroll scrubbing
+            // Store final "to" styles per element for baking inline after scroll completes
+            var scrollAnimFinalStyles: Array<{ el: HTMLElement; to: Record<string, string> }> = []
+
             var createScrollAnims = function () {
                 // Cancel any existing animations first
                 for (var ca = 0; ca < scrollAnims.length; ca++) {
                     try { scrollAnims[ca].cancel() } catch (e) {}
                 }
                 scrollAnims = []
+                scrollAnimFinalStyles = []
                 timelineDuration = 0
 
                 var allTargets = store.getAllTargets().filter(function (t: any) {
@@ -1294,6 +1298,9 @@ export default function PageChoreographer(props: any) {
                     var kf = reduced
                         ? { from: { opacity: "0" }, to: { opacity: "1" } }
                         : buildEnterKeyframes(target)
+
+                    // Store final styles so we can bake them inline when done
+                    scrollAnimFinalStyles.push({ el: el, to: kf.to })
 
                     var staggerVal = reduced ? 0 : target.stagger
                     var itemDelay = staggerVal * si
@@ -1316,6 +1323,36 @@ export default function PageChoreographer(props: any) {
                     var lastDur = reduced ? 10 : sorted[0].duration * 1000
                     timelineDuration = lastStagger * 1000 + lastDur
                 }
+            }
+
+            // Bake final "to" styles inline then cancel WAAPI animations
+            // so the animation layer is removed and CSS :hover effects work
+            var bakeAndCancelAnims = function () {
+                // Set final styles as inline CSS
+                for (var bf = 0; bf < scrollAnimFinalStyles.length; bf++) {
+                    var item = scrollAnimFinalStyles[bf]
+                    var keys = Object.keys(item.to)
+                    for (var k = 0; k < keys.length; k++) {
+                        item.el.style.setProperty(keys[k], item.to[keys[k]])
+                    }
+                }
+                // Cancel WAAPI — removes animation layer, inline styles hold visible state
+                for (var ca = 0; ca < scrollAnims.length; ca++) {
+                    try { scrollAnims[ca].cancel() } catch (e) {}
+                }
+                scrollAnims = []
+            }
+
+            // Remove baked inline styles and re-create WAAPI animations
+            var unbakeAndRecreateAnims = function () {
+                for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
+                    var item = scrollAnimFinalStyles[ub]
+                    var keys = Object.keys(item.to)
+                    for (var k = 0; k < keys.length; k++) {
+                        item.el.style.removeProperty(keys[k])
+                    }
+                }
+                createScrollAnims()
             }
 
             var updateAnimProgress = function (progress: number) {
@@ -1349,7 +1386,9 @@ export default function PageChoreographer(props: any) {
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
                     // ── PINNED: fix parent to viewport top ──
                     if (scrollPinState.afterPin) {
+                        // Scrolling back from after-pin: re-create animations
                         scrollPinState.afterPin = false
+                        unbakeAndRecreateAnims()
                     }
                     if (!scrollPinState.pinned) {
                         scrollPinState.pinned = true
@@ -1367,7 +1406,9 @@ export default function PageChoreographer(props: any) {
                 } else if (scrollY < pinStart) {
                     // ── BEFORE PIN: restore to normal flow ──
                     if (scrollPinState.afterPin) {
+                        // Scrolling back from after-pin: re-create animations
                         scrollPinState.afterPin = false
+                        unbakeAndRecreateAnims()
                     }
                     if (scrollPinState.pinned) {
                         scrollPinState.pinned = false
@@ -1380,6 +1421,9 @@ export default function PageChoreographer(props: any) {
                     scrollPinState.pinned = false
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
+                        // Bake final styles inline then cancel WAAPI so the
+                        // animation layer is removed and CSS :hover effects work
+                        bakeAndCancelAnims()
                         // Position parent at bottom of wrapper
                         parent.style.setProperty("position", "absolute", "important")
                         parent.style.setProperty("bottom", "0px", "important")
@@ -1388,8 +1432,6 @@ export default function PageChoreographer(props: any) {
                         parent.style.setProperty("width", parentWidth + "px", "important")
                         parent.style.setProperty("height", parentHeight + "px", "important")
                     }
-                    // Hold animations at final state (fill:both keeps "to" styles)
-                    updateAnimProgress(1)
                 }
             }
 
