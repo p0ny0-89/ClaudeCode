@@ -1292,14 +1292,6 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer = spacer
             }
 
-            // DEBUG: remove after testing
-            console.log("[PageChoreographer] sectionGrew:", sectionGrew,
-                "gpHeight:", parentGP!.offsetHeight,
-                "neededHeight:", neededHeight,
-                "parentHeight:", parentHeight,
-                "scrollLength:", scrollLength,
-                "hasSpacer:", !!scrollSpacer)
-
             // In spacer mode (100vh sections), pin the entire section
             // so the background stays visible. The wrapper now has
             // display:flex mirroring the section, so children keep their
@@ -1511,11 +1503,6 @@ export default function PageChoreographer(props: any) {
                         pinEl.style.setProperty("width", pinElWidth + "px", "important")
                         pinEl.style.setProperty("height", pinElHeight + "px", "important")
                         pinEl.style.setProperty("z-index", "9999", "important")
-                        // DEBUG: remove after testing
-                        console.log("[PageChoreographer] PINNED pinEl:", pinEl.tagName,
-                            pinEl.className?.substring?.(0, 50),
-                            "pinStart:", pinStart, "pinEnd:", pinEnd,
-                            "scrollY:", scrollY, "isSpacer:", !!scrollSpacer)
                     }
 
                     var progress = (scrollY - pinStart) / scrollLength
