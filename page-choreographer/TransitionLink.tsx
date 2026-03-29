@@ -39,6 +39,7 @@ export default function TransitionLink(props: any) {
     } = props
 
     var isNavigating = React.useRef(false)
+    var skipNext = React.useRef(false)
 
     React.useEffect(function () {
         function findAnchor(target: EventTarget | null): HTMLAnchorElement | null {
@@ -84,7 +85,20 @@ export default function TransitionLink(props: any) {
             return true
         }
 
+        function navigateViaAnchor(anchor: HTMLAnchorElement) {
+            // Re-click the original anchor so Framer's router handles
+            // navigation natively (client-side routing, not full reload)
+            skipNext.current = true
+            anchor.click()
+        }
+
         function handleClick(e: MouseEvent) {
+            // Skip re-dispatched click from our own navigateViaAnchor
+            if (skipNext.current) {
+                skipNext.current = false
+                return
+            }
+
             // Skip if modifier keys held (open in new tab, etc.)
             if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
 
@@ -104,9 +118,8 @@ export default function TransitionLink(props: any) {
             if (!store || store.getTargetCount() === 0) return
 
             e.preventDefault()
+            e.stopPropagation()
             isNavigating.current = true
-
-            var destination = anchor.href
 
             // Race exit animation vs safety timeout
             Promise.race([
@@ -116,10 +129,10 @@ export default function TransitionLink(props: any) {
                 }),
             ])
                 .then(function () {
-                    window.location.href = destination
+                    navigateViaAnchor(anchor)
                 })
                 .catch(function () {
-                    window.location.href = destination
+                    navigateViaAnchor(anchor)
                 })
         }
 
