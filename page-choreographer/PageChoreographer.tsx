@@ -1369,13 +1369,22 @@ export default function PageChoreographer(props: any) {
                 // Spacer just needs scrollLength of scroll room
                 scrollSpacer.style.setProperty("height", scrollLength + "px")
 
-                // Check ancestors for overflow:clip/hidden that would clip
-                // the transform-pinned element
+                // Use position:sticky for jitter-free pinning.
+                // The browser's compositor handles sticky natively —
+                // no 1-frame lag like transform-based pinning.
+                sectionEl.style.setProperty("position", "sticky", "important")
+                sectionEl.style.setProperty("top", "0px", "important")
+                sectionEl.style.setProperty("z-index", "9999", "important")
+
+                // Override overflow:clip/hidden on ancestors — sticky
+                // requires overflow:visible on all ancestors between the
+                // sticky element and its scroll container.
                 var ancestor: HTMLElement | null = sectionEl.parentElement
                 while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
                     var ov = window.getComputedStyle(ancestor).overflow
                     if (ov === "clip" || ov === "hidden") {
                         overflowAncestors.push({ el: ancestor, orig: ov })
+                        ancestor.style.setProperty("overflow", "visible", "important")
                     }
                     ancestor = ancestor.parentElement
                 }
@@ -1538,11 +1547,12 @@ export default function PageChoreographer(props: any) {
             ensureScrollAnims()
             updateAnimProgress(0)
 
-            // ── Scroll handler (transform-based pinning) ──
-            // Uses translateY instead of position:fixed so pinning works
-            // even inside Framer's transform ancestors.
-            // Followers (second instance in same section) only scrub
-            // animations — the owner handles pinning.
+            // ── Scroll handler ──
+            // In spacer mode (sticky pinning), the browser handles pinning
+            // natively — we just scrub animation progress.
+            // In wrapper mode, we use translateY for pinning.
+            // Followers only scrub animations.
+            var usesStickyPin = !!scrollSpacer && !isFollower
             var handleScroll = function () {
                 if (!parent || !wrapper) return
 
@@ -1557,15 +1567,9 @@ export default function PageChoreographer(props: any) {
                         unbakeAndRecreateAnims()
                     }
 
-                    if (!isFollower) {
+                    // Transform-based pinning only for wrapper mode (non-sticky)
+                    if (!isFollower && !usesStickyPin) {
                         var offset = scrollY - pinStart
-                        if (!scrollPinState.pinned) {
-                            console.log("[choreo] ENTERING PIN scrollY:", scrollY, "pinStart:", pinStart, "offset:", offset, "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName, "MODE:", scrollSpacer ? "SPACER" : "WRAPPER", "isFollower:", isFollower)
-                            // Override overflow:clip/hidden on ancestors
-                            for (var oi = 0; oi < overflowAncestors.length; oi++) {
-                                overflowAncestors[oi].el.style.setProperty("overflow", "visible", "important")
-                            }
-                        }
                         pinEl.style.setProperty("transform", "translateY(" + offset + "px)", "important")
                         pinEl.style.setProperty("z-index", "9999", "important")
                     }
@@ -1587,30 +1591,22 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.afterPin = false
                         unbakeAndRecreateAnims()
                     }
-                    if (scrollPinState.pinned && !isFollower) {
+                    if (scrollPinState.pinned && !isFollower && !usesStickyPin) {
                         pinEl.style.removeProperty("transform")
                         pinEl.style.removeProperty("z-index")
-                        for (var oi2 = 0; oi2 < overflowAncestors.length; oi2++) {
-                            overflowAncestors[oi2].el.style.setProperty("overflow", overflowAncestors[oi2].orig)
-                        }
                     }
                     scrollPinState.pinned = false
                     updateAnimProgress(0)
 
                 } else {
                     // ── AFTER PIN ──
-                    if (!isFollower) {
+                    if (!isFollower && !usesStickyPin) {
                         pinEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
                         pinEl.style.removeProperty("z-index")
                     }
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
-                        if (!isFollower) {
-                            for (var oi3 = 0; oi3 < overflowAncestors.length; oi3++) {
-                                overflowAncestors[oi3].el.style.setProperty("overflow", overflowAncestors[oi3].orig)
-                            }
-                        }
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
                     }
@@ -1626,8 +1622,8 @@ export default function PageChoreographer(props: any) {
                 scrollResizeTimer = window.setTimeout(function () {
                     if (!wrapper || !parent) return
 
-                    // Remove transform for accurate measurement
-                    if (!isFollower) pinEl.style.removeProperty("transform")
+                    // Remove transform for accurate measurement (wrapper mode only)
+                    if (!isFollower && !usesStickyPin) pinEl.style.removeProperty("transform")
 
                     // Re-measure all dimensions
                     parentHeight = parent.offsetHeight
@@ -1720,6 +1716,10 @@ export default function PageChoreographer(props: any) {
             }
             if (scrollSectionEl && scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                 scrollSectionEl.removeAttribute("data-choreo-pin-owner")
+                // Remove sticky pinning styles
+                scrollSectionEl.style.removeProperty("position")
+                scrollSectionEl.style.removeProperty("top")
+                scrollSectionEl.style.removeProperty("z-index")
             }
             // Remove transform pinning and unwrap
             if (scrollPinEl) {
