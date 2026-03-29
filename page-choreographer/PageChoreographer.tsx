@@ -1196,133 +1196,155 @@ export default function PageChoreographer(props: any) {
         // ─── Scroll-scrub trigger ────────────────────────────────────────────
         var scrollAnims: Animation[] = []
         var scrollHandler: (() => void) | null = null
-        var origParentStyles: { position: string; top: string; zIndex: string } | null = null
-        var origGrandparentStyles: { minHeight: string } | null = null
-        var grandparentEl: HTMLElement | null = null
-        var overflowFixedEls: HTMLElement[] = []
+        var scrollSpacer: HTMLElement | null = null
+        var scrollPinState = { pinned: false, pinnedTop: 0, origStyles: "" }
 
         if (trigger === "onScroll" && parent) {
-            var gp = parent.parentElement as HTMLElement | null
-            grandparentEl = gp
+            // Lazy init flag — animations are created on first pin so elements
+            // stay visible on Framer canvas (where scroll never fires)
+            var scrollAnimsInitialized = false
+            var timelineDuration = 0
 
-            if (gp) {
-                // Save original styles for cleanup
-                origParentStyles = {
-                    position: parent.style.position,
-                    top: parent.style.top,
-                    zIndex: parent.style.zIndex,
-                }
-                origGrandparentStyles = {
-                    minHeight: gp.style.minHeight,
-                }
+            var initScrollAnims = function () {
+                if (scrollAnimsInitialized) return
+                scrollAnimsInitialized = true
 
-                // Make parent sticky and add scroll room to grandparent
-                // Use !important to override Framer's layout engine
-                parent.style.setProperty("position", "sticky", "important")
-                parent.style.setProperty("top", "0px", "important")
-                parent.style.setProperty("z-index", "1", "important")
-                var parentHeight = parent.offsetHeight
-                gp.style.setProperty("min-height", (parentHeight + scrollLength) + "px", "important")
+                var reduced =
+                    window.matchMedia &&
+                    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                var mobile = window.innerWidth < 768
 
-                // Sticky breaks if any ancestor has overflow: hidden/auto/scroll
-                // Walk up and fix overflow on ancestors up to body
-                var ancestor = gp.parentElement
-                while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
-                    var cs = window.getComputedStyle(ancestor)
-                    if (cs.overflow !== "visible" || cs.overflowX !== "visible" || cs.overflowY !== "visible") {
-                        overflowFixedEls.push(ancestor)
-                        ancestor.style.setProperty("overflow", "visible", "important")
-                    }
-                    ancestor = ancestor.parentElement
-                }
+                var allTargets = store.getAllTargets().filter(function (t: any) {
+                    return t.groupId === baseId && t.enterEnabled &&
+                        (t.mobileEnabled || !mobile) && t.ref.current
+                })
 
-                // Lazy init flag — animations are created on first scroll event
-                // This keeps elements visible on the Framer canvas where scroll
-                // events never fire, avoiding the invisible-on-canvas bug
-                var scrollAnimsInitialized = false
-                var timelineDuration = 0
+                var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
+                var sorted = store.sortTargets(allTargets, direction)
 
-                var initScrollAnims = function () {
-                    if (scrollAnimsInitialized) return
-                    scrollAnimsInitialized = true
+                for (var si = 0; si < sorted.length; si++) {
+                    var target = sorted[si]
+                    var el = target.ref.current
+                    if (!el) continue
 
-                    var reduced =
-                        window.matchMedia &&
-                        window.matchMedia("(prefers-reduced-motion: reduce)").matches
-                    var mobile = window.innerWidth < 768
+                    var kf = reduced
+                        ? { from: { opacity: "0" }, to: { opacity: "1" } }
+                        : buildEnterKeyframes(target)
 
-                    var allTargets = store.getAllTargets().filter(function (t: any) {
-                        return t.groupId === baseId && t.enterEnabled &&
-                            (t.mobileEnabled || !mobile) && t.ref.current
-                    })
+                    var staggerVal = reduced ? 0 : target.stagger
+                    var itemDelay = staggerVal * si
+                    var dur = reduced ? 10 : target.duration * 1000
 
-                    var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
-                    var sorted = store.sortTargets(allTargets, direction)
-
-                    for (var si = 0; si < sorted.length; si++) {
-                        var target = sorted[si]
-                        var el = target.ref.current
-                        if (!el) continue
-
-                        var kf = reduced
-                            ? { from: { opacity: "0" }, to: { opacity: "1" } }
-                            : buildEnterKeyframes(target)
-
-                        var staggerVal = reduced ? 0 : target.stagger
-                        var itemDelay = staggerVal * si
-                        var dur = reduced ? 10 : target.duration * 1000
-
-                        try {
-                            var scrollAnim = el.animate([kf.from, kf.to], {
-                                duration: dur,
-                                delay: itemDelay * 1000,
-                                easing: easingToCss(target.easing),
-                                fill: "both",
-                            })
-                            scrollAnim.pause()
-                            scrollAnims.push(scrollAnim)
-                        } catch (e) {}
-                    }
-
-                    // Calculate total timeline duration for progress mapping
-                    if (sorted.length > 0) {
-                        var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
-                        var lastDur = reduced ? 10 : sorted[0].duration * 1000
-                        timelineDuration = lastStagger * 1000 + lastDur
-                    }
+                    try {
+                        var scrollAnim = el.animate([kf.from, kf.to], {
+                            duration: dur,
+                            delay: itemDelay * 1000,
+                            easing: easingToCss(target.easing),
+                            fill: "both",
+                        })
+                        scrollAnim.pause()
+                        scrollAnims.push(scrollAnim)
+                    } catch (e) {}
                 }
 
-                // Scroll handler — maps scroll position to animation progress
-                scrollHandler = function () {
-                    if (!gp) return
-
-                    // Lazy-create animations on first scroll so elements stay
-                    // visible on Framer canvas (where scroll never fires)
-                    initScrollAnims()
-
-                    var gpRect = gp.getBoundingClientRect()
-                    // Progress: 0 when grandparent top reaches viewport top
-                    // (section is pinned via sticky), 1 after scrolling
-                    // scrollLength pixels while pinned
-                    var progress = Math.max(0, Math.min(1, -gpRect.top / scrollLength))
-
-                    for (var a = 0; a < scrollAnims.length; a++) {
-                        try {
-                            var anim = scrollAnims[a]
-                            var timing = anim.effect && anim.effect.getComputedTiming
-                                ? anim.effect.getComputedTiming()
-                                : null
-                            var animDelay = timing ? (timing.delay || 0) : 0
-                            var animDur = timing ? (timing.duration || 600) : 600
-                            // Map global progress to per-animation time
-                            var time = progress * timelineDuration
-                            anim.currentTime = Math.max(0, Math.min(time - animDelay, animDur as number))
-                        } catch (e) {}
-                    }
+                // Calculate total timeline duration for progress mapping
+                if (sorted.length > 0) {
+                    var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
+                    var lastDur = reduced ? 10 : sorted[0].duration * 1000
+                    timelineDuration = lastStagger * 1000 + lastDur
                 }
-
-                window.addEventListener("scroll", scrollHandler, { passive: true })
             }
+
+            // Measure parent's natural position in the document flow
+            var parentRect = parent.getBoundingClientRect()
+            var parentOffsetTop = parentRect.top + window.scrollY
+            var parentHeight = parent.offsetHeight
+            var parentWidth = parent.offsetWidth
+
+            // Create a spacer element that holds the total scroll space
+            // (section height + scroll distance for the animation)
+            scrollSpacer = document.createElement("div")
+            scrollSpacer.style.cssText =
+                "width:0;height:" + (parentHeight + scrollLength) + "px;" +
+                "margin:0;padding:0;border:0;visibility:hidden;pointer-events:none;" +
+                "position:relative;flex-shrink:0;"
+            // Insert spacer right after the parent so it creates scroll room
+            if (parent.nextSibling) {
+                parent.parentElement!.insertBefore(scrollSpacer, parent.nextSibling)
+            } else {
+                parent.parentElement!.appendChild(scrollSpacer)
+            }
+
+            // Track the scroll position where pinning should start
+            // (when parent's top edge reaches viewport top)
+            var pinStart = parentOffsetTop
+            var pinEnd = pinStart + scrollLength
+
+            var updateAnimProgress = function (progress: number) {
+                for (var a = 0; a < scrollAnims.length; a++) {
+                    try {
+                        var anim = scrollAnims[a]
+                        var timing = anim.effect && anim.effect.getComputedTiming
+                            ? anim.effect.getComputedTiming()
+                            : null
+                        var animDelay = timing ? (timing.delay || 0) : 0
+                        var animDur = timing ? (timing.duration || 600) : 600
+                        var time = progress * timelineDuration
+                        anim.currentTime = Math.max(0, Math.min(time - animDelay, animDur as number))
+                    } catch (e) {}
+                }
+            }
+
+            // Save parent's original cssText for cleanup
+            scrollPinState.origStyles = parent.style.cssText
+
+            scrollHandler = function () {
+                var scrollY = window.scrollY
+
+                if (scrollY >= pinStart && scrollY <= pinEnd) {
+                    // ── PINNED: fix parent to viewport top ──
+                    if (!scrollPinState.pinned) {
+                        scrollPinState.pinned = true
+                        var rect = parent.getBoundingClientRect()
+                        parent.style.setProperty("position", "fixed", "important")
+                        parent.style.setProperty("top", "0px", "important")
+                        parent.style.setProperty("left", rect.left + "px", "important")
+                        parent.style.setProperty("width", parentWidth + "px", "important")
+                        parent.style.setProperty("z-index", "9999", "important")
+                        // Initialize animations on first pin
+                        initScrollAnims()
+                    }
+                    // Map scroll progress through the pin range
+                    var progress = (scrollY - pinStart) / scrollLength
+                    updateAnimProgress(Math.max(0, Math.min(1, progress)))
+
+                } else if (scrollY < pinStart) {
+                    // ── BEFORE PIN: restore to normal flow ──
+                    if (scrollPinState.pinned) {
+                        scrollPinState.pinned = false
+                        parent.style.cssText = scrollPinState.origStyles
+                    }
+                    // Ensure animations at start state if they've been created
+                    if (scrollAnimsInitialized) {
+                        updateAnimProgress(0)
+                    }
+
+                } else {
+                    // ── AFTER PIN: restore and show final state ──
+                    if (scrollPinState.pinned) {
+                        scrollPinState.pinned = false
+                        parent.style.cssText = scrollPinState.origStyles
+                    }
+                    // Ensure animations at end state
+                    if (scrollAnimsInitialized) {
+                        updateAnimProgress(1)
+                    }
+                }
+            }
+
+            window.addEventListener("scroll", scrollHandler, { passive: true })
+            // Run once to set correct initial state
+            scrollHandler()
         }
 
         return function () {
@@ -1339,33 +1361,11 @@ export default function PageChoreographer(props: any) {
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
             }
-            if (origParentStyles && parent) {
-                if (origParentStyles.position) {
-                    parent.style.setProperty("position", origParentStyles.position)
-                } else {
-                    parent.style.removeProperty("position")
-                }
-                if (origParentStyles.top) {
-                    parent.style.setProperty("top", origParentStyles.top)
-                } else {
-                    parent.style.removeProperty("top")
-                }
-                if (origParentStyles.zIndex) {
-                    parent.style.setProperty("z-index", origParentStyles.zIndex)
-                } else {
-                    parent.style.removeProperty("z-index")
-                }
+            if (scrollSpacer && scrollSpacer.parentElement) {
+                scrollSpacer.parentElement.removeChild(scrollSpacer)
             }
-            if (origGrandparentStyles && grandparentEl) {
-                if (origGrandparentStyles.minHeight) {
-                    grandparentEl.style.setProperty("min-height", origGrandparentStyles.minHeight)
-                } else {
-                    grandparentEl.style.removeProperty("min-height")
-                }
-            }
-            // Restore overflow on ancestors
-            for (var ofi = 0; ofi < overflowFixedEls.length; ofi++) {
-                overflowFixedEls[ofi].style.removeProperty("overflow")
+            if (scrollPinState.pinned && parent) {
+                parent.style.cssText = scrollPinState.origStyles
             }
             unregisterAll(getStore())
         }
