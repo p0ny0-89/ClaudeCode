@@ -60,12 +60,14 @@ function findRealParent(marker: HTMLElement): HTMLElement | null {
 
 // ─── Collect target elements ─────────────────────────────────────────────────
 
-function isMarkerOrWrapper(el: HTMLElement, marker: HTMLElement): boolean {
+// Check if an element IS the marker or is a Framer wrapper around it.
+function isMarkerBranch(el: HTMLElement, marker: HTMLElement): boolean {
     return el === marker || el.contains(marker)
 }
 
-// Walk the entire subtree to find the node with the most direct children.
-// This is the CMS collection list, regardless of how deeply Framer nests it.
+// Walk the subtree to find the node with the most content children.
+// Skips the branch that contains the TransitionTarget marker but walks
+// everything else. This finds the CMS collection list node.
 function findNodeWithMostChildren(
     root: HTMLElement,
     marker: HTMLElement
@@ -74,16 +76,25 @@ function findNodeWithMostChildren(
     var bestCount = 0
 
     function walk(node: HTMLElement) {
-        if (isMarkerOrWrapper(node, marker)) return
+        // Count children that are NOT the marker branch
+        var contentCount = 0
+        for (var i = 0; i < node.children.length; i++) {
+            if (!isMarkerBranch(node.children[i] as HTMLElement, marker)) {
+                contentCount++
+            }
+        }
 
-        // Only consider nodes with 2+ children as candidates
-        if (node.children.length >= 2 && node.children.length > bestCount) {
-            bestCount = node.children.length
+        if (contentCount >= 2 && contentCount > bestCount) {
+            bestCount = contentCount
             best = node
         }
 
-        for (var i = 0; i < node.children.length; i++) {
-            walk(node.children[i] as HTMLElement)
+        // Recurse into children, but skip the marker branch
+        for (var j = 0; j < node.children.length; j++) {
+            var child = node.children[j] as HTMLElement
+            if (!isMarkerBranch(child, marker)) {
+                walk(child)
+            }
         }
     }
 
@@ -105,16 +116,17 @@ function collectTargets(
 
         if (listNode) {
             for (var j = 0; j < listNode.children.length; j++) {
-                targets.push(listNode.children[j] as HTMLElement)
+                var child = listNode.children[j] as HTMLElement
+                if (!isMarkerBranch(child, marker)) {
+                    targets.push(child)
+                }
             }
         }
-
-        targets = targets
     } else {
         // Siblings mode: all children except the marker wrapper
         for (var k = 0; k < parent.children.length; k++) {
             var el = parent.children[k] as HTMLElement
-            if (isMarkerOrWrapper(el, marker)) continue
+            if (isMarkerBranch(el, marker)) continue
             targets.push(el)
         }
     }
@@ -210,7 +222,7 @@ export default function TransitionTarget(props: any) {
             // Also observe the collection wrapper for CMS item changes
             for (var i = 0; i < parent.children.length; i++) {
                 var ch = parent.children[i] as HTMLElement
-                if (isMarkerOrWrapper(ch, marker)) continue
+                if (isMarkerBranch(ch, marker)) continue
                 if (ch.children.length > 1) {
                     observeTarget = ch
                     break
