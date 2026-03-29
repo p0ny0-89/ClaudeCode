@@ -1221,7 +1221,7 @@ export default function PageChoreographer(props: any) {
         var scrollWrapper: HTMLElement | null = null
         var scrollSetupRaf = 0
         var scrollResizeObs: ResizeObserver | null = null
-        var scrollPinState = { pinned: false, afterPin: false, completed: false, onceFinalized: false, origStyles: "" }
+        var scrollPinState = { afterPin: false, completed: false, onceFinalized: false, origStyles: "" }
 
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
 
@@ -1267,16 +1267,22 @@ export default function PageChoreographer(props: any) {
             // Parent lost its flex/grid sizing context — give it explicit dimensions
             parent.style.setProperty("width", parentWidth + "px")
             parent.style.setProperty("height", parentHeight + "px")
+            // Use CSS sticky — the browser handles pin/unpin transitions
+            // natively with zero visual jumps. Works because parent is now
+            // inside our wrapper (position:relative), not Framer's layout.
+            parent.style.setProperty("position", "sticky", "important")
+            parent.style.setProperty("top", "0px", "important")
+            parent.style.setProperty("z-index", "9999", "important")
 
             // Measure pin range after wrapper is in the DOM
             var pinStart = wrapper.getBoundingClientRect().top + window.scrollY
             var pinEnd = pinStart + scrollLength
 
             // Re-measure when parent size changes (CMS images loading, etc.)
-            // Skip during pin/afterPin to avoid mid-scroll jumps
             var remeasure = function () {
                 if (!wrapper || !parent) return
-                if (scrollPinState.pinned || scrollPinState.afterPin) return
+                // Don't remeasure during active scroll animation
+                if (scrollPinState.afterPin) return
                 var newHeight = parent.scrollHeight || parent.offsetHeight
                 var newWidth = parent.offsetWidth
                 if (newHeight !== parentHeight || newWidth !== parentWidth) {
@@ -1417,19 +1423,20 @@ export default function PageChoreographer(props: any) {
             // Create animations now — elements start in "from" state
             ensureScrollAnims()
 
-            // Main scroll handler
+            // Main scroll handler — only manages animation progress,
+            // CSS sticky handles all position transitions natively
             var handleScroll = function () {
                 if (!parent || !wrapper) return
 
                 if (scrollOnce && scrollPinState.completed) {
                     if (!scrollPinState.onceFinalized) {
                         scrollPinState.onceFinalized = true
-                        scrollPinState.pinned = false
                         scrollPinState.afterPin = false
+                        // Collapse wrapper and remove sticky
                         wrapper.style.setProperty("height", parentHeight + "px")
-                        parent.style.cssText = scrollPinState.origStyles
-                        parent.style.setProperty("width", parentWidth + "px")
-                        parent.style.setProperty("height", parentHeight + "px")
+                        parent.style.removeProperty("position")
+                        parent.style.removeProperty("top")
+                        parent.style.removeProperty("z-index")
                         destroyScrollAnims()
                     }
                     return
@@ -1438,52 +1445,29 @@ export default function PageChoreographer(props: any) {
                 var scrollY = window.scrollY
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
+                    // ── IN PIN RANGE: drive animation by scroll progress ──
                     ensureScrollAnims()
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
                         unbakeAndRecreateAnims()
                     }
-                    if (!scrollPinState.pinned) {
-                        scrollPinState.pinned = true
-                        var wrapRect = wrapper.getBoundingClientRect()
-                        parent.style.setProperty("position", "fixed", "important")
-                        parent.style.setProperty("top", "0px", "important")
-                        parent.style.setProperty("left", wrapRect.left + "px", "important")
-                        parent.style.setProperty("width", parentWidth + "px", "important")
-                        parent.style.setProperty("height", parentHeight + "px", "important")
-                        parent.style.setProperty("z-index", "9999", "important")
-                    }
                     var progress = (scrollY - pinStart) / scrollLength
                     updateAnimProgress(Math.max(0, Math.min(1, progress)))
 
                 } else if (scrollY < pinStart) {
+                    // ── BEFORE PIN: keep at progress 0 ──
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
                         unbakeAndRecreateAnims()
                     }
-                    if (scrollPinState.pinned) {
-                        scrollPinState.pinned = false
-                        parent.style.cssText = scrollPinState.origStyles
-                        parent.style.setProperty("width", parentWidth + "px")
-                        parent.style.setProperty("height", parentHeight + "px")
-                    }
                     updateAnimProgress(0)
 
                 } else {
-                    scrollPinState.pinned = false
+                    // ── AFTER PIN: bake at 100% for hover support ──
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
-                        // Ensure animation reaches exactly 100% before baking
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
-                        // Use top instead of bottom — places parent at exactly
-                        // scrollLength from wrapper top (same visual position as fixed:top:0)
-                        parent.style.setProperty("position", "absolute", "important")
-                        parent.style.setProperty("top", scrollLength + "px", "important")
-                        parent.style.setProperty("bottom", "auto", "important")
-                        parent.style.setProperty("left", "0px", "important")
-                        parent.style.setProperty("width", parentWidth + "px", "important")
-                        parent.style.setProperty("height", parentHeight + "px", "important")
                         if (scrollOnce) {
                             scrollPinState.completed = true
                         }
