@@ -1532,7 +1532,7 @@ export default function PageChoreographer(props: any) {
                     try { scrollAnims[ca].cancel() } catch (e) {}
                 }
                 scrollAnims = []
-                bakedIndices = {}
+                releasedIndices = {}
             }
 
             var unbakeAndRecreateAnims = function () {
@@ -1543,6 +1543,7 @@ export default function PageChoreographer(props: any) {
                         item.el.style.removeProperty(keys[k])
                     }
                 }
+                releasedIndices = {}
                 scrollAnimsCreated = false
                 ensureScrollAnims()
             }
@@ -1596,12 +1597,14 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Per-element animation baking: when an individual element's
-            // animation reaches 100%, cancel JUST that animation and apply
-            // its final styles as inline CSS. This frees the element from the
-            // Web Animation's fill:both override, allowing CSS :hover effects
-            // to work. When scrolling back, unbake and recreate the animation.
-            var bakedIndices: Record<number, boolean> = {}
+            // Per-element animation release: when an individual element's
+            // animation reaches 100%, cancel it WITHOUT setting any inline
+            // styles. The element reverts to its natural CSS state (which IS
+            // the animation's final frame: full opacity, no transform, no clip).
+            // With no active animation AND no conflicting inline styles,
+            // Framer's hover system (whileHover / inline style manipulation)
+            // can freely control the element.
+            var releasedIndices: Record<number, boolean> = {}
 
             var updateInteractivity = function (progress: number) {
                 for (var ai = 0; ai < scrollAnims.length; ai++) {
@@ -1609,39 +1612,46 @@ export default function PageChoreographer(props: any) {
                         var anim = scrollAnims[ai]
                         var finalStyle = scrollAnimFinalStyles[ai]
                         if (!anim || !finalStyle) continue
-                        var at = anim.effect && anim.effect.getComputedTiming
-                            ? anim.effect.getComputedTiming() : null
-                        var aDelay = at ? (at.delay || 0) : 0
-                        var aDur = at ? (at.duration || 600) : 600
-                        var aTime = (anim.currentTime || 0) as number
-                        var elEnd = aDelay + (aDur as number)
-                        var isBaked = bakedIndices[ai]
 
-                        if (!isBaked && aTime >= elEnd * 0.98) {
-                            // Element animation complete — bake & cancel to free hover
-                            bakedIndices[ai] = true
-                            var keys = Object.keys(finalStyle.to)
-                            for (var k = 0; k < keys.length; k++) {
-                                finalStyle.el.style.setProperty(keys[k], finalStyle.to[keys[k]])
+                        var isReleased = releasedIndices[ai]
+
+                        if (!isReleased) {
+                            var at = anim.effect && anim.effect.getComputedTiming
+                                ? anim.effect.getComputedTiming() : null
+                            var aDelay = at ? (at.delay || 0) : 0
+                            var aDur = at ? (at.duration || 600) : 600
+                            var aTime = (anim.currentTime || 0) as number
+                            var elEnd = aDelay + (aDur as number)
+
+                            if (aTime >= elEnd * 0.98) {
+                                // Animation complete — cancel without baking.
+                                // Element reverts to CSS state = final frame.
+                                releasedIndices[ai] = true
+                                try { anim.cancel() } catch (e) {}
                             }
-                            try { anim.cancel() } catch (e) {}
-                        } else if (isBaked && aTime < elEnd * 0.9) {
-                            // Scrolled back — unbake: remove inline styles, recreate anim
-                            bakedIndices[ai] = false
-                            var ukeys = Object.keys(finalStyle.to)
-                            for (var uk = 0; uk < ukeys.length; uk++) {
-                                finalStyle.el.style.removeProperty(ukeys[uk])
-                            }
-                            // The animation was canceled; we need to recreate all anims
-                            // to get this element animating again. Flag for rebuild.
-                            scrollAnimsCreated = false
-                            bakedIndices = {}
-                            ensureScrollAnims()
-                            // Re-scrub to current progress
-                            updateAnimProgress(progress)
-                            return // exit since scrollAnims array was rebuilt
                         }
                     } catch (e) {}
+                }
+            }
+
+            // When scrolling back, we need to recreate all animations.
+            // This is handled by unbakeAndRecreateAnims which is already
+            // called when transitioning from afterPin back to pinned zone.
+            // For mid-animation scroll-back, detect and rebuild:
+            var checkScrollBack = function (progress: number) {
+                var anyReleased = false
+                for (var ri in releasedIndices) {
+                    if (releasedIndices[ri]) { anyReleased = true; break }
+                }
+                if (!anyReleased) return
+
+                // Check if progress has dropped enough to need re-animation
+                // If overall progress < 0.95, recreate all animations
+                if (progress < 0.95) {
+                    releasedIndices = {}
+                    scrollAnimsCreated = false
+                    ensureScrollAnims()
+                    updateAnimProgress(progress)
                 }
             }
 
@@ -1711,6 +1721,7 @@ export default function PageChoreographer(props: any) {
                     var progress = (scrollY - pinStart) / scrollLength
                     var clampedProgress = Math.max(0, Math.min(1, progress))
                     revealIfNeeded(clampedProgress)
+                    checkScrollBack(clampedProgress)
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
                     updateViewportClip()
@@ -1731,6 +1742,7 @@ export default function PageChoreographer(props: any) {
                         unbakeAndRecreateAnims()
                     }
                     scrollPinState.pinned = false
+                    checkScrollBack(0)
                     updateAnimProgress(0)
                     updateInteractivity(0)
                     updateViewportClip()
