@@ -1561,11 +1561,11 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Number,
         title: "Priority Gap",
         defaultValue: 0,
-        min: 0,
+        min: -3,
         max: 5,
         step: 0.05,
         unit: "s",
-        description: "Extra pause between priority groups before the next one starts.",
+        description: "Pause between priority groups. Negative values create overlap.",
     },
     delayOffset: {
         type: ControlType.Number,
