@@ -1144,7 +1144,7 @@ export default function PageChoreographer(props: any) {
         // Uses visibility:hidden which doesn't interfere with WAAPI animations
         // and is cleanly removed when the animation starts.
         var preHiddenEls: HTMLElement[] = []
-        if ((trigger === "inView" || trigger === "onLoad") && enterEnabled &&
+        if ((trigger === "inView" || trigger === "onLoad" || trigger === "onScroll") && enterEnabled &&
             RenderTarget.current() !== RenderTarget.canvas) {
             for (var phi = 0; phi < targets.length; phi++) {
                 var phEl = targets[phi]
@@ -1425,8 +1425,10 @@ export default function PageChoreographer(props: any) {
                 if (scrollAnimsCreated) return
                 scrollAnimsCreated = true
                 createScrollAnims()
-                // Don't call updateAnimProgress(0) — let the scroll handler
-                // set the correct progress immediately after creation
+                // Remove visibility:hidden — WAAPI fill:both now controls visibility
+                for (var ph = 0; ph < preHiddenEls.length; ph++) {
+                    preHiddenEls[ph].style.removeProperty("visibility")
+                }
             }
 
             var destroyScrollAnims = function () {
