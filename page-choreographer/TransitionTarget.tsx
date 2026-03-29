@@ -578,7 +578,7 @@ function useStableGroupId() {
     return ref.current
 }
 
-export default function TransitionTarget(props: any) {
+export default function PageChoreographer(props: any) {
     var {
         scanMode = "cmsItems",
         group = "default",
@@ -726,11 +726,11 @@ export default function TransitionTarget(props: any) {
     )
 }
 
-TransitionTarget.displayName = "Transition Target"
+PageChoreographer.displayName = "Page Choreographer"
 
 // ─── Property Controls ───────────────────────────────────────────────────────
 
-addPropertyControls(TransitionTarget, {
+addPropertyControls(PageChoreographer, {
     scanMode: {
         type: ControlType.Enum,
         title: "Scan Mode",
