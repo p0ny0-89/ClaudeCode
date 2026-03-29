@@ -244,32 +244,27 @@ function createStore() {
             var delay = stagger * i + target.delayOffset
             var dur = reduced ? 10 : config.duration * 1000
 
-            // Set initial hidden state
-            for (var k in kf.from) {
-                ;(el.style as any)[k] = (kf.from as any)[k]
-            }
-
-            var anim = el.animate([kf.from, kf.to], {
-                duration: dur,
-                delay: delay * 1000,
-                easing: easingToCss(config.easing),
-                fill: "forwards",
-            })
-            activeAnims.push(anim)
-
-            promises.push(
-                anim.finished.then(function () {
-                    // Cancel the WAAPI animation layer so CSS hover effects work
-                    try { anim.cancel() } catch (e) {}
-                    // Clear inline styles so Framer layout takes over
-                    for (var k in kf.to) {
-                        ;(el.style as any)[k] = ""
-                    }
-                    for (var k in kf.from) {
-                        ;(el.style as any)[k] = ""
-                    }
+            // Use fill:"both" so the animation layer handles the initial
+            // hidden state — no inline styles needed. If WAAPI doesn't
+            // run (e.g. Framer canvas static render), elements stay visible.
+            try {
+                var anim = el.animate([kf.from, kf.to], {
+                    duration: dur,
+                    delay: delay * 1000,
+                    easing: easingToCss(config.easing),
+                    fill: "both",
                 })
-            )
+                activeAnims.push(anim)
+
+                promises.push(
+                    anim.finished.then(function () {
+                        // Cancel the WAAPI animation layer so CSS hover effects work
+                        try { anim.cancel() } catch (e) {}
+                    })
+                )
+            } catch (e) {
+                // WAAPI not available — element stays visible as-is
+            }
         })
 
         return Promise.all(promises).then(function () {
