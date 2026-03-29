@@ -1246,49 +1246,67 @@ export default function PageChoreographer(props: any) {
             var pinStart = wrapperOffsetTop
             var pinEnd = pinStart + scrollLength
 
-            // ── Create animations immediately so elements start in "from" state ──
+            // ── Animation creation/destruction ──
             var reduced =
                 window.matchMedia &&
                 window.matchMedia("(prefers-reduced-motion: reduce)").matches
             var mobile = window.innerWidth < 768
 
-            var allTargets = store.getAllTargets().filter(function (t: any) {
-                return t.groupId === baseId && t.enterEnabled &&
-                    (t.mobileEnabled || !mobile) && t.ref.current
-            })
+            // Create paused WAAPI animations for scroll scrubbing
+            var createScrollAnims = function () {
+                // Cancel any existing animations first
+                for (var ca = 0; ca < scrollAnims.length; ca++) {
+                    try { scrollAnims[ca].cancel() } catch (e) {}
+                }
+                scrollAnims = []
+                timelineDuration = 0
 
-            var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
-            var sorted = store.sortTargets(allTargets, direction)
+                var allTargets = store.getAllTargets().filter(function (t: any) {
+                    return t.groupId === baseId && t.enterEnabled &&
+                        (t.mobileEnabled || !mobile) && t.ref.current
+                })
 
-            for (var si = 0; si < sorted.length; si++) {
-                var target = sorted[si]
-                var el = target.ref.current
-                if (!el) continue
+                var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
+                var sorted = store.sortTargets(allTargets, direction)
 
-                var kf = reduced
-                    ? { from: { opacity: "0" }, to: { opacity: "1" } }
-                    : buildEnterKeyframes(target)
+                for (var si = 0; si < sorted.length; si++) {
+                    var target = sorted[si]
+                    var el = target.ref.current
+                    if (!el) continue
 
-                var staggerVal = reduced ? 0 : target.stagger
-                var itemDelay = staggerVal * si
-                var dur = reduced ? 10 : target.duration * 1000
+                    var kf = reduced
+                        ? { from: { opacity: "0" }, to: { opacity: "1" } }
+                        : buildEnterKeyframes(target)
 
-                try {
-                    var scrollAnim = el.animate([kf.from, kf.to], {
-                        duration: dur,
-                        delay: itemDelay * 1000,
-                        easing: easingToCss(target.easing),
-                        fill: "both",
-                    })
-                    scrollAnim.pause()
-                    scrollAnims.push(scrollAnim)
-                } catch (e) {}
+                    var staggerVal = reduced ? 0 : target.stagger
+                    var itemDelay = staggerVal * si
+                    var dur = reduced ? 10 : target.duration * 1000
+
+                    try {
+                        var scrollAnim = el.animate([kf.from, kf.to], {
+                            duration: dur,
+                            delay: itemDelay * 1000,
+                            easing: easingToCss(target.easing),
+                            fill: "both",
+                        })
+                        scrollAnim.pause()
+                        scrollAnims.push(scrollAnim)
+                    } catch (e) {}
+                }
+
+                if (sorted.length > 0) {
+                    var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
+                    var lastDur = reduced ? 10 : sorted[0].duration * 1000
+                    timelineDuration = lastStagger * 1000 + lastDur
+                }
             }
 
-            if (sorted.length > 0) {
-                var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
-                var lastDur = reduced ? 10 : sorted[0].duration * 1000
-                timelineDuration = lastStagger * 1000 + lastDur
+            // Cancel all animations — elements return to their natural CSS state
+            var cancelScrollAnims = function () {
+                for (var ca = 0; ca < scrollAnims.length; ca++) {
+                    try { scrollAnims[ca].cancel() } catch (e) {}
+                }
+                scrollAnims = []
             }
 
             var updateAnimProgress = function (progress: number) {
@@ -1306,7 +1324,8 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Set initial state — animations at progress 0 (elements in "from" state)
+            // Create animations immediately so elements start in "from" state
+            createScrollAnims()
             updateAnimProgress(0)
 
             // Main scroll handler
@@ -1316,7 +1335,11 @@ export default function PageChoreographer(props: any) {
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
                     // ── PINNED: fix parent to viewport top ──
-                    scrollPinState.afterPin = false
+                    if (scrollPinState.afterPin) {
+                        // Scrolling back up from after-pin: re-create animations
+                        scrollPinState.afterPin = false
+                        createScrollAnims()
+                    }
                     if (!scrollPinState.pinned) {
                         scrollPinState.pinned = true
                         var wrapRect = wrapper.getBoundingClientRect()
@@ -1332,9 +1355,13 @@ export default function PageChoreographer(props: any) {
 
                 } else if (scrollY < pinStart) {
                     // ── BEFORE PIN: restore to normal flow ──
-                    if (scrollPinState.pinned || scrollPinState.afterPin) {
-                        scrollPinState.pinned = false
+                    if (scrollPinState.afterPin) {
+                        // Scrolling back from after-pin through pin range to before
                         scrollPinState.afterPin = false
+                        createScrollAnims()
+                    }
+                    if (scrollPinState.pinned) {
+                        scrollPinState.pinned = false
                         parent.style.cssText = scrollPinState.origStyles
                     }
                     updateAnimProgress(0)
@@ -1344,6 +1371,10 @@ export default function PageChoreographer(props: any) {
                     scrollPinState.pinned = false
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
+                        // Cancel WAAPI animations — elements return to their
+                        // natural visible CSS state (no transform, full opacity)
+                        cancelScrollAnims()
+                        // Position parent at bottom of wrapper
                         parent.style.setProperty("position", "absolute", "important")
                         parent.style.setProperty("bottom", "0px", "important")
                         parent.style.setProperty("left", "0px", "important")
@@ -1351,7 +1382,6 @@ export default function PageChoreographer(props: any) {
                         parent.style.setProperty("width", parentWidth + "px", "important")
                         parent.style.setProperty("height", parentHeight + "px", "important")
                     }
-                    updateAnimProgress(1)
                 }
             }
 
