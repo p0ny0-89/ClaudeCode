@@ -1272,7 +1272,7 @@ export default function PageChoreographer(props: any) {
                     wrapper.style.setProperty("grid-row", parentCS.gridRow)
                 }
                 wrapper.style.setProperty("position", "relative")
-                wrapper.style.setProperty("width", parentWidth + "px")
+                wrapper.style.setProperty("width", "100%")
                 wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
                 wrapper.style.setProperty("flex", "0 0 auto", "important")
                 wrapper.style.setProperty("overflow", "visible")
@@ -1303,7 +1303,6 @@ export default function PageChoreographer(props: any) {
                 if (newHeight !== parentHeight || newWidth !== parentWidth) {
                     parentHeight = newHeight
                     parentWidth = newWidth
-                    wrapper.style.setProperty("width", parentWidth + "px")
                     wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
                     parent.style.setProperty("width", parentWidth + "px")
                     parent.style.setProperty("height", parentHeight + "px")
@@ -1567,8 +1566,59 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
+            // Handle window resize — re-measure dimensions, pin range,
+            // and update fixed positioning if currently pinned
+            var handleResize = function () {
+                if (!parent) return
+
+                // Re-measure parent dimensions
+                var newWidth = parent.offsetWidth
+                var newHeight = parent.offsetHeight
+
+                // If pinned (fixed), temporarily restore to measure natural size
+                if (scrollPinState.pinned && wrapper) {
+                    // Use wrapper width as reference since parent is fixed
+                    var wrapParent = wrapper.parentElement
+                    if (wrapParent) {
+                        // Wrapper should match container width
+                        var containerWidth = wrapParent.offsetWidth
+                        newWidth = containerWidth
+                    }
+                }
+
+                if (wrapper && wrapperCreated) {
+                    parentWidth = newWidth
+                    // Only update height if not pinned (fixed height can differ)
+                    if (!scrollPinState.pinned) {
+                        parentHeight = newHeight
+                    }
+
+                    // Wrapper uses width:100%, just update height
+                    wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
+
+                    if (!scrollPinState.pinned) {
+                        parent.style.setProperty("width", parentWidth + "px")
+                        parent.style.setProperty("height", parentHeight + "px")
+                    }
+
+                    // Recalculate pin range
+                    pinStart = wrapper.getBoundingClientRect().top + window.scrollY
+                    pinEnd = pinStart + scrollLength
+
+                    // Update fixed position if currently pinned
+                    if (scrollPinState.pinned) {
+                        wrapRectLeft = wrapper.getBoundingClientRect().left
+                        parent.style.setProperty("left", wrapRectLeft + "px", "important")
+                        parent.style.setProperty("width", parentWidth + "px", "important")
+                    }
+                }
+            }
+
             scrollHandler = handleScroll
             window.addEventListener("scroll", handleScroll, { passive: true })
+            window.addEventListener("resize", handleResize)
+            scrollSetupListener = handleResize // store for cleanup
+
             // Only run initial handleScroll if section is below viewport
             // and page loaded mid-scroll. Sections visible on load stay
             // natural until the user actually scrolls.
@@ -1600,6 +1650,9 @@ export default function PageChoreographer(props: any) {
             }
             if (scrollHandler) {
                 window.removeEventListener("scroll", scrollHandler)
+            }
+            if (scrollSetupListener) {
+                window.removeEventListener("resize", scrollSetupListener)
             }
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
