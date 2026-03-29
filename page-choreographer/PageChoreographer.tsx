@@ -1144,16 +1144,27 @@ export default function PageChoreographer(props: any) {
         // Uses visibility:hidden which doesn't interfere with WAAPI animations
         // and is cleanly removed when the animation starts.
         var preHiddenEls: HTMLElement[] = []
+        var preHideStyleTag: HTMLStyleElement | null = null
         if ((trigger === "inView" || trigger === "onLoad" || trigger === "onScroll") && enterEnabled &&
             RenderTarget.current() !== RenderTarget.canvas) {
+
+            // For onScroll, use a <style> tag + data attribute for
+            // bulletproof hiding that survives React re-renders and
+            // Framer's style management
+            if (trigger === "onScroll") {
+                var styleTag = document.createElement("style")
+                styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; }"
+                document.head.appendChild(styleTag)
+                preHideStyleTag = styleTag
+            }
+
             for (var phi = 0; phi < targets.length; phi++) {
                 var phEl = targets[phi]
                 if (!phEl) continue
-                phEl.style.setProperty("visibility", "hidden")
-                // Also set opacity:0 as fallback — WAAPI fill:both
-                // will override this while animation is active
                 if (trigger === "onScroll") {
-                    phEl.style.setProperty("opacity", "0")
+                    phEl.setAttribute("data-choreo-hide", "1")
+                } else {
+                    phEl.style.setProperty("visibility", "hidden")
                 }
                 preHiddenEls.push(phEl)
             }
@@ -1444,9 +1455,14 @@ export default function PageChoreographer(props: any) {
                 if (visibilityRevealed || progress <= 0) return
                 visibilityRevealed = true
                 for (var ph = 0; ph < preHiddenEls.length; ph++) {
+                    preHiddenEls[ph].removeAttribute("data-choreo-hide")
                     preHiddenEls[ph].style.removeProperty("visibility")
-                    // Remove inline opacity — WAAPI now controls it
                     preHiddenEls[ph].style.removeProperty("opacity")
+                }
+                // Remove the style tag — no longer needed
+                if (preHideStyleTag && preHideStyleTag.parentNode) {
+                    preHideStyleTag.parentNode.removeChild(preHideStyleTag)
+                    preHideStyleTag = null
                 }
             }
 
@@ -1625,9 +1641,13 @@ export default function PageChoreographer(props: any) {
                 for (var rph = 0; rph < preHiddenEls.length; rph++) {
                     try {
                         preHiddenEls[rph].style.removeProperty("visibility")
-                        preHiddenEls[rph].style.removeProperty("opacity")
                     } catch (e) {}
                 }
+            }
+            // Clean up style tag on unmount (but NOT on re-render
+            // for onScroll — the new effect will create a fresh one)
+            if (preHideStyleTag && preHideStyleTag.parentNode) {
+                preHideStyleTag.parentNode.removeChild(preHideStyleTag)
             }
             if (mutObs) {
                 try { mutObs.disconnect() } catch (e) {}
