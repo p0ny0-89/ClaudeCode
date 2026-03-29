@@ -1292,6 +1292,14 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer = spacer
             }
 
+            // DEBUG: remove after testing
+            console.log("[PageChoreographer] sectionGrew:", sectionGrew,
+                "gpHeight:", parentGP!.offsetHeight,
+                "neededHeight:", neededHeight,
+                "parentHeight:", parentHeight,
+                "scrollLength:", scrollLength,
+                "hasSpacer:", !!scrollSpacer)
+
             // In spacer mode (100vh sections), pin the entire section
             // so the background stays visible. The wrapper now has
             // display:flex mirroring the section, so children keep their
@@ -1425,19 +1433,25 @@ export default function PageChoreographer(props: any) {
             }
 
             var scrollAnimsCreated = false
+            var visibilityRevealed = false
 
             var ensureScrollAnims = function () {
                 if (scrollAnimsCreated) return
                 scrollAnimsCreated = true
                 createScrollAnims()
-                // Remove visibility:hidden — WAAPI fill:both now controls visibility
+                // Don't remove visibility:hidden here — keep elements
+                // hidden until scroll progress > 0 to prevent flash
+            }
+
+            var revealIfNeeded = function (progress: number) {
+                if (visibilityRevealed || progress <= 0) return
+                visibilityRevealed = true
                 for (var ph = 0; ph < preHiddenEls.length; ph++) {
                     preHiddenEls[ph].style.removeProperty("visibility")
                 }
             }
 
-            // Create animations eagerly so elements start in their
-            // hidden "from" state (opacity:0 via WAAPI fill:both).
+            // Create animations eagerly so they're ready for scroll
             ensureScrollAnims()
             updateAnimProgress(0)
 
@@ -1497,10 +1511,17 @@ export default function PageChoreographer(props: any) {
                         pinEl.style.setProperty("width", pinElWidth + "px", "important")
                         pinEl.style.setProperty("height", pinElHeight + "px", "important")
                         pinEl.style.setProperty("z-index", "9999", "important")
+                        // DEBUG: remove after testing
+                        console.log("[PageChoreographer] PINNED pinEl:", pinEl.tagName,
+                            pinEl.className?.substring?.(0, 50),
+                            "pinStart:", pinStart, "pinEnd:", pinEnd,
+                            "scrollY:", scrollY, "isSpacer:", !!scrollSpacer)
                     }
 
                     var progress = (scrollY - pinStart) / scrollLength
-                    updateAnimProgress(Math.max(0, Math.min(1, progress)))
+                    var clampedProgress = Math.max(0, Math.min(1, progress))
+                    revealIfNeeded(clampedProgress)
+                    updateAnimProgress(clampedProgress)
 
                 } else if (scrollY < pinStart) {
                     // ── BEFORE PIN: normal flow ──
