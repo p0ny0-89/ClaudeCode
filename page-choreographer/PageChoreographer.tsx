@@ -1338,6 +1338,23 @@ export default function PageChoreographer(props: any) {
                 wrapper.style.setProperty("justify-content", gpCS.justifyContent)
                 wrapper.style.setProperty("gap", gpCS.gap)
             }
+            // Copy parent's responsive height if set (e.g. "100vh", "50vh")
+            // so the wrapper doesn't collapse when the parent has viewport height.
+            // Use the inline style value (responsive unit) rather than computed (px).
+            var parentInlineHeight = parent.style.height
+            if (parentInlineHeight && /vh|vw|svh|dvh|lvh|%/.test(parentInlineHeight)) {
+                wrapper.style.setProperty("height", parentInlineHeight)
+            } else {
+                // Also check computed style for viewport-relative heights
+                // that might come from Framer's layout system
+                var parentComputedH = window.getComputedStyle(parent).height
+                var parentRect = parent.getBoundingClientRect()
+                var vpH = window.innerHeight
+                // If parent height is very close to viewport height, it's likely 100vh
+                if (Math.abs(parentRect.height - vpH) < 2) {
+                    wrapper.style.setProperty("height", "100vh")
+                }
+            }
             wrapper.style.setProperty("position", "relative")
             wrapper.style.setProperty("overflow", "hidden")
 
@@ -1686,8 +1703,10 @@ export default function PageChoreographer(props: any) {
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
                         updateInteractivity(1)
-                        updateViewportClip()
                     }
+                    // Always update viewport clip while scrolling past pin end
+                    // so clipping stays aligned as the section moves away
+                    updateViewportClip()
                 }
             }
 
