@@ -1206,62 +1206,89 @@ export default function PageChoreographer(props: any) {
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
 
         if (trigger === "onScroll" && parent && isPreview) {
-            var scrollAnimsInitialized = false
             var timelineDuration = 0
-            var pinStart = 0
-            var pinEnd = 0
-            var parentWidth = 0
-            var parentHeight = 0
-            var wrapperCreated = false
             var wrapper: HTMLElement | null = null
 
-            var initScrollAnims = function () {
-                if (scrollAnimsInitialized) return
-                scrollAnimsInitialized = true
+            // ── Measure and create wrapper immediately ──
+            // Safe because isPreview guards us from canvas
+            var parentHeight = parent.offsetHeight
+            var parentWidth = parent.offsetWidth
+            var parentGP = parent.parentElement
 
-                var reduced =
-                    window.matchMedia &&
-                    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-                var mobile = window.innerWidth < 768
+            scrollPinState.origStyles = parent.style.cssText
 
-                var allTargets = store.getAllTargets().filter(function (t: any) {
-                    return t.groupId === baseId && t.enterEnabled &&
-                        (t.mobileEnabled || !mobile) && t.ref.current
-                })
+            wrapper = document.createElement("div")
 
-                var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
-                var sorted = store.sortTargets(allTargets, direction)
+            // Copy flex/grid properties so wrapper takes same layout slot
+            if (parentGP) {
+                var parentCS = window.getComputedStyle(parent)
+                wrapper.style.setProperty("flex", parentCS.flex)
+                wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
+                wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
+                wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
+                wrapper.style.setProperty("align-self", parentCS.alignSelf)
+                wrapper.style.setProperty("justify-self", parentCS.justifySelf)
+                wrapper.style.setProperty("order", parentCS.order)
+                wrapper.style.setProperty("grid-column", parentCS.gridColumn)
+                wrapper.style.setProperty("grid-row", parentCS.gridRow)
+            }
+            wrapper.style.setProperty("position", "relative")
+            wrapper.style.setProperty("width", parentWidth + "px")
+            wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
+            wrapper.style.setProperty("overflow", "visible")
 
-                for (var si = 0; si < sorted.length; si++) {
-                    var target = sorted[si]
-                    var el = target.ref.current
-                    if (!el) continue
+            parentGP!.insertBefore(wrapper, parent)
+            wrapper.appendChild(parent)
+            scrollWrapper = wrapper
 
-                    var kf = reduced
-                        ? { from: { opacity: "0" }, to: { opacity: "1" } }
-                        : buildEnterKeyframes(target)
+            // Measure pin range after wrapper is in the DOM
+            var wrapperOffsetTop = wrapper.getBoundingClientRect().top + window.scrollY
+            var pinStart = wrapperOffsetTop
+            var pinEnd = pinStart + scrollLength
 
-                    var staggerVal = reduced ? 0 : target.stagger
-                    var itemDelay = staggerVal * si
-                    var dur = reduced ? 10 : target.duration * 1000
+            // ── Create animations immediately so elements start in "from" state ──
+            var reduced =
+                window.matchMedia &&
+                window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            var mobile = window.innerWidth < 768
 
-                    try {
-                        var scrollAnim = el.animate([kf.from, kf.to], {
-                            duration: dur,
-                            delay: itemDelay * 1000,
-                            easing: easingToCss(target.easing),
-                            fill: "both",
-                        })
-                        scrollAnim.pause()
-                        scrollAnims.push(scrollAnim)
-                    } catch (e) {}
-                }
+            var allTargets = store.getAllTargets().filter(function (t: any) {
+                return t.groupId === baseId && t.enterEnabled &&
+                    (t.mobileEnabled || !mobile) && t.ref.current
+            })
 
-                if (sorted.length > 0) {
-                    var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
-                    var lastDur = reduced ? 10 : sorted[0].duration * 1000
-                    timelineDuration = lastStagger * 1000 + lastDur
-                }
+            var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
+            var sorted = store.sortTargets(allTargets, direction)
+
+            for (var si = 0; si < sorted.length; si++) {
+                var target = sorted[si]
+                var el = target.ref.current
+                if (!el) continue
+
+                var kf = reduced
+                    ? { from: { opacity: "0" }, to: { opacity: "1" } }
+                    : buildEnterKeyframes(target)
+
+                var staggerVal = reduced ? 0 : target.stagger
+                var itemDelay = staggerVal * si
+                var dur = reduced ? 10 : target.duration * 1000
+
+                try {
+                    var scrollAnim = el.animate([kf.from, kf.to], {
+                        duration: dur,
+                        delay: itemDelay * 1000,
+                        easing: easingToCss(target.easing),
+                        fill: "both",
+                    })
+                    scrollAnim.pause()
+                    scrollAnims.push(scrollAnim)
+                } catch (e) {}
+            }
+
+            if (sorted.length > 0) {
+                var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
+                var lastDur = reduced ? 10 : sorted[0].duration * 1000
+                timelineDuration = lastStagger * 1000 + lastDur
             }
 
             var updateAnimProgress = function (progress: number) {
@@ -1279,56 +1306,12 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Create wrapper on demand (first scroll)
-            var createWrapper = function () {
-                if (wrapperCreated || !parent) return
-                wrapperCreated = true
-
-                parentHeight = parent.offsetHeight
-                parentWidth = parent.offsetWidth
-                var parentGP = parent.parentElement
-
-                scrollPinState.origStyles = parent.style.cssText
-
-                wrapper = document.createElement("div")
-
-                // Copy flex/grid properties so wrapper takes same layout slot
-                if (parentGP) {
-                    var parentCS = window.getComputedStyle(parent)
-                    wrapper.style.setProperty("flex", parentCS.flex)
-                    wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
-                    wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
-                    wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
-                    wrapper.style.setProperty("align-self", parentCS.alignSelf)
-                    wrapper.style.setProperty("justify-self", parentCS.justifySelf)
-                    wrapper.style.setProperty("order", parentCS.order)
-                    wrapper.style.setProperty("grid-column", parentCS.gridColumn)
-                    wrapper.style.setProperty("grid-row", parentCS.gridRow)
-                }
-                wrapper.style.setProperty("position", "relative")
-                wrapper.style.setProperty("width", parentWidth + "px")
-                wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
-                wrapper.style.setProperty("overflow", "visible")
-
-                parentGP!.insertBefore(wrapper, parent)
-                wrapper.appendChild(parent)
-                scrollWrapper = wrapper
-
-                // Measure pin range after wrapper is in the DOM
-                var wrapperOffsetTop = wrapper.getBoundingClientRect().top + window.scrollY
-                pinStart = wrapperOffsetTop
-                pinEnd = pinStart + scrollLength
-            }
+            // Set initial state — animations at progress 0 (elements in "from" state)
+            updateAnimProgress(0)
 
             // Main scroll handler
             var handleScroll = function () {
-                if (!parent) return
-
-                // Lazy-create wrapper on first scroll
-                if (!wrapperCreated) {
-                    createWrapper()
-                }
-
+                if (!parent || !wrapper) return
                 var scrollY = window.scrollY
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
@@ -1336,14 +1319,13 @@ export default function PageChoreographer(props: any) {
                     scrollPinState.afterPin = false
                     if (!scrollPinState.pinned) {
                         scrollPinState.pinned = true
-                        var wrapRect = wrapper!.getBoundingClientRect()
+                        var wrapRect = wrapper.getBoundingClientRect()
                         parent.style.setProperty("position", "fixed", "important")
                         parent.style.setProperty("top", "0px", "important")
                         parent.style.setProperty("left", wrapRect.left + "px", "important")
                         parent.style.setProperty("width", parentWidth + "px", "important")
                         parent.style.setProperty("height", parentHeight + "px", "important")
                         parent.style.setProperty("z-index", "9999", "important")
-                        initScrollAnims()
                     }
                     var progress = (scrollY - pinStart) / scrollLength
                     updateAnimProgress(Math.max(0, Math.min(1, progress)))
@@ -1355,17 +1337,13 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.afterPin = false
                         parent.style.cssText = scrollPinState.origStyles
                     }
-                    if (scrollAnimsInitialized) {
-                        updateAnimProgress(0)
-                    }
+                    updateAnimProgress(0)
 
                 } else {
                     // ── AFTER PIN: anchor to bottom of wrapper ──
                     scrollPinState.pinned = false
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
-                        // Use absolute positioning to anchor at bottom of wrapper
-                        // This avoids clipping issues with overflow:hidden ancestors
                         parent.style.setProperty("position", "absolute", "important")
                         parent.style.setProperty("bottom", "0px", "important")
                         parent.style.setProperty("left", "0px", "important")
@@ -1373,15 +1351,14 @@ export default function PageChoreographer(props: any) {
                         parent.style.setProperty("width", parentWidth + "px", "important")
                         parent.style.setProperty("height", parentHeight + "px", "important")
                     }
-                    // Keep animations at final state (fill: both holds it)
-                    if (scrollAnimsInitialized) {
-                        updateAnimProgress(1)
-                    }
+                    updateAnimProgress(1)
                 }
             }
 
             scrollHandler = handleScroll
             window.addEventListener("scroll", handleScroll, { passive: true })
+            // Run once to handle case where page loads mid-scroll
+            handleScroll()
         }
 
         return function () {
