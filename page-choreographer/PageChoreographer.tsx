@@ -1219,16 +1219,23 @@ export default function PageChoreographer(props: any) {
         var scrollHandler: (() => void) | null = null
         var scrollSetupListener: (() => void) | null = null
         var scrollWrapper: HTMLElement | null = null
+        var scrollSetupRaf = 0
+        var scrollResizeObs: ResizeObserver | null = null
         var scrollPinState = { pinned: false, afterPin: false, completed: false, onceFinalized: false, origStyles: "" }
 
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
 
         if (trigger === "onScroll" && parent && isPreview) {
+
+            // Defer setup to next frame so CMS/async content has laid out
+            scrollSetupRaf = requestAnimationFrame(function () {
+            scrollSetupRaf = requestAnimationFrame(function () {
+            scrollSetupRaf = 0
+
             var timelineDuration = 0
             var wrapper: HTMLElement | null = null
 
-            // ── Measure and create wrapper immediately ──
-            // Safe because isPreview guards us from canvas
+            // ── Measure after layout has settled ──
             var parentHeight = parent.offsetHeight
             var parentWidth = parent.offsetWidth
             var parentGP = parent.parentElement
@@ -1237,8 +1244,7 @@ export default function PageChoreographer(props: any) {
 
             wrapper = document.createElement("div")
 
-            // Copy layout properties so wrapper takes same slot, but lock
-            // its size to exactly parentHeight + scrollLength (the scroll room)
+            // Copy layout properties so wrapper takes same slot
             if (parentGP) {
                 var parentCS = window.getComputedStyle(parent)
                 wrapper.style.setProperty("align-self", parentCS.alignSelf)
@@ -1251,7 +1257,6 @@ export default function PageChoreographer(props: any) {
             wrapper.style.setProperty("width", parentWidth + "px")
             var wrapperHeight = parentHeight + scrollLength
             wrapper.style.setProperty("height", wrapperHeight + "px")
-            // Prevent flex from stretching/shrinking the wrapper beyond its set height
             wrapper.style.setProperty("flex", "0 0 auto", "important")
             wrapper.style.setProperty("overflow", "visible")
 
@@ -1259,15 +1264,35 @@ export default function PageChoreographer(props: any) {
             wrapper.appendChild(parent)
             scrollWrapper = wrapper
 
-            // Parent lost its flex/grid sizing context — give it explicit
-            // dimensions so it fills the wrapper properly before pinning
+            // Parent lost its flex/grid sizing context — give it explicit dimensions
             parent.style.setProperty("width", parentWidth + "px")
             parent.style.setProperty("height", parentHeight + "px")
 
             // Measure pin range after wrapper is in the DOM
-            var wrapperOffsetTop = wrapper.getBoundingClientRect().top + window.scrollY
-            var pinStart = wrapperOffsetTop
+            var pinStart = wrapper.getBoundingClientRect().top + window.scrollY
             var pinEnd = pinStart + scrollLength
+
+            // Re-measure when parent size changes (CMS images loading, etc.)
+            var remeasure = function () {
+                if (!wrapper || !parent) return
+                var newHeight = parent.scrollHeight || parent.offsetHeight
+                var newWidth = parent.offsetWidth
+                if (newHeight !== parentHeight || newWidth !== parentWidth) {
+                    parentHeight = newHeight
+                    parentWidth = newWidth
+                    wrapper.style.setProperty("width", parentWidth + "px")
+                    wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
+                    parent.style.setProperty("width", parentWidth + "px")
+                    parent.style.setProperty("height", parentHeight + "px")
+                    pinStart = wrapper.getBoundingClientRect().top + window.scrollY
+                    pinEnd = pinStart + scrollLength
+                }
+            }
+
+            try {
+                scrollResizeObs = new ResizeObserver(function () { remeasure() })
+                scrollResizeObs.observe(parent)
+            } catch (e) {}
 
             // ── Animation creation/destruction ──
             var reduced =
@@ -1275,12 +1300,9 @@ export default function PageChoreographer(props: any) {
                 window.matchMedia("(prefers-reduced-motion: reduce)").matches
             var mobile = window.innerWidth < 768
 
-            // Create paused WAAPI animations for scroll scrubbing
-            // Store final "to" styles per element for baking inline after scroll completes
             var scrollAnimFinalStyles: Array<{ el: HTMLElement; to: Record<string, string> }> = []
 
             var createScrollAnims = function () {
-                // Cancel any existing animations first
                 for (var ca = 0; ca < scrollAnims.length; ca++) {
                     try { scrollAnims[ca].cancel() } catch (e) {}
                 }
@@ -1305,7 +1327,6 @@ export default function PageChoreographer(props: any) {
                         ? { from: { opacity: "0" }, to: { opacity: "1" } }
                         : buildEnterKeyframes(target)
 
-                    // Store final styles so we can bake them inline when done
                     scrollAnimFinalStyles.push({ el: el, to: kf.to })
 
                     var staggerVal = reduced ? 0 : target.stagger
@@ -1331,10 +1352,7 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Bake final "to" styles inline then cancel WAAPI animations
-            // so the animation layer is removed and CSS :hover effects work
             var bakeAndCancelAnims = function () {
-                // Set final styles as inline CSS
                 for (var bf = 0; bf < scrollAnimFinalStyles.length; bf++) {
                     var item = scrollAnimFinalStyles[bf]
                     var keys = Object.keys(item.to)
@@ -1342,14 +1360,12 @@ export default function PageChoreographer(props: any) {
                         item.el.style.setProperty(keys[k], item.to[keys[k]])
                     }
                 }
-                // Cancel WAAPI — removes animation layer, inline styles hold visible state
                 for (var ca = 0; ca < scrollAnims.length; ca++) {
                     try { scrollAnims[ca].cancel() } catch (e) {}
                 }
                 scrollAnims = []
             }
 
-            // Remove baked inline styles and re-create WAAPI animations
             var unbakeAndRecreateAnims = function () {
                 for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
                     var item = scrollAnimFinalStyles[ub]
@@ -1371,19 +1387,12 @@ export default function PageChoreographer(props: any) {
                             : null
                         var animDelay = timing ? (timing.delay || 0) : 0
                         var animDur = timing ? (timing.duration || 600) : 600
-                        // WAAPI currentTime includes the delay period:
-                        // 0 → before phase (fill:both shows "from")
-                        // delay → start of active period
-                        // delay + duration → end of active period (fill:both shows "to")
                         var time = progress * timelineDuration
                         anim.currentTime = Math.max(0, Math.min(time, animDelay + (animDur as number)))
                     } catch (e) {}
                 }
             }
 
-            // Create animations immediately on mount and pin at progress 0.
-            // Parent has explicit dimensions, so hidden children don't cause
-            // layout collapse or empty gaps.
             var scrollAnimsCreated = false
 
             var ensureScrollAnims = function () {
@@ -1393,8 +1402,6 @@ export default function PageChoreographer(props: any) {
                 updateAnimProgress(0)
             }
 
-            // Destroy animations so elements return to their natural
-            // visible state (no "from" keyframe hiding them)
             var destroyScrollAnims = function () {
                 if (!scrollAnimsCreated) return
                 for (var da = 0; da < scrollAnims.length; da++) {
@@ -1412,20 +1419,15 @@ export default function PageChoreographer(props: any) {
             var handleScroll = function () {
                 if (!parent || !wrapper) return
 
-                // Once the animation has played and scrollOnce is enabled,
-                // skip all pin/animation logic — elements stay in final state
                 if (scrollOnce && scrollPinState.completed) {
                     if (!scrollPinState.onceFinalized) {
                         scrollPinState.onceFinalized = true
                         scrollPinState.pinned = false
                         scrollPinState.afterPin = false
-                        // Collapse wrapper to parent height (no extra scroll room)
                         wrapper.style.setProperty("height", parentHeight + "px")
-                        // Restore parent to normal flow inside wrapper
                         parent.style.cssText = scrollPinState.origStyles
                         parent.style.setProperty("width", parentWidth + "px")
                         parent.style.setProperty("height", parentHeight + "px")
-                        // Destroy WAAPI animations (baked styles remain)
                         destroyScrollAnims()
                     }
                     return
@@ -1434,11 +1436,8 @@ export default function PageChoreographer(props: any) {
                 var scrollY = window.scrollY
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
-                    // Ensure animations exist (fallback if IO hasn't fired yet)
                     ensureScrollAnims()
-                    // ── PINNED: fix parent to viewport top ──
                     if (scrollPinState.afterPin) {
-                        // Scrolling back from after-pin: re-create animations
                         scrollPinState.afterPin = false
                         unbakeAndRecreateAnims()
                     }
@@ -1456,37 +1455,29 @@ export default function PageChoreographer(props: any) {
                     updateAnimProgress(Math.max(0, Math.min(1, progress)))
 
                 } else if (scrollY < pinStart) {
-                    // ── BEFORE PIN: restore to normal flow ──
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        // Remove baked inline styles and re-create WAAPI
                         unbakeAndRecreateAnims()
                     }
                     if (scrollPinState.pinned) {
                         scrollPinState.pinned = false
                         parent.style.cssText = scrollPinState.origStyles
-                        // Re-apply explicit dimensions (lost when restoring origStyles)
                         parent.style.setProperty("width", parentWidth + "px")
                         parent.style.setProperty("height", parentHeight + "px")
                     }
                     updateAnimProgress(0)
 
                 } else {
-                    // ── AFTER PIN: anchor to bottom of wrapper ──
                     scrollPinState.pinned = false
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
-                        // Bake final styles inline then cancel WAAPI so the
-                        // animation layer is removed and CSS :hover effects work
                         bakeAndCancelAnims()
-                        // Position parent at bottom of wrapper
                         parent.style.setProperty("position", "absolute", "important")
                         parent.style.setProperty("bottom", "0px", "important")
                         parent.style.setProperty("left", "0px", "important")
                         parent.style.setProperty("top", "auto", "important")
                         parent.style.setProperty("width", parentWidth + "px", "important")
                         parent.style.setProperty("height", parentHeight + "px", "important")
-                        // Mark as completed for scrollOnce
                         if (scrollOnce) {
                             scrollPinState.completed = true
                         }
@@ -1498,6 +1489,9 @@ export default function PageChoreographer(props: any) {
             window.addEventListener("scroll", handleScroll, { passive: true })
             // Run once to handle case where page loads mid-scroll
             handleScroll()
+
+            }) // end inner rAF
+            }) // end outer rAF
         }
 
         return function () {
@@ -1512,6 +1506,12 @@ export default function PageChoreographer(props: any) {
                 try { intObs.disconnect() } catch (e) {}
             }
             // Clean up scroll-scrub
+            if (scrollSetupRaf) {
+                cancelAnimationFrame(scrollSetupRaf)
+            }
+            if (scrollResizeObs) {
+                try { scrollResizeObs.disconnect() } catch (e) {}
+            }
             if (scrollHandler) {
                 window.removeEventListener("scroll", scrollHandler)
             }
