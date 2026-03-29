@@ -101,6 +101,10 @@ function buildEnterKeyframes(t: TargetEntry) {
             }
             var enterFrom: any = { clipPath: mFrom }
             var enterTo: any = { clipPath: "inset(0 0 0 0)" }
+            if (t.maskOpacity < 1) {
+                enterFrom.opacity = String(t.maskOpacity)
+                enterTo.opacity = "1"
+            }
             if (t.maskShiftX !== 0 || t.maskShiftY !== 0) {
                 enterFrom.transform = "translateX(" + t.maskShiftX + "px) translateY(" + t.maskShiftY + "px)"
                 enterTo.transform = "translateX(0px) translateY(0px)"
@@ -188,6 +192,10 @@ function buildExitKeyframes(t: TargetEntry) {
             }
             var exitFrom: any = { clipPath: "inset(0 0 0 0)" }
             var exitTo: any = { clipPath: mTo }
+            if (t.maskOpacity < 1) {
+                exitFrom.opacity = "1"
+                exitTo.opacity = String(t.maskOpacity)
+            }
             if (t.maskShiftX !== 0 || t.maskShiftY !== 0) {
                 exitFrom.transform = "translateX(0px) translateY(0px)"
                 exitTo.transform = "translateX(" + (-t.maskShiftX) + "px) translateY(" + (-t.maskShiftY) + "px)"
@@ -232,6 +240,7 @@ interface TargetEntry {
     exitMaskDirection: string
     maskShiftX: number
     maskShiftY: number
+    maskOpacity: number
     blurAmount: number
     scaleFrom: number
     // Custom enter
@@ -1007,6 +1016,7 @@ export default function PageChoreographer(props: any) {
         exitMaskDirection = "left",
         maskShiftX = 0,
         maskShiftY = 0,
+        maskOpacity = 1,
         blurAmount = 8,
         scaleFrom = 0.92,
         exitTimeout = 3,
@@ -1076,6 +1086,7 @@ export default function PageChoreographer(props: any) {
                 exitMaskDirection: exitMaskDirection,
                 maskShiftX: maskShiftX,
                 maskShiftY: maskShiftY,
+                maskOpacity: maskOpacity,
                 blurAmount: blurAmount,
                 scaleFrom: scaleFrom,
                 enterOpacity: enterOpacity,
@@ -1194,7 +1205,7 @@ export default function PageChoreographer(props: any) {
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
         easingPreset, staggerDirection, distance,
-        enterMaskDirection, exitMaskDirection, maskShiftX, maskShiftY, blurAmount,
+        enterMaskDirection, exitMaskDirection, maskShiftX, maskShiftY, maskOpacity, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
         enterScale, enterRotateX, enterRotateY, enterRotateZ,
@@ -1631,6 +1642,17 @@ addPropertyControls(PageChoreographer, {
         max: 200,
         step: 1,
         unit: "px",
+        hidden: function (props: any) {
+            return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
+        },
+    },
+    maskOpacity: {
+        type: ControlType.Number,
+        title: "Mask Opacity",
+        defaultValue: 1,
+        min: 0,
+        max: 1,
+        step: 0.05,
         hidden: function (props: any) {
             return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
         },
