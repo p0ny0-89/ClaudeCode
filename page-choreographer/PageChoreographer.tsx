@@ -1299,7 +1299,7 @@ export default function PageChoreographer(props: any) {
             }
             wrapper.style.setProperty("position", "relative")
             wrapper.style.setProperty("width", parentWidth + "px")
-            wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
+            wrapper.style.setProperty("height", parentHeight + "px")
             wrapper.style.setProperty("flex", "0 0 auto", "important")
             wrapper.style.setProperty("overflow", "visible")
 
@@ -1340,7 +1340,7 @@ export default function PageChoreographer(props: any) {
 
             // Wrapper height: parentHeight only when pinning (scroll room is external spacer)
             // parentHeight + scrollLength when not pinning (wrapper provides scroll room internally)
-            wrapper.style.setProperty("height", scrollPin ? parentHeight + "px" : (parentHeight + scrollLength) + "px")
+            wrapper.style.setProperty("height", parentHeight + "px")
 
             if (isOwner && sectionEl) {
                 sectionEl.setAttribute("data-choreo-pin-owner", baseId)
@@ -1653,7 +1653,7 @@ export default function PageChoreographer(props: any) {
                         parentWidth = wp.clientWidth
                     }
                     wrapper.style.setProperty("width", parentWidth + "px")
-                    wrapper.style.setProperty("height", scrollPin ? parentHeight + "px" : (parentHeight + scrollLength) + "px")
+                    wrapper.style.setProperty("height", parentHeight + "px")
                     pinElWidth = parentWidth
                     pinElHeight = parentHeight
 
