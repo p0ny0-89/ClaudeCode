@@ -1381,12 +1381,6 @@ export default function PageChoreographer(props: any) {
             // Instead it joins the existing pin (wrapper mode, no section pin).
             var sectionAlreadyClaimed = sectionEl.hasAttribute("data-choreo-pin-owner")
 
-            console.log("[choreo] sectionEl:", sectionEl.getAttribute("data-framer-name") || sectionEl.tagName,
-                "sectionEl.offsetHeight:", sectionEl.offsetHeight,
-                "neededHeight:", neededHeight,
-                "sectionGrew:", sectionGrew,
-                "sectionAlreadyClaimed:", sectionAlreadyClaimed,
-                "parentHeight:", parentHeight, "scrollLength:", scrollLength)
 
             // ── Determine pin mode ──
             // When scrollPin is enabled: spacer + sticky pinning on the section.
@@ -1456,10 +1450,6 @@ export default function PageChoreographer(props: any) {
             var pinStart = Math.max(0, measureDocTop + startOffset)
             var totalPinLength = scrollLength
             var pinEnd = pinStart + totalPinLength
-            console.log("[choreo] MODE:", scrollPin ? (isOwner ? "OWNER" : "FOLLOWER") : "NO-PIN",
-                "scrollStart:", scrollStart, "startOffset:", startOffset,
-                "pinStart:", pinStart, "pinEnd:", pinEnd,
-                "sectionEl:", sectionEl ? (sectionEl.getAttribute("data-framer-name") || sectionEl.tagName) : "null")
             var wrapRectLeft = pinEl.getBoundingClientRect().left
 
             // ── Animation creation/destruction ──
