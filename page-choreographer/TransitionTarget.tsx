@@ -1,25 +1,11 @@
 // ─── Page Choreographer — Transition Target (Sibling Scanner) ────────────────
-// Drop this component INTO any frame alongside your content.
+// Drop this INTO any frame alongside your content. It walks UP past Framer's
+// internal wrappers to find the real parent container, then scans its children.
 //
 // Scan Modes:
-//   "Siblings"  — registers direct siblings (cards, text blocks, etc.)
+//   "Siblings"  — registers all children of the parent container
 //   "CMS Items" — goes one level deeper into the CMS collection wrapper
-//                  to find and register individual CMS items
-//
-// Example (Siblings mode):
-//   Frame
-//     ├── Card 1           ← registered
-//     ├── Card 2           ← registered
-//     └── TransitionTarget ← scanner
-//
-// Example (CMS Items mode):
-//   Projects Section
-//     ├── [CMS Collection]       ← skipped (wrapper)
-//     │     ├── Project Card 1   ← registered
-//     │     ├── Project Card 2   ← registered
-//     │     └── Project Card 3   ← registered
-//     ├── Load More              ← skipped
-//     └── TransitionTarget       ← scanner
+//                  to register individual CMS items
 
 import * as React from "react"
 import { addPropertyControls, ControlType } from "framer"
@@ -44,7 +30,40 @@ function useStableGroupId() {
     return ref.current
 }
 
-// ─── Collect target elements based on scan mode ──────────────────────────────
+// ─── Find the real parent container ──────────────────────────────────────────
+// Framer wraps each code component in 1-2 container divs. We walk up the
+// DOM until we find a parent that has more than just our wrapper as a child.
+// That's the actual layout container (e.g. "Projects").
+
+function findRealParent(marker: HTMLElement): HTMLElement | null {
+    var node = marker.parentElement
+    var maxDepth = 5 // safety limit
+
+    while (node && maxDepth > 0) {
+        // Count children that aren't tiny/invisible wrappers
+        var significantChildren = 0
+        for (var i = 0; i < node.children.length; i++) {
+            significantChildren++
+        }
+
+        // If this parent has multiple children, it's likely the real container
+        if (significantChildren > 1) {
+            return node
+        }
+
+        node = node.parentElement
+        maxDepth--
+    }
+
+    return node
+}
+
+// ─── Collect target elements ─────────────────────────────────────────────────
+
+function isMarkerOrWrapper(el: HTMLElement, marker: HTMLElement): boolean {
+    // Check if this element IS the marker or CONTAINS the marker
+    return el === marker || el.contains(marker)
+}
 
 function collectTargets(
     parent: HTMLElement,
@@ -54,30 +73,29 @@ function collectTargets(
     var targets: HTMLElement[] = []
 
     if (scanMode === "cmsItems") {
-        // CMS mode: find the sibling with the most children (the collection
-        // wrapper) and register its children as individual targets.
-        var bestSibling: HTMLElement | null = null
+        // CMS mode: find the child with the most children (collection wrapper)
+        var bestChild: HTMLElement | null = null
         var bestCount = 0
 
         for (var i = 0; i < parent.children.length; i++) {
             var child = parent.children[i] as HTMLElement
-            if (child === marker) continue
+            if (isMarkerOrWrapper(child, marker)) continue
             if (child.children.length > bestCount) {
                 bestCount = child.children.length
-                bestSibling = child
+                bestChild = child
             }
         }
 
-        if (bestSibling && bestCount > 0) {
-            for (var j = 0; j < bestSibling.children.length; j++) {
-                targets.push(bestSibling.children[j] as HTMLElement)
+        if (bestChild && bestCount > 0) {
+            for (var j = 0; j < bestChild.children.length; j++) {
+                targets.push(bestChild.children[j] as HTMLElement)
             }
         }
     } else {
-        // Siblings mode: register all direct siblings
+        // Siblings mode: all children except the marker wrapper
         for (var k = 0; k < parent.children.length; k++) {
             var el = parent.children[k] as HTMLElement
-            if (el === marker) continue
+            if (isMarkerOrWrapper(el, marker)) continue
             targets.push(el)
         }
     }
@@ -89,7 +107,7 @@ function collectTargets(
 
 export default function TransitionTarget(props: any) {
     var {
-        scanMode = "siblings",
+        scanMode = "cmsItems",
         group = "default",
         enterPreset = "fadeUp",
         exitPreset = "riseWave",
@@ -102,7 +120,7 @@ export default function TransitionTarget(props: any) {
         style,
     } = props
 
-    var markerRef = React.useRef<HTMLDivElement>(null)
+    var markerRef = React.useRef(null) as React.MutableRefObject<HTMLDivElement | null>
     var baseId = useStableGroupId()
     var registeredIds = React.useRef<string[]>([])
 
@@ -136,14 +154,18 @@ export default function TransitionTarget(props: any) {
 
             registeredIds.current.push(targetId)
 
-            // Set initial hidden state for enter
+            // Set initial hidden state for enter animation
             if (enterEnabled) {
-                var cfg = store.getConfig()
-                var kf = store.getEnterKeyframes(enterPreset, cfg)
-                for (var k in kf.from) {
-                    if (kf.from.hasOwnProperty(k)) {
-                        ;(el.style as any)[k] = kf.from[k]
+                try {
+                    var cfg = store.getConfig()
+                    var kf = store.getEnterKeyframes(enterPreset, cfg)
+                    for (var k in kf.from) {
+                        if (kf.from.hasOwnProperty(k)) {
+                            ;(el.style as any)[k] = kf.from[k]
+                        }
                     }
+                } catch (e) {
+                    // Silently skip if keyframes fail
                 }
             }
         }
@@ -154,7 +176,8 @@ export default function TransitionTarget(props: any) {
         var marker = markerRef.current
         if (!store || !marker) return
 
-        var parent = marker.parentElement
+        // Walk up past Framer's wrappers to find the real container
+        var parent = findRealParent(marker)
         if (!parent) return
 
         unregisterAll(store)
@@ -162,39 +185,42 @@ export default function TransitionTarget(props: any) {
         var targets = collectTargets(parent, marker, scanMode)
         registerElements(targets, store)
 
-        // Watch for children being added/removed (CMS items loading)
+        // Watch for children being added/removed (CMS load-more, etc.)
         var observeTarget = parent
         if (scanMode === "cmsItems") {
-            // For CMS mode, also observe the collection wrapper
-            var best: HTMLElement | null = null
-            var bestN = 0
+            // Also observe the collection wrapper for CMS item changes
             for (var i = 0; i < parent.children.length; i++) {
                 var ch = parent.children[i] as HTMLElement
-                if (ch === marker) continue
-                if (ch.children.length > bestN) {
-                    bestN = ch.children.length
-                    best = ch
+                if (isMarkerOrWrapper(ch, marker)) continue
+                if (ch.children.length > 1) {
+                    observeTarget = ch
+                    break
                 }
             }
-            if (best) observeTarget = best
         }
 
         var observer: MutationObserver | null = null
-        if (typeof MutationObserver !== "undefined") {
-            observer = new MutationObserver(function () {
-                var s = getStore()
-                if (!s || !marker) return
-                var p = marker.parentElement
-                if (!p) return
-                unregisterAll(s)
-                var t = collectTargets(p, marker, scanMode)
-                registerElements(t, s)
-            })
-            observer.observe(observeTarget, { childList: true })
+        try {
+            if (typeof MutationObserver !== "undefined") {
+                observer = new MutationObserver(function () {
+                    var s = getStore()
+                    if (!s || !marker) return
+                    var p = findRealParent(marker)
+                    if (!p) return
+                    unregisterAll(s)
+                    var t = collectTargets(p, marker, scanMode)
+                    registerElements(t, s)
+                })
+                observer.observe(observeTarget, { childList: true })
+            }
+        } catch (e) {
+            // MutationObserver not available or failed
         }
 
         return function () {
-            if (observer) observer.disconnect()
+            if (observer) {
+                try { observer.disconnect() } catch (e) {}
+            }
             unregisterAll(getStore())
         }
     }, [
@@ -203,17 +229,15 @@ export default function TransitionTarget(props: any) {
         delayOffset, mobileEnabled, visibilityThreshold,
     ])
 
-    // Invisible marker
+    // Invisible — no layout impact
     return (
         <div
             ref={markerRef}
             style={{
-                ...style,
                 width: 0,
                 height: 0,
                 overflow: "hidden",
                 pointerEvents: "none",
-                position: "absolute",
                 opacity: 0,
             }}
         />
@@ -228,10 +252,9 @@ addPropertyControls(TransitionTarget, {
     scanMode: {
         type: ControlType.Enum,
         title: "Scan Mode",
-        defaultValue: "siblings",
+        defaultValue: "cmsItems",
         options: ["siblings", "cmsItems"],
         optionTitles: ["Siblings", "CMS Items"],
-        description: "Siblings: registers direct siblings. CMS Items: finds items inside the CMS collection wrapper.",
     },
     group: {
         type: ControlType.String,
