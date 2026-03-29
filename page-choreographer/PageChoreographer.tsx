@@ -39,13 +39,20 @@ function buildEnterKeyframes(t: TargetEntry) {
         var from: any = { opacity: String(t.enterOpacity) }
         var to: any = { opacity: "1" }
 
-        from.transform =
+        var has3D = t.enterRotateX !== 0 || t.enterRotateY !== 0
+        var persp = has3D && t.enterPerspective > 0
+            ? "perspective(" + t.enterPerspective + "px) " : ""
+
+        from.transform = persp +
             "translateX(" + t.enterOffsetX + "px) " +
             "translateY(" + t.enterOffsetY + "px) " +
             "scale(" + t.enterScale + ") " +
-            "rotate(" + t.enterRotate + "deg)"
-        to.transform =
-            "translateX(0px) translateY(0px) scale(1) rotate(0deg)"
+            "rotateX(" + t.enterRotateX + "deg) " +
+            "rotateY(" + t.enterRotateY + "deg) " +
+            "rotateZ(" + t.enterRotateZ + "deg)"
+        to.transform = persp +
+            "translateX(0px) translateY(0px) scale(1) " +
+            "rotateX(0deg) rotateY(0deg) rotateZ(0deg)"
 
         if (t.enterBlur > 0) {
             from.filter = "blur(" + t.enterBlur + "px)"
@@ -109,13 +116,20 @@ function buildExitKeyframes(t: TargetEntry) {
         var from: any = { opacity: "1" }
         var to: any = { opacity: String(t.exitOpacity) }
 
-        from.transform =
-            "translateX(0px) translateY(0px) scale(1) rotate(0deg)"
-        to.transform =
+        var has3D = t.exitRotateX !== 0 || t.exitRotateY !== 0
+        var persp = has3D && t.exitPerspective > 0
+            ? "perspective(" + t.exitPerspective + "px) " : ""
+
+        from.transform = persp +
+            "translateX(0px) translateY(0px) scale(1) " +
+            "rotateX(0deg) rotateY(0deg) rotateZ(0deg)"
+        to.transform = persp +
             "translateX(" + t.exitOffsetX + "px) " +
             "translateY(" + t.exitOffsetY + "px) " +
             "scale(" + t.exitScale + ") " +
-            "rotate(" + t.exitRotate + "deg)"
+            "rotateX(" + t.exitRotateX + "deg) " +
+            "rotateY(" + t.exitRotateY + "deg) " +
+            "rotateZ(" + t.exitRotateZ + "deg)"
 
         if (t.exitBlur > 0) {
             from.filter = "blur(0px)"
@@ -200,15 +214,21 @@ interface TargetEntry {
     enterOffsetX: number
     enterOffsetY: number
     enterScale: number
-    enterRotate: number
+    enterRotateX: number
+    enterRotateY: number
+    enterRotateZ: number
     enterBlur: number
+    enterPerspective: number
     // Custom exit
     exitOpacity: number
     exitOffsetX: number
     exitOffsetY: number
     exitScale: number
-    exitRotate: number
+    exitRotateX: number
+    exitRotateY: number
+    exitRotateZ: number
     exitBlur: number
+    exitPerspective: number
 }
 
 function createStore() {
@@ -756,15 +776,21 @@ export default function PageChoreographer(props: any) {
         enterOffsetX = 0,
         enterOffsetY = 40,
         enterScale = 1,
-        enterRotate = 0,
+        enterRotateX = 0,
+        enterRotateY = 0,
+        enterRotateZ = 0,
         enterBlur = 0,
+        enterPerspective = 1000,
         // Custom exit
         exitOpacity = 0,
         exitOffsetX = 0,
         exitOffsetY = -40,
         exitScale = 1,
-        exitRotate = 0,
+        exitRotateX = 0,
+        exitRotateY = 0,
+        exitRotateZ = 0,
         exitBlur = 0,
+        exitPerspective = 1000,
         style,
     } = props
 
@@ -811,14 +837,20 @@ export default function PageChoreographer(props: any) {
                 enterOffsetX: enterOffsetX,
                 enterOffsetY: enterOffsetY,
                 enterScale: enterScale,
-                enterRotate: enterRotate,
+                enterRotateX: enterRotateX,
+                enterRotateY: enterRotateY,
+                enterRotateZ: enterRotateZ,
                 enterBlur: enterBlur,
+                enterPerspective: enterPerspective,
                 exitOpacity: exitOpacity,
                 exitOffsetX: exitOffsetX,
                 exitOffsetY: exitOffsetY,
                 exitScale: exitScale,
-                exitRotate: exitRotate,
+                exitRotateX: exitRotateX,
+                exitRotateY: exitRotateY,
+                exitRotateZ: exitRotateZ,
                 exitBlur: exitBlur,
+                exitPerspective: exitPerspective,
             })
 
             registeredIds.current.push(targetId)
@@ -917,9 +949,11 @@ export default function PageChoreographer(props: any) {
         easingPreset, staggerDirection, distance, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
-        enterScale, enterRotate, enterBlur,
+        enterScale, enterRotateX, enterRotateY, enterRotateZ,
+        enterBlur, enterPerspective,
         exitOpacity, exitOffsetX, exitOffsetY,
-        exitScale, exitRotate, exitBlur,
+        exitScale, exitRotateX, exitRotateY, exitRotateZ,
+        exitBlur, exitPerspective,
     ])
 
     return (
@@ -1039,9 +1073,9 @@ addPropertyControls(PageChoreographer, {
             return props.enterEnabled === false || props.enterPreset !== "custom"
         },
     },
-    enterRotate: {
+    enterRotateX: {
         type: ControlType.Number,
-        title: "↳ Rotate",
+        title: "↳ Rotate X",
         defaultValue: 0,
         min: -360,
         max: 360,
@@ -1049,6 +1083,43 @@ addPropertyControls(PageChoreographer, {
         unit: "°",
         hidden: function (props: any) {
             return props.enterEnabled === false || props.enterPreset !== "custom"
+        },
+    },
+    enterRotateY: {
+        type: ControlType.Number,
+        title: "↳ Rotate Y",
+        defaultValue: 0,
+        min: -360,
+        max: 360,
+        step: 5,
+        unit: "°",
+        hidden: function (props: any) {
+            return props.enterEnabled === false || props.enterPreset !== "custom"
+        },
+    },
+    enterRotateZ: {
+        type: ControlType.Number,
+        title: "↳ Rotate Z",
+        defaultValue: 0,
+        min: -360,
+        max: 360,
+        step: 5,
+        unit: "°",
+        hidden: function (props: any) {
+            return props.enterEnabled === false || props.enterPreset !== "custom"
+        },
+    },
+    enterPerspective: {
+        type: ControlType.Number,
+        title: "↳ Perspective",
+        defaultValue: 1000,
+        min: 100,
+        max: 3000,
+        step: 50,
+        unit: "px",
+        hidden: function (props: any) {
+            if (props.enterEnabled === false || props.enterPreset !== "custom") return true
+            return props.enterRotateX === 0 && props.enterRotateY === 0
         },
     },
     enterBlur: {
@@ -1131,9 +1202,9 @@ addPropertyControls(PageChoreographer, {
             return props.exitEnabled === false || props.exitPreset !== "custom"
         },
     },
-    exitRotate: {
+    exitRotateX: {
         type: ControlType.Number,
-        title: "↳ Rotate",
+        title: "↳ Rotate X",
         defaultValue: 0,
         min: -360,
         max: 360,
@@ -1141,6 +1212,43 @@ addPropertyControls(PageChoreographer, {
         unit: "°",
         hidden: function (props: any) {
             return props.exitEnabled === false || props.exitPreset !== "custom"
+        },
+    },
+    exitRotateY: {
+        type: ControlType.Number,
+        title: "↳ Rotate Y",
+        defaultValue: 0,
+        min: -360,
+        max: 360,
+        step: 5,
+        unit: "°",
+        hidden: function (props: any) {
+            return props.exitEnabled === false || props.exitPreset !== "custom"
+        },
+    },
+    exitRotateZ: {
+        type: ControlType.Number,
+        title: "↳ Rotate Z",
+        defaultValue: 0,
+        min: -360,
+        max: 360,
+        step: 5,
+        unit: "°",
+        hidden: function (props: any) {
+            return props.exitEnabled === false || props.exitPreset !== "custom"
+        },
+    },
+    exitPerspective: {
+        type: ControlType.Number,
+        title: "↳ Perspective",
+        defaultValue: 1000,
+        min: 100,
+        max: 3000,
+        step: 50,
+        unit: "px",
+        hidden: function (props: any) {
+            if (props.exitEnabled === false || props.exitPreset !== "custom") return true
+            return props.exitRotateX === 0 && props.exitRotateY === 0
         },
     },
     exitBlur: {
