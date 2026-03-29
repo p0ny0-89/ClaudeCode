@@ -1609,7 +1609,8 @@ export default function PageChoreographer(props: any) {
                     // No animations — enable immediately
                     if (!interactiveState) {
                         interactiveState = true
-                        wrapper.style.removeProperty("pointer-events")
+                        wrapper.style.setProperty("pointer-events", "auto", "important")
+                        console.log("[choreo] pointer-events → auto (no anims)")
                     }
                     return
                 }
@@ -1630,12 +1631,19 @@ export default function PageChoreographer(props: any) {
                     }
                 } catch (e) {}
 
+                console.log("[choreo] interactivity: lastProg=" + lastProgress.toFixed(3) +
+                    " overallProg=" + progress.toFixed(3) +
+                    " interactive=" + interactiveState +
+                    " animCount=" + scrollAnims.length)
+
                 if (!interactiveState && lastProgress >= 0.8) {
                     interactiveState = true
-                    wrapper.style.removeProperty("pointer-events")
+                    wrapper.style.setProperty("pointer-events", "auto", "important")
+                    console.log("[choreo] pointer-events → AUTO")
                 } else if (interactiveState && lastProgress <= 0.5) {
                     interactiveState = false
                     wrapper.style.setProperty("pointer-events", "none", "important")
+                    console.log("[choreo] pointer-events → NONE")
                 }
             }
 
