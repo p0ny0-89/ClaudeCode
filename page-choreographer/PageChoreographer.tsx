@@ -1219,7 +1219,6 @@ export default function PageChoreographer(props: any) {
         var scrollHandler: (() => void) | null = null
         var scrollResizeHandler: (() => void) | null = null
         var scrollWrapper: HTMLElement | null = null
-        var scrollSpacer: HTMLElement | null = null
         var scrollSetupRaf = 0
         var scrollResizeTimer = 0
         var scrollPinState = { pinned: false, afterPin: false, completed: false, origStyles: "" }
@@ -1235,61 +1234,51 @@ export default function PageChoreographer(props: any) {
 
             var timelineDuration = 0
 
-            // ── Measure after layout has settled ──
-            var parentHeight = parent.offsetHeight
-            var parentWidth = parent.offsetWidth
+            // ── Pin the SECTION (parentGP), not just the Stack (parent) ──
+            // This keeps the section's background pinned with its content.
             var parentGP = parent.parentElement
+            if (!parentGP) return
 
-            scrollPinState.origStyles = parent.style.cssText
+            var pinEl = parentGP
+            var pinElParent = pinEl.parentElement
+            if (!pinElParent) return
+
+            var pinElHeight = pinEl.offsetHeight
+            var pinElWidth = pinEl.offsetWidth
+
+            scrollPinState.origStyles = pinEl.style.cssText
 
             // Check if section is visible in the viewport on load
-            var sectionInViewport = parent.getBoundingClientRect().top < window.innerHeight &&
-                parent.getBoundingClientRect().bottom > 0
+            var sectionInViewport = pinEl.getBoundingClientRect().top < window.innerHeight &&
+                pinEl.getBoundingClientRect().bottom > 0
 
-            // ── Create wrapper to hold parent's layout space while pinned ──
+            // ── Create wrapper at the page/section level ──
+            // Wrapper replaces pinEl in the page layout and provides scroll room.
+            // Since it's at the page level, no constrained ancestor issue.
             var wrapper = document.createElement("div")
 
-            if (parentGP) {
-                var parentCS = window.getComputedStyle(parent)
-                wrapper.style.setProperty("align-self", parentCS.alignSelf)
-                wrapper.style.setProperty("justify-self", parentCS.justifySelf)
-                wrapper.style.setProperty("order", parentCS.order)
-                wrapper.style.setProperty("grid-column", parentCS.gridColumn)
-                wrapper.style.setProperty("grid-row", parentCS.gridRow)
-            }
+            var pinElCS = window.getComputedStyle(pinEl)
+            wrapper.style.setProperty("align-self", pinElCS.alignSelf)
+            wrapper.style.setProperty("justify-self", pinElCS.justifySelf)
+            wrapper.style.setProperty("order", pinElCS.order)
+            wrapper.style.setProperty("grid-column", pinElCS.gridColumn)
+            wrapper.style.setProperty("grid-row", pinElCS.gridRow)
             wrapper.style.setProperty("position", "relative")
-            wrapper.style.setProperty("width", parentWidth + "px")
+            wrapper.style.setProperty("width", pinElWidth + "px")
+            wrapper.style.setProperty("height", (pinElHeight + scrollLength) + "px")
             wrapper.style.setProperty("flex", "0 0 auto", "important")
             wrapper.style.setProperty("overflow", "visible")
 
-            // Check if parentGP has a constrained height (e.g. 100vh).
-            // If so, a taller wrapper inside it won't create scroll room
-            // because parentGP clips it. Use an external spacer instead.
-            var gpConstrained = false
-            if (parentGP) {
-                var gpCS = window.getComputedStyle(parentGP)
-                gpConstrained = gpCS.height !== "auto" && gpCS.height !== "fit-content"
-            }
-
-            if (gpConstrained && parentGP && parentGP.parentElement) {
-                // Wrapper just maintains parent's space (same height)
-                wrapper.style.setProperty("height", parentHeight + "px")
-
-                // External spacer after the section creates scroll room
-                var spacer = document.createElement("div")
-                spacer.style.setProperty("height", scrollLength + "px")
-                spacer.style.setProperty("flex", "0 0 auto", "important")
-                spacer.style.setProperty("pointer-events", "none")
-                parentGP.parentElement.insertBefore(spacer, parentGP.nextSibling)
-                scrollSpacer = spacer
-            } else {
-                // Wrapper provides scroll room directly
-                wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
-            }
-
-            parentGP!.insertBefore(wrapper, parent)
-            wrapper.appendChild(parent)
+            pinElParent.insertBefore(wrapper, pinEl)
+            wrapper.appendChild(pinEl)
             scrollWrapper = wrapper
+
+            // Set explicit dimensions on pinEl so it keeps its size
+            // inside the wrapper (pinEl may use flex:1/1fr which only
+            // works in its original flex parent context)
+            pinEl.style.setProperty("width", pinElWidth + "px")
+            pinEl.style.setProperty("height", pinElHeight + "px")
+            var inWrapperStyles = pinEl.style.cssText
 
             // Measure pin range after wrapper is in the DOM
             var pinStart = wrapper.getBoundingClientRect().top + window.scrollY
@@ -1417,7 +1406,7 @@ export default function PageChoreographer(props: any) {
 
             // ── Scroll handler (position:fixed pinning) ──
             var handleScroll = function () {
-                if (!parent || !wrapper) return
+                if (!pinEl || !wrapper) return
 
                 if (scrollOnce && scrollPinState.completed) {
                     var scrollY2 = window.scrollY
@@ -1425,28 +1414,28 @@ export default function PageChoreographer(props: any) {
                         if (!scrollPinState.pinned) {
                             scrollPinState.pinned = true
                             wrapRectLeft = wrapper.getBoundingClientRect().left
-                            parent.style.setProperty("position", "fixed", "important")
-                            parent.style.setProperty("top", "0px", "important")
-                            parent.style.setProperty("left", wrapRectLeft + "px", "important")
-                            parent.style.setProperty("width", parentWidth + "px", "important")
-                            parent.style.setProperty("height", parentHeight + "px", "important")
+                            pinEl.style.setProperty("position", "fixed", "important")
+                            pinEl.style.setProperty("top", "0px", "important")
+                            pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
+                            pinEl.style.setProperty("width", pinElWidth + "px", "important")
+                            pinEl.style.setProperty("height", pinElHeight + "px", "important")
                         }
                     } else if (scrollY2 < pinStart) {
                         if (scrollPinState.pinned) {
                             scrollPinState.pinned = false
-                            parent.style.cssText = scrollPinState.origStyles
+                            pinEl.style.cssText = inWrapperStyles
                         }
                     } else {
                         if (!scrollPinState.pinned) {
                             scrollPinState.pinned = true
                             wrapRectLeft = wrapper.getBoundingClientRect().left
-                            parent.style.setProperty("position", "fixed", "important")
-                            parent.style.setProperty("left", wrapRectLeft + "px", "important")
-                            parent.style.setProperty("width", parentWidth + "px", "important")
-                            parent.style.setProperty("height", parentHeight + "px", "important")
+                            pinEl.style.setProperty("position", "fixed", "important")
+                            pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
+                            pinEl.style.setProperty("width", pinElWidth + "px", "important")
+                            pinEl.style.setProperty("height", pinElHeight + "px", "important")
                         }
-                        parent.style.setProperty("top", (pinEnd - scrollY2) + "px", "important")
-                        parent.style.removeProperty("z-index")
+                        pinEl.style.setProperty("top", (pinEnd - scrollY2) + "px", "important")
+                        pinEl.style.removeProperty("z-index")
                     }
                     return
                 }
@@ -1465,26 +1454,26 @@ export default function PageChoreographer(props: any) {
                     if (!scrollPinState.pinned) {
                         scrollPinState.pinned = true
                         wrapRectLeft = wrapper.getBoundingClientRect().left
-                        parent.style.setProperty("position", "fixed", "important")
-                        parent.style.setProperty("top", "0px", "important")
-                        parent.style.setProperty("left", wrapRectLeft + "px", "important")
-                        parent.style.setProperty("width", parentWidth + "px", "important")
-                        parent.style.setProperty("height", parentHeight + "px", "important")
-                        parent.style.setProperty("z-index", "9999", "important")
+                        pinEl.style.setProperty("position", "fixed", "important")
+                        pinEl.style.setProperty("top", "0px", "important")
+                        pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
+                        pinEl.style.setProperty("width", pinElWidth + "px", "important")
+                        pinEl.style.setProperty("height", pinElHeight + "px", "important")
+                        pinEl.style.setProperty("z-index", "9999", "important")
                     }
 
                     var progress = (scrollY - pinStart) / scrollLength
                     updateAnimProgress(Math.max(0, Math.min(1, progress)))
 
                 } else if (scrollY < pinStart) {
-                    // ── BEFORE PIN: normal flow ──
+                    // ── BEFORE PIN: restore in-wrapper styles ──
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
                         unbakeAndRecreateAnims()
                     }
                     if (scrollPinState.pinned) {
                         scrollPinState.pinned = false
-                        parent.style.cssText = scrollPinState.origStyles
+                        pinEl.style.cssText = inWrapperStyles
                     }
                     updateAnimProgress(0)
 
@@ -1493,13 +1482,13 @@ export default function PageChoreographer(props: any) {
                     if (!scrollPinState.pinned) {
                         scrollPinState.pinned = true
                         wrapRectLeft = wrapper.getBoundingClientRect().left
-                        parent.style.setProperty("position", "fixed", "important")
-                        parent.style.setProperty("left", wrapRectLeft + "px", "important")
-                        parent.style.setProperty("width", parentWidth + "px", "important")
-                        parent.style.setProperty("height", parentHeight + "px", "important")
+                        pinEl.style.setProperty("position", "fixed", "important")
+                        pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
+                        pinEl.style.setProperty("width", pinElWidth + "px", "important")
+                        pinEl.style.setProperty("height", pinElHeight + "px", "important")
                     }
-                    parent.style.setProperty("top", (pinEnd - scrollY) + "px", "important")
-                    parent.style.removeProperty("z-index")
+                    pinEl.style.setProperty("top", (pinEnd - scrollY) + "px", "important")
+                    pinEl.style.removeProperty("z-index")
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         updateAnimProgress(1)
@@ -1518,18 +1507,23 @@ export default function PageChoreographer(props: any) {
             var handleResize = function () {
                 clearTimeout(scrollResizeTimer)
                 scrollResizeTimer = window.setTimeout(function () {
-                    if (!wrapper || !parent) return
+                    if (!wrapper || !pinEl) return
                     var wp = wrapper.parentElement
                     if (wp) {
-                        parentWidth = wp.clientWidth
-                        wrapper.style.setProperty("width", parentWidth + "px")
+                        pinElWidth = wp.clientWidth
+                        wrapper.style.setProperty("width", pinElWidth + "px")
                     }
                     pinStart = wrapper.getBoundingClientRect().top + window.scrollY
                     pinEnd = pinStart + scrollLength
                     wrapRectLeft = wrapper.getBoundingClientRect().left
                     if (scrollPinState.pinned) {
-                        parent.style.setProperty("width", parentWidth + "px", "important")
-                        parent.style.setProperty("left", wrapRectLeft + "px", "important")
+                        pinEl.style.setProperty("width", pinElWidth + "px", "important")
+                        pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
+                    }
+                    // Update in-wrapper styles with new width
+                    if (!scrollPinState.pinned) {
+                        pinEl.style.setProperty("width", pinElWidth + "px")
+                        inWrapperStyles = pinEl.style.cssText
                     }
                     handleScroll()
                 }, 150) as unknown as number
@@ -1571,18 +1565,15 @@ export default function PageChoreographer(props: any) {
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
             }
-            // Remove external spacer if present
-            if (scrollSpacer && scrollSpacer.parentElement) {
-                scrollSpacer.parentElement.removeChild(scrollSpacer)
-                scrollSpacer = null
-            }
-            // Unwrap parent from scroll wrapper back to its original position
-            if (scrollWrapper && scrollWrapper.parentElement && parent) {
-                parent.style.cssText = scrollPinState.origStyles
-                scrollWrapper.parentElement.insertBefore(parent, scrollWrapper)
+            // Unwrap pinEl from scroll wrapper back to its original position
+            if (scrollWrapper && scrollWrapper.parentElement) {
+                // Find pinEl inside the wrapper (it's the first real child)
+                var wrappedEl = scrollWrapper.firstElementChild as HTMLElement
+                if (wrappedEl) {
+                    wrappedEl.style.cssText = scrollPinState.origStyles
+                    scrollWrapper.parentElement.insertBefore(wrappedEl, scrollWrapper)
+                }
                 scrollWrapper.parentElement.removeChild(scrollWrapper)
-            } else if (parent && scrollPinState.origStyles) {
-                parent.style.cssText = scrollPinState.origStyles
             }
             unregisterAll(getStore())
         }
