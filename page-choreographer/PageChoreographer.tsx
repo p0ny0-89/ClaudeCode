@@ -1194,20 +1194,24 @@ export default function PageChoreographer(props: any) {
         }
 
         // ─── Scroll-scrub trigger ────────────────────────────────────────────
+        // All DOM manipulation (wrapper creation) is deferred to the first
+        // scroll event. On Framer canvas, scroll never fires, so the DOM is
+        // never modified and elements render naturally.
         var scrollAnims: Animation[] = []
         var scrollHandler: (() => void) | null = null
-        var scrollSpacer: HTMLElement | null = null
-        var scrollPinState = { pinned: false, pinnedTop: 0, origStyles: "" }
+        var scrollSetupListener: (() => void) | null = null
+        var scrollWrapper: HTMLElement | null = null
+        var scrollPinState = { pinned: false, afterPin: false, origStyles: "" }
 
-        // Skip scroll-scrub setup on Framer canvas where there's no real
-        // scrolling — prevents DOM wrapping from breaking canvas layout
-        var isScrollable = typeof window !== "undefined" &&
-            document.documentElement.scrollHeight > window.innerHeight + 50
-
-        if (trigger === "onScroll" && parent && isScrollable) {
+        if (trigger === "onScroll" && parent) {
             var scrollAnimsInitialized = false
             var timelineDuration = 0
-            var scrollAnimFinalStyles: Array<{ el: HTMLElement; styles: Record<string, string> }> = []
+            var pinStart = 0
+            var pinEnd = 0
+            var parentWidth = 0
+            var parentHeight = 0
+            var wrapperCreated = false
+            var wrapper: HTMLElement | null = null
 
             var initScrollAnims = function () {
                 if (scrollAnimsInitialized) return
@@ -1235,9 +1239,6 @@ export default function PageChoreographer(props: any) {
                         ? { from: { opacity: "0" }, to: { opacity: "1" } }
                         : buildEnterKeyframes(target)
 
-                    // Store final styles so we can bake them in when done
-                    scrollAnimFinalStyles.push({ el: el, styles: kf.to })
-
                     var staggerVal = reduced ? 0 : target.stagger
                     var itemDelay = staggerVal * si
                     var dur = reduced ? 10 : target.duration * 1000
@@ -1261,40 +1262,6 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Measure parent's natural position and dimensions
-            var parentRect = parent.getBoundingClientRect()
-            var parentHeight = parent.offsetHeight
-            var parentWidth = parent.offsetWidth
-            var parentGP = parent.parentElement
-
-            // ── Create a wrapper that takes the parent's place in the layout ──
-            var wrapper = document.createElement("div")
-
-            if (parentGP) {
-                var parentCS = window.getComputedStyle(parent)
-                wrapper.style.setProperty("flex", parentCS.flex)
-                wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
-                wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
-                wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
-                wrapper.style.setProperty("align-self", parentCS.alignSelf)
-                wrapper.style.setProperty("justify-self", parentCS.justifySelf)
-                wrapper.style.setProperty("order", parentCS.order)
-                wrapper.style.setProperty("grid-column", parentCS.gridColumn)
-                wrapper.style.setProperty("grid-row", parentCS.gridRow)
-            }
-            wrapper.style.setProperty("position", "relative")
-            wrapper.style.setProperty("width", parentWidth + "px")
-            wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
-            wrapper.style.setProperty("overflow", "visible")
-
-            parentGP!.insertBefore(wrapper, parent)
-            wrapper.appendChild(parent)
-            scrollSpacer = wrapper
-
-            var wrapperOffsetTop = wrapper.getBoundingClientRect().top + window.scrollY
-            var pinStart = wrapperOffsetTop
-            var pinEnd = pinStart + scrollLength
-
             var updateAnimProgress = function (progress: number) {
                 for (var a = 0; a < scrollAnims.length; a++) {
                     try {
@@ -1310,43 +1277,64 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Cancel WAAPI animations and bake final styles inline
-            var bakeFinishedState = function () {
-                for (var sa = 0; sa < scrollAnims.length; sa++) {
-                    try { scrollAnims[sa].cancel() } catch (e) {}
+            // Create wrapper on demand (first scroll)
+            var createWrapper = function () {
+                if (wrapperCreated || !parent) return
+                wrapperCreated = true
+
+                parentHeight = parent.offsetHeight
+                parentWidth = parent.offsetWidth
+                var parentGP = parent.parentElement
+
+                scrollPinState.origStyles = parent.style.cssText
+
+                wrapper = document.createElement("div")
+
+                // Copy flex/grid properties so wrapper takes same layout slot
+                if (parentGP) {
+                    var parentCS = window.getComputedStyle(parent)
+                    wrapper.style.setProperty("flex", parentCS.flex)
+                    wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
+                    wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
+                    wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
+                    wrapper.style.setProperty("align-self", parentCS.alignSelf)
+                    wrapper.style.setProperty("justify-self", parentCS.justifySelf)
+                    wrapper.style.setProperty("order", parentCS.order)
+                    wrapper.style.setProperty("grid-column", parentCS.gridColumn)
+                    wrapper.style.setProperty("grid-row", parentCS.gridRow)
                 }
-                for (var sf = 0; sf < scrollAnimFinalStyles.length; sf++) {
-                    var item = scrollAnimFinalStyles[sf]
-                    var keys = Object.keys(item.styles)
-                    for (var k = 0; k < keys.length; k++) {
-                        item.el.style.setProperty(keys[k], item.styles[keys[k]])
-                    }
-                }
+                wrapper.style.setProperty("position", "relative")
+                wrapper.style.setProperty("width", parentWidth + "px")
+                wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
+                wrapper.style.setProperty("overflow", "visible")
+
+                parentGP!.insertBefore(wrapper, parent)
+                wrapper.appendChild(parent)
+                scrollWrapper = wrapper
+
+                // Measure pin range after wrapper is in the DOM
+                var wrapperOffsetTop = wrapper.getBoundingClientRect().top + window.scrollY
+                pinStart = wrapperOffsetTop
+                pinEnd = pinStart + scrollLength
             }
 
-            // Cancel WAAPI animations and bake initial styles inline
-            var bakeInitialState = function () {
-                // Don't need to bake — elements are naturally in their initial state
-                // Just cancel any WAAPI animations
-                for (var sa = 0; sa < scrollAnims.length; sa++) {
-                    try { scrollAnims[sa].cancel() } catch (e) {}
+            // Main scroll handler
+            var handleScroll = function () {
+                if (!parent) return
+
+                // Lazy-create wrapper on first scroll
+                if (!wrapperCreated) {
+                    createWrapper()
                 }
-            }
 
-            scrollPinState.origStyles = parent.style.cssText
-
-            // Track whether we've baked final/initial state to avoid re-doing
-            var bakedState = "" // "initial" | "final" | ""
-
-            scrollHandler = function () {
                 var scrollY = window.scrollY
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
                     // ── PINNED: fix parent to viewport top ──
-                    bakedState = ""
+                    scrollPinState.afterPin = false
                     if (!scrollPinState.pinned) {
                         scrollPinState.pinned = true
-                        var wrapRect = wrapper.getBoundingClientRect()
+                        var wrapRect = wrapper!.getBoundingClientRect()
                         parent.style.setProperty("position", "fixed", "important")
                         parent.style.setProperty("top", "0px", "important")
                         parent.style.setProperty("left", wrapRect.left + "px", "important")
@@ -1354,51 +1342,44 @@ export default function PageChoreographer(props: any) {
                         parent.style.setProperty("height", parentHeight + "px", "important")
                         parent.style.setProperty("z-index", "9999", "important")
                         initScrollAnims()
-
-                        // Re-create animations if they were cancelled (baked)
-                        if (scrollAnims.length === 0 && scrollAnimFinalStyles.length > 0) {
-                            scrollAnimsInitialized = false
-                            initScrollAnims()
-                        }
                     }
                     var progress = (scrollY - pinStart) / scrollLength
                     updateAnimProgress(Math.max(0, Math.min(1, progress)))
 
                 } else if (scrollY < pinStart) {
                     // ── BEFORE PIN: restore to normal flow ──
-                    if (scrollPinState.pinned) {
+                    if (scrollPinState.pinned || scrollPinState.afterPin) {
                         scrollPinState.pinned = false
+                        scrollPinState.afterPin = false
                         parent.style.cssText = scrollPinState.origStyles
                     }
-                    // Bake initial state once (cancel animations, show natural look)
-                    if (bakedState !== "initial" && scrollAnimsInitialized) {
-                        bakedState = "initial"
-                        bakeInitialState()
+                    if (scrollAnimsInitialized) {
+                        updateAnimProgress(0)
                     }
 
                 } else {
-                    // ── AFTER PIN: position at bottom of wrapper, show final state ──
-                    if (scrollPinState.pinned) {
-                        scrollPinState.pinned = false
+                    // ── AFTER PIN: anchor to bottom of wrapper ──
+                    scrollPinState.pinned = false
+                    if (!scrollPinState.afterPin) {
+                        scrollPinState.afterPin = true
+                        // Use absolute positioning to anchor at bottom of wrapper
+                        // This avoids clipping issues with overflow:hidden ancestors
+                        parent.style.setProperty("position", "absolute", "important")
+                        parent.style.setProperty("bottom", "0px", "important")
+                        parent.style.setProperty("left", "0px", "important")
+                        parent.style.setProperty("top", "auto", "important")
+                        parent.style.setProperty("width", parentWidth + "px", "important")
+                        parent.style.setProperty("height", parentHeight + "px", "important")
                     }
-                    // Always ensure correct positioning when past the pin range
-                    parent.style.cssText = scrollPinState.origStyles
-                    parent.style.setProperty("position", "relative", "important")
-                    parent.style.setProperty("top", scrollLength + "px", "important")
-
-                    // Bake final styles inline (cancel WAAPI, set final CSS)
-                    if (bakedState !== "final") {
-                        bakedState = "final"
-                        initScrollAnims() // ensure they exist to read final styles
-                        bakeFinishedState()
+                    // Keep animations at final state (fill: both holds it)
+                    if (scrollAnimsInitialized) {
+                        updateAnimProgress(1)
                     }
                 }
             }
 
-            window.addEventListener("scroll", scrollHandler, { passive: true })
-            // Set initial state — but animations are NOT created yet (lazy),
-            // so elements remain visible in their natural state
-            scrollHandler()
+            scrollHandler = handleScroll
+            window.addEventListener("scroll", handleScroll, { passive: true })
         }
 
         return function () {
@@ -1416,11 +1397,11 @@ export default function PageChoreographer(props: any) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
             }
             // Unwrap parent from scroll wrapper back to its original position
-            if (scrollSpacer && scrollSpacer.parentElement && parent) {
+            if (scrollWrapper && scrollWrapper.parentElement && parent) {
                 parent.style.cssText = scrollPinState.origStyles
-                scrollSpacer.parentElement.insertBefore(parent, scrollSpacer)
-                scrollSpacer.parentElement.removeChild(scrollSpacer)
-            } else if (parent) {
+                scrollWrapper.parentElement.insertBefore(parent, scrollWrapper)
+                scrollWrapper.parentElement.removeChild(scrollWrapper)
+            } else if (parent && scrollPinState.origStyles) {
                 parent.style.cssText = scrollPinState.origStyles
             }
             unregisterAll(getStore())
