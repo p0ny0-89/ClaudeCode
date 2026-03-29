@@ -1318,14 +1318,6 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Cancel all animations — elements return to their natural CSS state
-            var cancelScrollAnims = function () {
-                for (var ca = 0; ca < scrollAnims.length; ca++) {
-                    try { scrollAnims[ca].cancel() } catch (e) {}
-                }
-                scrollAnims = []
-            }
-
             var updateAnimProgress = function (progress: number) {
                 for (var a = 0; a < scrollAnims.length; a++) {
                     try {
@@ -1335,8 +1327,12 @@ export default function PageChoreographer(props: any) {
                             : null
                         var animDelay = timing ? (timing.delay || 0) : 0
                         var animDur = timing ? (timing.duration || 600) : 600
+                        // WAAPI currentTime includes the delay period:
+                        // 0 → before phase (fill:both shows "from")
+                        // delay → start of active period
+                        // delay + duration → end of active period (fill:both shows "to")
                         var time = progress * timelineDuration
-                        anim.currentTime = Math.max(0, Math.min(time - animDelay, animDur as number))
+                        anim.currentTime = Math.max(0, Math.min(time, animDelay + (animDur as number)))
                     } catch (e) {}
                 }
             }
@@ -1353,9 +1349,7 @@ export default function PageChoreographer(props: any) {
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
                     // ── PINNED: fix parent to viewport top ──
                     if (scrollPinState.afterPin) {
-                        // Scrolling back up from after-pin: re-create animations
                         scrollPinState.afterPin = false
-                        createScrollAnims()
                     }
                     if (!scrollPinState.pinned) {
                         scrollPinState.pinned = true
@@ -1373,9 +1367,7 @@ export default function PageChoreographer(props: any) {
                 } else if (scrollY < pinStart) {
                     // ── BEFORE PIN: restore to normal flow ──
                     if (scrollPinState.afterPin) {
-                        // Scrolling back from after-pin through pin range to before
                         scrollPinState.afterPin = false
-                        createScrollAnims()
                     }
                     if (scrollPinState.pinned) {
                         scrollPinState.pinned = false
@@ -1388,9 +1380,6 @@ export default function PageChoreographer(props: any) {
                     scrollPinState.pinned = false
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
-                        // Cancel WAAPI animations — elements return to their
-                        // natural visible CSS state (no transform, full opacity)
-                        cancelScrollAnims()
                         // Position parent at bottom of wrapper
                         parent.style.setProperty("position", "absolute", "important")
                         parent.style.setProperty("bottom", "0px", "important")
@@ -1399,6 +1388,8 @@ export default function PageChoreographer(props: any) {
                         parent.style.setProperty("width", parentWidth + "px", "important")
                         parent.style.setProperty("height", parentHeight + "px", "important")
                     }
+                    // Hold animations at final state (fill:both keeps "to" styles)
+                    updateAnimProgress(1)
                 }
             }
 
