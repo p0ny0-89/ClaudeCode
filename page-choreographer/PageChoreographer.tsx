@@ -1219,6 +1219,7 @@ export default function PageChoreographer(props: any) {
         var scrollHandler: (() => void) | null = null
         var scrollSetupListener: (() => void) | null = null
         var scrollWrapper: HTMLElement | null = null
+        var scrollSetupIO: IntersectionObserver | null = null
         var scrollPinState = { pinned: false, afterPin: false, completed: false, origStyles: "" }
 
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
@@ -1375,9 +1376,38 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Create animations immediately so elements start in "from" state
-            createScrollAnims()
-            updateAnimProgress(0)
+            // Don't create animations on mount — elements stay visible in their
+            // natural state so the section doesn't appear as an empty gap.
+            // Animations are created lazily when the section approaches the
+            // viewport (via IO below) or when pinning first occurs.
+            var scrollAnimsCreated = false
+
+            var ensureScrollAnims = function () {
+                if (scrollAnimsCreated) return
+                scrollAnimsCreated = true
+                createScrollAnims()
+                updateAnimProgress(0)
+            }
+
+            // Use IntersectionObserver to create animations just before
+            // the section enters the viewport — prevents empty gap
+            try {
+                scrollSetupIO = new IntersectionObserver(
+                    function (entries) {
+                        for (var e = 0; e < entries.length; e++) {
+                            if (entries[e].isIntersecting) {
+                                ensureScrollAnims()
+                                if (scrollSetupIO) scrollSetupIO.disconnect()
+                                scrollSetupIO = null
+                                break
+                            }
+                        }
+                    },
+                    // Trigger 200px before section enters viewport
+                    { rootMargin: "200px 0px 200px 0px" }
+                )
+                scrollSetupIO.observe(wrapper)
+            } catch (e) {}
 
             // Main scroll handler
             var handleScroll = function () {
@@ -1402,6 +1432,8 @@ export default function PageChoreographer(props: any) {
                 var scrollY = window.scrollY
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
+                    // Ensure animations exist (fallback if IO hasn't fired yet)
+                    ensureScrollAnims()
                     // ── PINNED: fix parent to viewport top ──
                     if (scrollPinState.afterPin) {
                         // Scrolling back from after-pin: re-create animations
@@ -1475,6 +1507,9 @@ export default function PageChoreographer(props: any) {
                 try { intObs.disconnect() } catch (e) {}
             }
             // Clean up scroll-scrub
+            if (scrollSetupIO) {
+                try { scrollSetupIO.disconnect() } catch (e) {}
+            }
             if (scrollHandler) {
                 window.removeEventListener("scroll", scrollHandler)
             }
