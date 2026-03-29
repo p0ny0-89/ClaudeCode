@@ -332,6 +332,16 @@ function createStore() {
         return groups
     }
 
+    // Sort group IDs by their priority (ascending), so lower priority
+    // numbers animate first. Groups with the same priority play together.
+    function getSortedGroupIds(groups: Record<string, TargetEntry[]>): string[] {
+        var gids = Object.keys(groups)
+        gids.sort(function (a, b) {
+            return groups[a][0].sortPriority - groups[b][0].sortPriority
+        })
+        return gids
+    }
+
     function playEnter() {
         if (phase === "entering") return Promise.resolve()
         cancelActive()
@@ -347,12 +357,25 @@ function createStore() {
         })
 
         var groups = groupByGroupId(eligible)
+        var sortedGids = getSortedGroupIds(groups)
         var promises: Promise<any>[] = []
+        var groupOffset = 0
+        var prevPriority: number | null = null
 
-        for (var gid in groups) {
+        for (var gi = 0; gi < sortedGids.length; gi++) {
+            var gid = sortedGids[gi]
             var group = groups[gid]
+            var currentPriority = group[0].sortPriority
             var direction = group[0].staggerDirection
             var sorted = sortTargets(group, direction)
+
+            // Same priority as previous group → no extra offset (play together)
+            // Different priority → advance offset so this group starts after the last
+            if (prevPriority !== null && currentPriority !== prevPriority) {
+                // groupOffset was already accumulated from previous groups
+            }
+
+            var maxDelayInGroup = 0
 
             for (var i = 0; i < sorted.length; i++) {
                 var target = sorted[i]
@@ -364,8 +387,11 @@ function createStore() {
                     : buildEnterKeyframes(target)
 
                 var stagger = reduced ? 0 : target.stagger
-                var delay = stagger * i + target.delayOffset
+                var localDelay = stagger * i + target.delayOffset
+                var delay = localDelay + groupOffset
                 var dur = reduced ? 10 : target.duration * 1000
+
+                if (localDelay > maxDelayInGroup) maxDelayInGroup = localDelay
 
                 try {
                     var anim = el.animate([kf.from, kf.to], {
@@ -387,6 +413,17 @@ function createStore() {
                     )
                 } catch (e) {}
             }
+
+            // If the NEXT group has a different priority, advance the offset
+            // so it starts after this group's last element begins animating
+            var nextGid = sortedGids[gi + 1]
+            if (nextGid) {
+                var nextPriority = groups[nextGid][0].sortPriority
+                if (nextPriority !== currentPriority) {
+                    groupOffset += maxDelayInGroup + (sorted.length > 0 ? sorted[0].stagger : 0.06)
+                }
+            }
+            prevPriority = currentPriority
         }
 
         return Promise.all(promises).then(function () {
@@ -411,12 +448,19 @@ function createStore() {
         })
 
         var groups = groupByGroupId(eligible)
+        var sortedGids = getSortedGroupIds(groups)
         var promises: Promise<any>[] = []
+        var groupOffset = 0
+        var prevPriority: number | null = null
 
-        for (var gid in groups) {
+        for (var gi = 0; gi < sortedGids.length; gi++) {
+            var gid = sortedGids[gi]
             var group = groups[gid]
+            var currentPriority = group[0].sortPriority
             var direction = group[0].staggerDirection
             var sorted = sortTargets(group, direction)
+
+            var maxDelayInGroup = 0
 
             for (var i = 0; i < sorted.length; i++) {
                 var target = sorted[i]
@@ -428,7 +472,10 @@ function createStore() {
                     : buildExitKeyframes(target)
 
                 var stagger = reduced ? 0 : target.stagger
-                var delay = stagger * i + target.delayOffset
+                var localDelay = stagger * i + target.delayOffset
+                var delay = localDelay + groupOffset
+
+                if (localDelay > maxDelayInGroup) maxDelayInGroup = localDelay
 
                 try {
                     var anim = el.animate([kf.from, kf.to], {
@@ -441,6 +488,15 @@ function createStore() {
                     promises.push(anim.finished)
                 } catch (e) {}
             }
+
+            var nextGid = sortedGids[gi + 1]
+            if (nextGid) {
+                var nextPriority = groups[nextGid][0].sortPriority
+                if (nextPriority !== currentPriority) {
+                    groupOffset += maxDelayInGroup + (sorted.length > 0 ? sorted[0].stagger : 0.06)
+                }
+            }
+            prevPriority = currentPriority
         }
 
         return Promise.all(promises).then(function () {
