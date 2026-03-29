@@ -1312,7 +1312,7 @@ export default function PageChoreographer(props: any) {
             // Important: check sectionEl, not parentGP — parentGP (inner
             // Stack) may grow but the section (100vh) won't.
             var neededHeight = parentHeight + scrollLength
-            var sectionGrew = sectionEl.offsetHeight >= neededHeight * 0.8
+            var sectionGrew = sectionEl.offsetHeight >= neededHeight * 0.98
 
             console.log("[choreo] sectionEl:", sectionEl.getAttribute("data-framer-name") || sectionEl.tagName,
                 "sectionEl.offsetHeight:", sectionEl.offsetHeight,
@@ -1339,12 +1339,27 @@ export default function PageChoreographer(props: any) {
             var pinElWidth: number
             var pinElHeight: number
 
+            // Track ancestors with overflow:clip/hidden that need to be
+            // temporarily overridden during pinning
+            var overflowAncestors: Array<{ el: HTMLElement; orig: string }> = []
+
             if (scrollSpacer && sectionEl) {
                 pinEl = sectionEl
                 pinElWidth = sectionEl.offsetWidth
                 pinElHeight = sectionEl.offsetHeight
                 // Spacer covers section height + full pin range
                 scrollSpacer.style.setProperty("height", (pinElHeight + scrollLength + parentHeight) + "px")
+
+                // Check ancestors for overflow:clip/hidden that would clip
+                // the transform-pinned element
+                var ancestor: HTMLElement | null = sectionEl.parentElement
+                while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+                    var ov = window.getComputedStyle(ancestor).overflow
+                    if (ov === "clip" || ov === "hidden") {
+                        overflowAncestors.push({ el: ancestor, orig: ov })
+                    }
+                    ancestor = ancestor.parentElement
+                }
             } else {
                 pinEl = parent
                 pinElWidth = parentWidth
@@ -1520,7 +1535,12 @@ export default function PageChoreographer(props: any) {
 
                     var offset = scrollY - pinStart
                     if (!scrollPinState.pinned) {
-                        console.log("[choreo] ENTERING PIN scrollY:", scrollY, "pinStart:", pinStart, "offset:", offset, "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName, "pinEl.style.transform BEFORE:", pinEl.style.transform)
+                        console.log("[choreo] ENTERING PIN scrollY:", scrollY, "pinStart:", pinStart, "offset:", offset, "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName, "pinEl.style.transform BEFORE:", pinEl.style.transform, "MODE:", scrollSpacer ? "SPACER" : "WRAPPER")
+                        // Override overflow:clip/hidden on ancestors so
+                        // the translated section isn't clipped
+                        for (var oi = 0; oi < overflowAncestors.length; oi++) {
+                            overflowAncestors[oi].el.style.setProperty("overflow", "visible", "important")
+                        }
                     }
                     pinEl.style.setProperty("transform", "translateY(" + offset + "px)", "important")
                     pinEl.style.setProperty("z-index", "9999", "important")
@@ -1547,6 +1567,10 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.pinned = false
                         pinEl.style.removeProperty("transform")
                         pinEl.style.removeProperty("z-index")
+                        // Restore overflow on ancestors
+                        for (var oi2 = 0; oi2 < overflowAncestors.length; oi2++) {
+                            overflowAncestors[oi2].el.style.setProperty("overflow", overflowAncestors[oi2].orig)
+                        }
                     }
                     updateAnimProgress(0)
 
@@ -1557,6 +1581,10 @@ export default function PageChoreographer(props: any) {
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
+                        // Restore overflow on ancestors
+                        for (var oi3 = 0; oi3 < overflowAncestors.length; oi3++) {
+                            overflowAncestors[oi3].el.style.setProperty("overflow", overflowAncestors[oi3].orig)
+                        }
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
                     }
@@ -1657,6 +1685,10 @@ export default function PageChoreographer(props: any) {
             }
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
+            }
+            // Restore overflow on ancestors
+            for (var oc = 0; oc < overflowAncestors.length; oc++) {
+                overflowAncestors[oc].el.style.setProperty("overflow", overflowAncestors[oc].orig)
             }
             // Remove external spacer if present
             if (scrollSpacer && scrollSpacer.parentElement) {
