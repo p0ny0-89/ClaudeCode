@@ -778,17 +778,40 @@ function collectTargets(
             result.push(el)
         }
     }
-    // Filter out elements matching the exclude selector
+    // Filter out elements whose layer name matches any excluded name.
+    // User types comma-separated layer names like "Load More, Footer".
+    // We match against Framer's data-framer-name attribute on the element
+    // itself or any of its descendants.
     if (excludeSelector && excludeSelector.trim()) {
-        var sel = excludeSelector.trim()
-        result = result.filter(function (el) {
-            try {
-                // Check element itself and whether it contains a match
-                if (el.matches(sel)) return false
-                if (el.querySelector(sel)) return false
-            } catch (e) {}
-            return true
-        })
+        var names = excludeSelector.split(",").map(function (n) {
+            return n.trim().toLowerCase()
+        }).filter(function (n) { return n.length > 0 })
+
+        if (names.length > 0) {
+            result = result.filter(function (el) {
+                // Check the element's own framer name
+                var elName = (el.getAttribute("data-framer-name") || "").toLowerCase()
+                for (var n = 0; n < names.length; n++) {
+                    if (elName === names[n]) return false
+                }
+                // Check descendants for a matching framer name
+                for (var n = 0; n < names.length; n++) {
+                    try {
+                        var sel = '[data-framer-name="' + names[n] + '" i]'
+                        if (el.querySelector(sel)) return false
+                    } catch (e) {
+                        // Fallback: case-sensitive if 'i' flag not supported
+                        try {
+                            var found = el.querySelectorAll("[data-framer-name]")
+                            for (var f = 0; f < found.length; f++) {
+                                if ((found[f].getAttribute("data-framer-name") || "")
+                                    .toLowerCase() === names[n]) return false
+                            }
+                        } catch (e2) {}
+                    }
+                }
+                return true
+            })
     }
     return result
 }
@@ -1045,9 +1068,9 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.String,
         title: "Exclude",
         defaultValue: "",
-        placeholder: '[data-framer-name="Load More"]',
+        placeholder: "Load More",
         description:
-            "CSS selector — matching elements (or parents of matches) are skipped. Use [data-framer-name=\"Name\"] to target by layer name.",
+            "Layer names to skip (comma-separated). e.g. Load More, Button",
     },
     trigger: {
         type: ControlType.Enum,
