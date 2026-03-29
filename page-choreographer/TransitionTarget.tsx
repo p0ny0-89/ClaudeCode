@@ -61,8 +61,32 @@ function findRealParent(marker: HTMLElement): HTMLElement | null {
 // ─── Collect target elements ─────────────────────────────────────────────────
 
 function isMarkerOrWrapper(el: HTMLElement, marker: HTMLElement): boolean {
-    // Check if this element IS the marker or CONTAINS the marker
     return el === marker || el.contains(marker)
+}
+
+// Drill down through single-child wrappers until reaching a level with
+// multiple children. Framer wraps CMS collections in several nested divs.
+//   wrapper1 → wrapper2 → wrapper3 → [Card1, Card2, Card3, ...]
+// This function returns [Card1, Card2, Card3, ...].
+function drillDown(node: HTMLElement, maxDepth: number): HTMLElement[] {
+    if (maxDepth <= 0) return [node]
+
+    // Multiple children = we found the actual items
+    if (node.children.length > 1) {
+        var items: HTMLElement[] = []
+        for (var i = 0; i < node.children.length; i++) {
+            items.push(node.children[i] as HTMLElement)
+        }
+        return items
+    }
+
+    // Single child = keep drilling
+    if (node.children.length === 1) {
+        return drillDown(node.children[0] as HTMLElement, maxDepth - 1)
+    }
+
+    // Leaf node
+    return [node]
 }
 
 function collectTargets(
@@ -73,24 +97,21 @@ function collectTargets(
     var targets: HTMLElement[] = []
 
     if (scanMode === "cmsItems") {
-        // CMS mode: find the child with the most children (collection wrapper)
-        var bestChild: HTMLElement | null = null
-        var bestCount = 0
+        // CMS mode: find the sibling branch with the most items, drilling
+        // through any single-child wrappers Framer adds.
+        var bestItems: HTMLElement[] = []
 
         for (var i = 0; i < parent.children.length; i++) {
             var child = parent.children[i] as HTMLElement
             if (isMarkerOrWrapper(child, marker)) continue
-            if (child.children.length > bestCount) {
-                bestCount = child.children.length
-                bestChild = child
+
+            var items = drillDown(child, 8)
+            if (items.length > bestItems.length) {
+                bestItems = items
             }
         }
 
-        if (bestChild && bestCount > 0) {
-            for (var j = 0; j < bestChild.children.length; j++) {
-                targets.push(bestChild.children[j] as HTMLElement)
-            }
-        }
+        targets = bestItems
     } else {
         // Siblings mode: all children except the marker wrapper
         for (var k = 0; k < parent.children.length; k++) {
