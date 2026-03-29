@@ -1554,13 +1554,13 @@ export default function PageChoreographer(props: any) {
 
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        if (!isFollower) unbakeAndRecreateAnims()
+                        unbakeAndRecreateAnims()
                     }
 
                     if (!isFollower) {
                         var offset = scrollY - pinStart
                         if (!scrollPinState.pinned) {
-                            console.log("[choreo] ENTERING PIN scrollY:", scrollY, "pinStart:", pinStart, "offset:", offset, "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName, "MODE:", scrollSpacer ? "SPACER" : "WRAPPER")
+                            console.log("[choreo] ENTERING PIN scrollY:", scrollY, "pinStart:", pinStart, "offset:", offset, "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName, "MODE:", scrollSpacer ? "SPACER" : "WRAPPER", "isFollower:", isFollower)
                             // Override overflow:clip/hidden on ancestors
                             for (var oi = 0; oi < overflowAncestors.length; oi++) {
                                 overflowAncestors[oi].el.style.setProperty("overflow", "visible", "important")
@@ -1585,7 +1585,7 @@ export default function PageChoreographer(props: any) {
                     // ── BEFORE PIN ──
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        if (!isFollower) unbakeAndRecreateAnims()
+                        unbakeAndRecreateAnims()
                     }
                     if (scrollPinState.pinned && !isFollower) {
                         pinEl.style.removeProperty("transform")
