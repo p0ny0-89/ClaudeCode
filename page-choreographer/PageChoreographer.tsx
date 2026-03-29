@@ -849,11 +849,74 @@ function elementMatchesNames(el: HTMLElement, names: string[]): boolean {
     return false
 }
 
+// Split text elements into individual lines for per-line animation.
+// Framer rich text renders each line as <p> inside a container.
+// Plain text may use <br> tags — we wrap text runs between <br>s in spans.
+function splitTextTargets(targets: HTMLElement[]): HTMLElement[] {
+    var result: HTMLElement[] = []
+    for (var i = 0; i < targets.length; i++) {
+        var el = targets[i]
+
+        // Look for <p> children (Framer rich text)
+        var paragraphs = el.querySelectorAll(":scope > p, :scope > div > p")
+        if (paragraphs.length > 1) {
+            for (var j = 0; j < paragraphs.length; j++) {
+                result.push(paragraphs[j] as HTMLElement)
+            }
+            // Set overflow visible on parent so animated lines aren't clipped
+            el.style.overflow = "visible"
+            continue
+        }
+
+        // Look for <br> tags (simple text)
+        var brs = el.querySelectorAll("br")
+        if (brs.length > 0) {
+            // Walk child nodes, grouping text/inline nodes between <br>s
+            var wrapper = el.firstElementChild || el
+            var lineNodes: Node[][] = [[]]
+            for (var c = 0; c < wrapper.childNodes.length; c++) {
+                var node = wrapper.childNodes[c]
+                if (node.nodeName === "BR") {
+                    lineNodes.push([])
+                } else {
+                    lineNodes[lineNodes.length - 1].push(node)
+                }
+            }
+            // Only split if we got multiple non-empty lines
+            var nonEmpty = lineNodes.filter(function (ln) {
+                return ln.some(function (n) {
+                    return (n.textContent || "").trim().length > 0
+                })
+            })
+            if (nonEmpty.length > 1) {
+                // Clear the container and rebuild with wrapped lines
+                while (wrapper.firstChild) wrapper.removeChild(wrapper.firstChild)
+                for (var li = 0; li < lineNodes.length; li++) {
+                    var span = document.createElement("span")
+                    span.style.display = "block"
+                    for (var ni = 0; ni < lineNodes[li].length; ni++) {
+                        span.appendChild(lineNodes[li][ni])
+                    }
+                    wrapper.appendChild(span)
+                    result.push(span)
+                }
+                el.style.overflow = "visible"
+                continue
+            }
+        }
+
+        // Not a multi-line text element — keep as-is
+        result.push(el)
+    }
+    return result
+}
+
 function collectTargets(
     parent: HTMLElement,
     marker: HTMLElement,
     scanMode: string,
-    excludeSelector?: string
+    excludeSelector?: string,
+    splitText?: boolean
 ): HTMLElement[] {
     var result: HTMLElement[] = []
     if (scanMode === "cmsItems") {
@@ -886,6 +949,10 @@ function collectTargets(
             })
         }
     }
+    // Expand text elements into individual lines
+    if (splitText) {
+        result = splitTextTargets(result)
+    }
     return result
 }
 
@@ -905,6 +972,7 @@ export default function PageChoreographer(props: any) {
     var {
         scanMode = "cmsItems",
         excludeSelector = "",
+        splitText = false,
         enterPreset = "fadeUp",
         exitPreset = "riseWave",
         enterEnabled = true,
@@ -1033,7 +1101,7 @@ export default function PageChoreographer(props: any) {
 
         unregisterAll(store)
 
-        var targets = collectTargets(parent, marker, scanMode, excludeSelector)
+        var targets = collectTargets(parent, marker, scanMode, excludeSelector, splitText)
         registerElements(targets, store)
 
         // MutationObserver for dynamic CMS content
@@ -1058,7 +1126,7 @@ export default function PageChoreographer(props: any) {
                     var p = findRealParent(marker)
                     if (!p) return
                     unregisterAll(s)
-                    var t = collectTargets(p, marker, scanMode, excludeSelector)
+                    var t = collectTargets(p, marker, scanMode, excludeSelector, splitText)
                     registerElements(t, s)
                 })
                 mutObs.observe(observeTarget, { childList: true })
@@ -1103,7 +1171,7 @@ export default function PageChoreographer(props: any) {
             unregisterAll(getStore())
         }
     }, [
-        baseId, scanMode, excludeSelector, trigger, viewOffset, viewRepeat,
+        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
@@ -1155,6 +1223,12 @@ addPropertyControls(PageChoreographer, {
         placeholder: "Layer Name",
         description:
             "Layer names to skip (comma-separated). e.g. Load More, Button",
+    },
+    splitText: {
+        type: ControlType.Boolean,
+        title: "Split Text",
+        defaultValue: false,
+        description: "Animate each line of text separately.",
     },
     trigger: {
         type: ControlType.Enum,
