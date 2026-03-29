@@ -1314,6 +1314,13 @@ export default function PageChoreographer(props: any) {
             var neededHeight = parentHeight + scrollLength
             var sectionGrew = sectionEl.offsetHeight >= neededHeight * 0.8
 
+            console.log("[choreo] sectionEl:", sectionEl.getAttribute("data-framer-name") || sectionEl.tagName,
+                "sectionEl.offsetHeight:", sectionEl.offsetHeight,
+                "neededHeight:", neededHeight,
+                "sectionGrew:", sectionGrew,
+                "parentGP.offsetHeight:", parentGP ? parentGP.offsetHeight : "N/A",
+                "parentHeight:", parentHeight, "scrollLength:", scrollLength)
+
             if (!sectionGrew && sectionEl && sectionEl.parentElement) {
                 // Section has fixed height — shrink wrapper, add spacer
                 wrapper.style.setProperty("height", parentHeight + "px")
@@ -1355,6 +1362,12 @@ export default function PageChoreographer(props: any) {
             var pinStart = Math.max(0, (scrollSpacer ? pinEl : wrapper).getBoundingClientRect().top + window.scrollY)
             var totalPinLength = scrollSpacer ? scrollLength + parentHeight : scrollLength
             var pinEnd = pinStart + totalPinLength
+            console.log("[choreo] MODE:", scrollSpacer ? "SPACER" : "WRAPPER",
+                "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName,
+                "pinElWidth:", pinElWidth, "pinElHeight:", pinElHeight,
+                "pinStart:", pinStart, "pinEnd:", pinEnd, "totalPinLength:", totalPinLength,
+                "sectionEl overflow:", sectionEl ? window.getComputedStyle(sectionEl).overflow : "N/A",
+                "sectionEl parent overflow:", sectionEl && sectionEl.parentElement ? window.getComputedStyle(sectionEl.parentElement).overflow : "N/A")
             var wrapRectLeft = pinEl.getBoundingClientRect().left
 
             // ── Animation creation/destruction ──
@@ -1506,6 +1519,9 @@ export default function PageChoreographer(props: any) {
                     }
 
                     var offset = scrollY - pinStart
+                    if (!scrollPinState.pinned) {
+                        console.log("[choreo] ENTERING PIN scrollY:", scrollY, "pinStart:", pinStart, "offset:", offset, "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName, "pinEl.style.transform BEFORE:", pinEl.style.transform)
+                    }
                     pinEl.style.setProperty("transform", "translateY(" + offset + "px)", "important")
                     pinEl.style.setProperty("z-index", "9999", "important")
                     scrollPinState.pinned = true
