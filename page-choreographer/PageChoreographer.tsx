@@ -79,11 +79,36 @@ function buildEnterKeyframes(t: TargetEntry) {
                 from: { opacity: "0", transform: "translateX(" + -d + "px)" },
                 to: { opacity: "1", transform: "translateX(0px)" },
             }
-        case "scaleIn":
-            return {
-                from: { opacity: "0", transform: "scale(" + t.scaleFrom + ")" },
-                to: { opacity: "1", transform: "scale(1)" },
+        case "scaleIn": {
+            var sf = t.scaleFrom
+            var so = t.scaleOpacity != null ? t.scaleOpacity : 0
+            var sd = t.enterScaleDirection || "center"
+            // transform-origin maps direction to the edge/corner the scale originates FROM
+            var originMap: Record<string, string> = {
+                center: "center center",
+                left: "left center",
+                right: "right center",
+                up: "top center",
+                down: "bottom center",
+                topLeft: "top left",
+                topRight: "top right",
+                bottomLeft: "bottom left",
+                bottomRight: "bottom right",
             }
+            var origin = originMap[sd] || "center center"
+            return {
+                from: {
+                    opacity: String(so),
+                    transform: "scale(" + sf + ")",
+                    transformOrigin: origin,
+                },
+                to: {
+                    opacity: "1",
+                    transform: "scale(1)",
+                    transformOrigin: origin,
+                },
+            }
+        }
         case "blurIn":
             return {
                 from: {
@@ -254,6 +279,8 @@ interface TargetEntry {
     maskOpacity: number
     blurAmount: number
     scaleFrom: number
+    enterScaleDirection: string
+    scaleOpacity: number
     // Custom enter
     enterOpacity: number
     enterOffsetX: number
@@ -1055,6 +1082,8 @@ export default function PageChoreographer(props: any) {
         maskOpacity = 1,
         blurAmount = 8,
         scaleFrom = 0.92,
+        enterScaleDirection = "center",
+        scaleOpacity = 0,
         exitTimeout = 3,
         enterDelay = 0.05,
         // Custom enter
@@ -1126,6 +1155,8 @@ export default function PageChoreographer(props: any) {
                 maskOpacity: maskOpacity,
                 blurAmount: blurAmount,
                 scaleFrom: scaleFrom,
+                enterScaleDirection: enterScaleDirection,
+                scaleOpacity: scaleOpacity,
                 enterOpacity: enterOpacity,
                 enterOffsetX: enterOffsetX,
                 enterOffsetY: enterOffsetY,
@@ -1895,7 +1926,7 @@ export default function PageChoreographer(props: any) {
         mobileEnabled, duration, stagger,
         easingPreset, staggerDirection, distance,
         enterMaskDirection, exitMaskDirection, maskStart, maskPreview, maskViewportClip, maskViewportPadding, maskShiftX, maskShiftY, maskOpacity, blurAmount,
-        scaleFrom, exitTimeout, enterDelay,
+        scaleFrom, enterScaleDirection, scaleOpacity, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
         enterScale, enterRotateX, enterRotateY, enterRotateZ,
         enterBlur, enterPerspective,
@@ -2450,6 +2481,28 @@ addPropertyControls(PageChoreographer, {
                 props.exitPreset !== "scaleFadeGrid" &&
                 props.exitPreset !== "scaleOut"
             )
+        },
+    },
+    enterScaleDirection: {
+        type: ControlType.Enum,
+        title: "↳ Direction",
+        defaultValue: "center",
+        options: ["center", "left", "right", "up", "down", "topLeft", "topRight", "bottomLeft", "bottomRight"],
+        optionTitles: ["Center", "← Left", "→ Right", "↑ Top", "↓ Bottom", "↘ Top-Left", "↙ Top-Right", "↗ Bottom-Left", "↖ Bottom-Right"],
+        hidden: function (props: any) {
+            return props.enterPreset !== "scaleIn"
+        },
+    },
+    scaleOpacity: {
+        type: ControlType.Number,
+        title: "↳ Start Opacity",
+        defaultValue: 0,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        description: "Opacity at the start of the scale animation. Set to 1 for a pure scale effect without fade.",
+        hidden: function (props: any) {
+            return props.enterPreset !== "scaleIn"
         },
     },
 
