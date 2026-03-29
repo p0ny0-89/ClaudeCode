@@ -1273,8 +1273,10 @@ export default function PageChoreographer(props: any) {
             var pinEnd = pinStart + scrollLength
 
             // Re-measure when parent size changes (CMS images loading, etc.)
+            // Skip during pin/afterPin to avoid mid-scroll jumps
             var remeasure = function () {
                 if (!wrapper || !parent) return
+                if (scrollPinState.pinned || scrollPinState.afterPin) return
                 var newHeight = parent.scrollHeight || parent.offsetHeight
                 var newWidth = parent.offsetWidth
                 if (newHeight !== parentHeight || newWidth !== parentWidth) {
@@ -1471,11 +1473,15 @@ export default function PageChoreographer(props: any) {
                     scrollPinState.pinned = false
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
+                        // Ensure animation reaches exactly 100% before baking
+                        updateAnimProgress(1)
                         bakeAndCancelAnims()
+                        // Use top instead of bottom — places parent at exactly
+                        // scrollLength from wrapper top (same visual position as fixed:top:0)
                         parent.style.setProperty("position", "absolute", "important")
-                        parent.style.setProperty("bottom", "0px", "important")
+                        parent.style.setProperty("top", scrollLength + "px", "important")
+                        parent.style.setProperty("bottom", "auto", "important")
                         parent.style.setProperty("left", "0px", "important")
-                        parent.style.setProperty("top", "auto", "important")
                         parent.style.setProperty("width", parentWidth + "px", "important")
                         parent.style.setProperty("height", parentHeight + "px", "important")
                         if (scrollOnce) {
