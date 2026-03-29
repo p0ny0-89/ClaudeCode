@@ -1222,62 +1222,76 @@ export default function PageChoreographer(props: any) {
                 var parentHeight = parent.offsetHeight
                 gp.style.minHeight = (parentHeight + scrollLength) + "px"
 
-                // Build paused animations for all registered targets
-                var reduced =
-                    window.matchMedia &&
-                    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-                var mobile = window.innerWidth < 768
-
-                var allTargets = store.getAllTargets().filter(function (t: any) {
-                    return t.groupId === baseId && t.enterEnabled &&
-                        (t.mobileEnabled || !mobile) && t.ref.current
-                })
-
-                var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
-                var sorted = store.sortTargets(allTargets, direction)
-
-                for (var si = 0; si < sorted.length; si++) {
-                    var target = sorted[si]
-                    var el = target.ref.current
-                    if (!el) continue
-
-                    var kf = reduced
-                        ? { from: { opacity: "0" }, to: { opacity: "1" } }
-                        : buildEnterKeyframes(target)
-
-                    var staggerVal = reduced ? 0 : target.stagger
-                    var itemDelay = staggerVal * si
-                    var dur = reduced ? 10 : target.duration * 1000
-                    // Total timeline = last item's delay + duration
-                    var totalTimeline = (staggerVal * (sorted.length - 1)) * 1000 + dur
-
-                    try {
-                        var scrollAnim = el.animate([kf.from, kf.to], {
-                            duration: dur,
-                            delay: itemDelay * 1000,
-                            easing: easingToCss(target.easing),
-                            fill: "both",
-                        })
-                        scrollAnim.pause()
-                        scrollAnims.push(scrollAnim)
-                    } catch (e) {}
-                }
-
-                // Calculate total timeline duration for progress mapping
+                // Lazy init flag — animations are created on first scroll event
+                // This keeps elements visible on the Framer canvas where scroll
+                // events never fire, avoiding the invisible-on-canvas bug
+                var scrollAnimsInitialized = false
                 var timelineDuration = 0
-                if (sorted.length > 0) {
-                    var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
-                    var lastDur = reduced ? 10 : sorted[0].duration * 1000
-                    timelineDuration = lastStagger * 1000 + lastDur
+
+                var initScrollAnims = function () {
+                    if (scrollAnimsInitialized) return
+                    scrollAnimsInitialized = true
+
+                    var reduced =
+                        window.matchMedia &&
+                        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                    var mobile = window.innerWidth < 768
+
+                    var allTargets = store.getAllTargets().filter(function (t: any) {
+                        return t.groupId === baseId && t.enterEnabled &&
+                            (t.mobileEnabled || !mobile) && t.ref.current
+                    })
+
+                    var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
+                    var sorted = store.sortTargets(allTargets, direction)
+
+                    for (var si = 0; si < sorted.length; si++) {
+                        var target = sorted[si]
+                        var el = target.ref.current
+                        if (!el) continue
+
+                        var kf = reduced
+                            ? { from: { opacity: "0" }, to: { opacity: "1" } }
+                            : buildEnterKeyframes(target)
+
+                        var staggerVal = reduced ? 0 : target.stagger
+                        var itemDelay = staggerVal * si
+                        var dur = reduced ? 10 : target.duration * 1000
+
+                        try {
+                            var scrollAnim = el.animate([kf.from, kf.to], {
+                                duration: dur,
+                                delay: itemDelay * 1000,
+                                easing: easingToCss(target.easing),
+                                fill: "both",
+                            })
+                            scrollAnim.pause()
+                            scrollAnims.push(scrollAnim)
+                        } catch (e) {}
+                    }
+
+                    // Calculate total timeline duration for progress mapping
+                    if (sorted.length > 0) {
+                        var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
+                        var lastDur = reduced ? 10 : sorted[0].duration * 1000
+                        timelineDuration = lastStagger * 1000 + lastDur
+                    }
                 }
 
                 // Scroll handler — maps scroll position to animation progress
                 scrollHandler = function () {
                     if (!gp) return
+
+                    // Lazy-create animations on first scroll so elements stay
+                    // visible on Framer canvas (where scroll never fires)
+                    initScrollAnims()
+
                     var gpRect = gp.getBoundingClientRect()
-                    // Progress: 0 when grandparent top is at viewport top,
-                    // 1 when we've scrolled scrollLength pixels past that
-                    var progress = Math.max(0, Math.min(1, -gpRect.top / scrollLength))
+                    // Progress: 0 when section enters viewport (grandparent top
+                    // aligns with bottom of viewport), 1 after scrolling
+                    // scrollLength pixels past that point
+                    var scrolled = window.innerHeight - gpRect.top
+                    var progress = Math.max(0, Math.min(1, scrolled / scrollLength))
 
                     for (var a = 0; a < scrollAnims.length; a++) {
                         try {
@@ -1287,7 +1301,6 @@ export default function PageChoreographer(props: any) {
                                 : null
                             var animDelay = timing ? (timing.delay || 0) : 0
                             var animDur = timing ? (timing.duration || 600) : 600
-                            var animTotal = animDelay + (animDur as number)
                             // Map global progress to per-animation time
                             var time = progress * timelineDuration
                             anim.currentTime = Math.max(0, Math.min(time - animDelay, animDur as number))
@@ -1296,8 +1309,6 @@ export default function PageChoreographer(props: any) {
                 }
 
                 window.addEventListener("scroll", scrollHandler, { passive: true })
-                // Set initial state
-                scrollHandler()
             }
         }
 
