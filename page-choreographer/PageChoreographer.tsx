@@ -1047,6 +1047,7 @@ export default function PageChoreographer(props: any) {
         enterMaskDirection = "left",
         exitMaskDirection = "left",
         maskStart = 0,
+        maskPreview = false,
         maskShiftX = 0,
         maskShiftY = 0,
         maskOpacity = 1,
@@ -1187,10 +1188,29 @@ export default function PageChoreographer(props: any) {
                 preHideStyleTag = styleTag
             }
 
+            // Compute initial clip-path for maskPreview mode
+            var previewClip = ""
+            if (maskPreview && enterPreset === "maskReveal" && trigger === "onScroll") {
+                var ms = Math.max(0, Math.min(100, 100 - (maskStart || 0)))
+                switch (enterMaskDirection) {
+                    case "left":  default: previewClip = "inset(0 " + ms + "% 0 0)"; break
+                    case "right":      previewClip = "inset(0 0 0 " + ms + "%)"; break
+                    case "up":         previewClip = "inset(0 0 " + ms + "% 0)"; break
+                    case "down":       previewClip = "inset(" + ms + "% 0 0 0)"; break
+                    case "topLeft":    previewClip = "inset(0 " + ms + "% " + ms + "% 0)"; break
+                    case "topRight":   previewClip = "inset(0 0 " + ms + "% " + ms + "%)"; break
+                    case "bottomLeft": previewClip = "inset(" + ms + "% " + ms + "% 0 0)"; break
+                    case "bottomRight":previewClip = "inset(" + ms + "% 0 0 " + ms + "%)"; break
+                }
+            }
+
             for (var phi = 0; phi < targets.length; phi++) {
                 var phEl = targets[phi]
                 if (!phEl) continue
-                if (trigger === "onScroll") {
+                if (maskPreview && previewClip && trigger === "onScroll") {
+                    // Show element with initial mask instead of hiding
+                    phEl.style.setProperty("clip-path", previewClip)
+                } else if (trigger === "onScroll") {
                     phEl.setAttribute("data-choreo-hide", "1")
                 } else {
                     phEl.style.setProperty("visibility", "hidden")
@@ -1534,15 +1554,18 @@ export default function PageChoreographer(props: any) {
             var interactiveState = false // true = pointer-events enabled
 
             var revealIfNeeded = function (progress: number) {
-                // Require actual scrolling (scrollY > 0) before revealing,
-                // as a safety net against negative pinStart edge cases
-                if (visibilityRevealed || progress <= 0 || window.scrollY <= 0) return
+                // For maskPreview, elements are already visible — skip the
+                // scrollY/progress gate since there's nothing to "reveal"
+                if (visibilityRevealed) return
+                if (!maskPreview && (progress <= 0 || window.scrollY <= 0)) return
                 visibilityRevealed = true
                 for (var ph = 0; ph < preHiddenEls.length; ph++) {
                     preHiddenEls[ph].removeAttribute("data-choreo-hide")
                     preHiddenEls[ph].style.removeProperty("visibility")
                     preHiddenEls[ph].style.removeProperty("opacity")
                     preHiddenEls[ph].style.removeProperty("pointer-events")
+                    // Remove inline clip-path so the animation takes over
+                    preHiddenEls[ph].style.removeProperty("clip-path")
                 }
                 // Remove the style tag — no longer needed
                 if (preHideStyleTag && preHideStyleTag.parentNode) {
@@ -1778,7 +1801,7 @@ export default function PageChoreographer(props: any) {
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
         easingPreset, staggerDirection, distance,
-        enterMaskDirection, exitMaskDirection, maskStart, maskShiftX, maskShiftY, maskOpacity, blurAmount,
+        enterMaskDirection, exitMaskDirection, maskStart, maskPreview, maskShiftX, maskShiftY, maskOpacity, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
         enterScale, enterRotateX, enterRotateY, enterRotateZ,
@@ -2265,6 +2288,15 @@ addPropertyControls(PageChoreographer, {
         description: "How much of the element is visible before the mask animation begins. 0% = fully masked, 50% = half visible.",
         hidden: function (props: any) {
             return props.enterPreset !== "maskReveal"
+        },
+    },
+    maskPreview: {
+        type: ControlType.Boolean,
+        title: "↳ Show Preview",
+        defaultValue: false,
+        description: "When enabled, shows the element at its Mask Start percentage on mount instead of hiding it until the scroll animation begins.",
+        hidden: function (props: any) {
+            return props.enterPreset !== "maskReveal" || (props.maskStart || 0) <= 0 || props.trigger !== "onScroll"
         },
     },
     maskOpacity: {
