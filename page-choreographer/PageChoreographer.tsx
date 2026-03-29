@@ -442,8 +442,8 @@ function createStore() {
                 // during the animation won't try to animate it again
                 if (animatedElements) animatedElements.add(el)
 
-                // Block hover/click during animation to prevent Framer's
-                // hover variants from triggering re-renders mid-animation
+                // Reveal pre-hidden element and block hover during animation
+                el.style.removeProperty("visibility")
                 el.style.pointerEvents = "none"
 
                 try {
@@ -640,6 +640,7 @@ function createStore() {
                 if (!el) continue
 
                 if (animatedElements) animatedElements.add(el)
+                el.style.removeProperty("visibility")
                 el.style.pointerEvents = "none"
 
                 var kf = reduced
@@ -1139,22 +1140,15 @@ export default function PageChoreographer(props: any) {
         // Pre-hide elements that will animate in (inView / onLoad) so they
         // don't flash visible before the animation starts. Only in preview —
         // on canvas elements should stay visible for editing.
+        // Uses visibility:hidden which doesn't interfere with WAAPI animations
+        // and is cleanly removed when the animation starts.
         var preHiddenEls: HTMLElement[] = []
         if ((trigger === "inView" || trigger === "onLoad") && enterEnabled &&
             RenderTarget.current() !== RenderTarget.canvas) {
-            var allRegistered = store.getAllTargets().filter(function (t: any) {
-                return t.groupId === baseId && t.enterEnabled && t.ref.current
-            })
-            for (var phi = 0; phi < allRegistered.length; phi++) {
-                var phTarget = allRegistered[phi]
-                var phEl = phTarget.ref.current as HTMLElement
+            for (var phi = 0; phi < targets.length; phi++) {
+                var phEl = targets[phi]
                 if (!phEl) continue
-                var phKf = buildEnterKeyframes(phTarget)
-                // Apply the "from" styles inline to hide the element
-                var fromKeys = Object.keys(phKf.from)
-                for (var fk = 0; fk < fromKeys.length; fk++) {
-                    phEl.style.setProperty(fromKeys[fk], phKf.from[fromKeys[fk]])
-                }
+                phEl.style.setProperty("visibility", "hidden")
                 preHiddenEls.push(phEl)
             }
         }
@@ -1415,14 +1409,9 @@ export default function PageChoreographer(props: any) {
         }
 
         return function () {
-            // Remove pre-hidden inline styles
+            // Remove pre-hidden visibility
             for (var rph = 0; rph < preHiddenEls.length; rph++) {
-                try {
-                    preHiddenEls[rph].style.removeProperty("opacity")
-                    preHiddenEls[rph].style.removeProperty("transform")
-                    preHiddenEls[rph].style.removeProperty("filter")
-                    preHiddenEls[rph].style.removeProperty("clip-path")
-                } catch (e) {}
+                try { preHiddenEls[rph].style.removeProperty("visibility") } catch (e) {}
             }
             if (mutObs) {
                 try { mutObs.disconnect() } catch (e) {}
