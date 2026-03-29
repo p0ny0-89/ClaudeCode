@@ -557,6 +557,10 @@ function createStore() {
 
     // ─── Play enter for a single group (used by IntersectionObserver) ───────
 
+    // Track when each priority level's animation ends, so inView groups
+    // with higher priority numbers can wait for lower ones to finish.
+    var priorityEndTimes: Record<number, number> = {}
+
     function playEnterGroup(groupId: string) {
         var reduced =
             window.matchMedia &&
@@ -572,9 +576,25 @@ function createStore() {
 
         if (eligible.length === 0) return Promise.resolve()
 
+        var priority = eligible[0].sortPriority
+        var now = performance.now()
+
+        // Calculate how long to wait based on lower-priority groups
+        // that are still animating or recently started
+        var priorityDelay = 0
+        for (var p in priorityEndTimes) {
+            var pNum = Number(p)
+            if (pNum < priority && priorityEndTimes[pNum] > now) {
+                var waitUntil = priorityEndTimes[pNum] - now
+                if (waitUntil > priorityDelay) priorityDelay = waitUntil
+            }
+        }
+
         var direction = eligible[0].staggerDirection
         var sorted = sortTargets(eligible, direction)
         var promises: Promise<any>[] = []
+
+        var maxTotalTime = 0
 
         for (var i = 0; i < sorted.length; i++) {
             var target = sorted[i]
@@ -591,8 +611,12 @@ function createStore() {
                 : buildEnterKeyframes(target)
 
             var stagger = reduced ? 0 : target.stagger
-            var delay = stagger * i + target.delayOffset
+            var localDelay = stagger * i + target.delayOffset
+            var delay = localDelay + priorityDelay / 1000
             var dur = reduced ? 10 : target.duration * 1000
+
+            var totalTime = delay * 1000 + dur
+            if (totalTime > maxTotalTime) maxTotalTime = totalTime
 
             try {
                 var anim = el.animate([kf.from, kf.to], {
@@ -617,6 +641,9 @@ function createStore() {
                 el.style.pointerEvents = ""
             }
         }
+
+        // Record when this priority level's animations will end
+        priorityEndTimes[priority] = now + maxTotalTime
 
         return Promise.all(promises)
     }
@@ -697,7 +724,7 @@ function createStore() {
             } else {
                 playEnter()
             }
-        }, 50)
+        }, 150)
     }
 
     return {
