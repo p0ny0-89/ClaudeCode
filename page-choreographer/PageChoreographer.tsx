@@ -1249,12 +1249,23 @@ export default function PageChoreographer(props: any) {
             var wrapper = document.createElement("div")
 
             if (parentGP) {
+                // Copy the parent's flex-child properties so wrapper
+                // occupies the same position/alignment in the section
                 var parentCS = window.getComputedStyle(parent)
                 wrapper.style.setProperty("align-self", parentCS.alignSelf)
                 wrapper.style.setProperty("justify-self", parentCS.justifySelf)
                 wrapper.style.setProperty("order", parentCS.order)
                 wrapper.style.setProperty("grid-column", parentCS.gridColumn)
                 wrapper.style.setProperty("grid-row", parentCS.gridRow)
+
+                // Mirror the section's flex layout so the Stack inside
+                // the wrapper retains its flex-based sizing & centering
+                var gpCS = window.getComputedStyle(parentGP)
+                wrapper.style.setProperty("display", "flex")
+                wrapper.style.setProperty("flex-direction", gpCS.flexDirection)
+                wrapper.style.setProperty("align-items", gpCS.alignItems)
+                wrapper.style.setProperty("justify-content", gpCS.justifyContent)
+                wrapper.style.setProperty("gap", gpCS.gap)
             }
             wrapper.style.setProperty("position", "relative")
             wrapper.style.setProperty("width", parentWidth + "px")
@@ -1284,28 +1295,19 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer = spacer
             }
 
-            // Determine what to pin: spacer mode pins the section,
-            // normal mode pins just the Stack (parent)
+            // Always pin the Stack (parent) — pinning the section
+            // breaks its internal flex layout
             var pinEl = parent as HTMLElement
             var pinElWidth = parentWidth
             var pinElHeight = parentHeight
-
-            if (scrollSpacer && parentGP) {
-                pinEl = parentGP
-                pinElWidth = parentGP.offsetWidth
-                pinElHeight = parentGP.offsetHeight
-                scrollPinState.origStyles = parentGP.style.cssText
-                // Spacer must cover section height + scroll room
-                scrollSpacer.style.setProperty("height", (pinElHeight + scrollLength) + "px")
-            } else {
-                scrollPinState.origStyles = parent.style.cssText
-            }
+            scrollPinState.origStyles = parent.style.cssText
             scrollPinEl = pinEl
 
-            // Measure pin range after wrapper is in the DOM
-            var pinStart = pinEl.getBoundingClientRect().top + window.scrollY
+            // Measure pin range from wrapper, but left from parent's
+            // actual position (it may be centered inside the wrapper)
+            var pinStart = wrapper.getBoundingClientRect().top + window.scrollY
             var pinEnd = pinStart + scrollLength
-            var wrapRectLeft = pinEl.getBoundingClientRect().left
+            var wrapRectLeft = parent.getBoundingClientRect().left
 
             // ── Animation creation/destruction ──
             var reduced =
@@ -1530,24 +1532,24 @@ export default function PageChoreographer(props: any) {
                 clearTimeout(scrollResizeTimer)
                 scrollResizeTimer = window.setTimeout(function () {
                     if (!wrapper || !parent) return
-                    // Re-measure pinEl dimensions
-                    if (scrollSpacer && parentGP) {
-                        pinElWidth = parentGP.offsetWidth
-                        pinElHeight = parentGP.offsetHeight
-                    } else {
-                        var wp = wrapper.parentElement
-                        if (wp) {
-                            pinElWidth = wp.clientWidth
-                            parentWidth = pinElWidth
-                            wrapper.style.setProperty("width", parentWidth + "px")
-                        }
+                    var wp = wrapper.parentElement
+                    if (wp) {
+                        parentWidth = wp.clientWidth
+                        pinElWidth = parent.offsetWidth
+                        wrapper.style.setProperty("width", parentWidth + "px")
                     }
-                    pinStart = pinEl.getBoundingClientRect().top + window.scrollY
+                    pinStart = wrapper.getBoundingClientRect().top + window.scrollY
                     pinEnd = pinStart + scrollLength
-                    wrapRectLeft = pinEl.getBoundingClientRect().left
+                    // When pinned, parent is position:fixed so measure
+                    // from wrapper instead
+                    wrapRectLeft = wrapper.getBoundingClientRect().left
                     if (scrollPinState.pinned) {
+                        pinElWidth = parentWidth
                         pinEl.style.setProperty("width", pinElWidth + "px", "important")
                         pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
+                    } else {
+                        pinElWidth = parent.offsetWidth
+                        wrapRectLeft = parent.getBoundingClientRect().left
                     }
                     handleScroll()
                 }, 150) as unknown as number
