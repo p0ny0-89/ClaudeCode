@@ -555,95 +555,112 @@ function createStore() {
         }
     }
 
-    // ─── Play enter for a single group (used by IntersectionObserver) ───────
+    // ─── Play enter for inView groups (batched by priority) ─────────────────
 
-    // Track when each priority level's animation ends, so inView groups
-    // with higher priority numbers can wait for lower ones to finish.
-    var priorityEndTimes: Record<number, number> = {}
+    var pendingGroups: string[] = []
+    var groupBatchTimer: any = null
 
     function playEnterGroup(groupId: string) {
+        // Collect group IDs that trigger within a short window,
+        // then play them all together sorted by priority
+        if (pendingGroups.indexOf(groupId) === -1) {
+            pendingGroups.push(groupId)
+        }
+        if (groupBatchTimer) clearTimeout(groupBatchTimer)
+        groupBatchTimer = setTimeout(function () {
+            groupBatchTimer = null
+            var batch = pendingGroups.slice()
+            pendingGroups = []
+            playEnterGroupsBatch(batch)
+        }, 80)
+    }
+
+    function playEnterGroupsBatch(groupIds: string[]) {
         var reduced =
             window.matchMedia &&
             window.matchMedia("(prefers-reduced-motion: reduce)").matches
         var mobile = window.innerWidth < 768
 
-        var eligible = getAllTargets().filter(function (t) {
+        // Collect eligible targets for all requested groups
+        var allEligible = getAllTargets().filter(function (t) {
             var el = t.ref.current
-            return t.groupId === groupId && t.enterEnabled &&
+            return groupIds.indexOf(t.groupId) !== -1 && t.enterEnabled &&
                 (t.mobileEnabled || !mobile) && el &&
                 !(animatedElements && animatedElements.has(el))
         })
 
-        if (eligible.length === 0) return Promise.resolve()
+        if (allEligible.length === 0) return
 
-        var priority = eligible[0].sortPriority
-        var now = performance.now()
-
-        // Calculate how long to wait based on lower-priority groups
-        // that are still animating or recently started
-        var priorityDelay = 0
-        for (var p in priorityEndTimes) {
-            var pNum = Number(p)
-            if (pNum < priority && priorityEndTimes[pNum] > now) {
-                var waitUntil = priorityEndTimes[pNum] - now
-                if (waitUntil > priorityDelay) priorityDelay = waitUntil
-            }
-        }
-
-        var direction = eligible[0].staggerDirection
-        var sorted = sortTargets(eligible, direction)
+        // Group by groupId, then sort groups by priority
+        var groups = groupByGroupId(allEligible)
+        var sortedGids = getSortedGroupIds(groups)
         var promises: Promise<any>[] = []
+        var groupOffset = 0
+        var prevPriority: number | null = null
 
-        var maxTotalTime = 0
+        for (var gi = 0; gi < sortedGids.length; gi++) {
+            var gid = sortedGids[gi]
+            var group = groups[gid]
+            var currentPriority = group[0].sortPriority
+            var direction = group[0].staggerDirection
+            var sorted = sortTargets(group, direction)
 
-        for (var i = 0; i < sorted.length; i++) {
-            var target = sorted[i]
-            var el = target.ref.current
-            if (!el) continue
+            var maxDelayInGroup = 0
 
-            if (animatedElements) animatedElements.add(el)
+            for (var i = 0; i < sorted.length; i++) {
+                var target = sorted[i]
+                var el = target.ref.current
+                if (!el) continue
 
-            // Block hover during animation
-            el.style.pointerEvents = "none"
+                if (animatedElements) animatedElements.add(el)
+                el.style.pointerEvents = "none"
 
-            var kf = reduced
-                ? { from: { opacity: "0" }, to: { opacity: "1" } }
-                : buildEnterKeyframes(target)
+                var kf = reduced
+                    ? { from: { opacity: "0" }, to: { opacity: "1" } }
+                    : buildEnterKeyframes(target)
 
-            var stagger = reduced ? 0 : target.stagger
-            var localDelay = stagger * i + target.delayOffset
-            var delay = localDelay + priorityDelay / 1000
-            var dur = reduced ? 10 : target.duration * 1000
+                var stagger = reduced ? 0 : target.stagger
+                var localDelay = stagger * i + target.delayOffset
+                var delay = localDelay + groupOffset
+                var dur = reduced ? 10 : target.duration * 1000
 
-            var totalTime = delay * 1000 + dur
-            if (totalTime > maxTotalTime) maxTotalTime = totalTime
+                if (localDelay > maxDelayInGroup) maxDelayInGroup = localDelay
 
-            try {
-                var anim = el.animate([kf.from, kf.to], {
-                    duration: dur,
-                    delay: delay * 1000,
-                    easing: easingToCss(target.easing),
-                    fill: "both",
-                })
-                activeAnims.push(anim)
+                try {
+                    var anim = el.animate([kf.from, kf.to], {
+                        duration: dur,
+                        delay: delay * 1000,
+                        easing: easingToCss(target.easing),
+                        fill: "both",
+                    })
+                    activeAnims.push(anim)
 
-                promises.push(
-                    anim.finished.then(
-                        (function (a, e) {
-                            return function () {
-                                e.style.pointerEvents = ""
-                                try { a.cancel() } catch (ex) {}
-                            }
-                        })(anim, el)
+                    promises.push(
+                        anim.finished.then(
+                            (function (a, e) {
+                                return function () {
+                                    e.style.pointerEvents = ""
+                                    try { a.cancel() } catch (ex) {}
+                                }
+                            })(anim, el)
+                        )
                     )
-                )
-            } catch (e) {
-                el.style.pointerEvents = ""
+                } catch (e) {
+                    el.style.pointerEvents = ""
+                }
             }
-        }
 
-        // Record when this priority level's animations will end
-        priorityEndTimes[priority] = now + maxTotalTime
+            // Advance offset for next priority level
+            var nextGid = sortedGids[gi + 1]
+            if (nextGid) {
+                var nextPriority = groups[nextGid][0].sortPriority
+                if (nextPriority !== currentPriority) {
+                    var groupDur = sorted.length > 0 ? sorted[0].duration : 0.6
+                    groupOffset += maxDelayInGroup + groupDur
+                }
+            }
+            prevPriority = currentPriority
+        }
 
         return Promise.all(promises)
     }
