@@ -1342,12 +1342,31 @@ export default function PageChoreographer(props: any) {
                 // scrolls off when the container leaves the viewport.
                 var container = document.createElement("div")
                 var sectionHeight = sectionEl.offsetHeight
+                var sectionWidth = sectionEl.offsetWidth
+
+                // Copy the Hero's computed layout properties so the
+                // container occupies the same slot in the page's
+                // flex/grid layout
+                var sectionCS = window.getComputedStyle(sectionEl)
                 container.style.setProperty("height", (sectionHeight + scrollLength) + "px")
+                container.style.setProperty("width", sectionCS.width)
+                container.style.setProperty("min-width", sectionCS.minWidth)
+                container.style.setProperty("max-width", sectionCS.maxWidth)
                 container.style.setProperty("position", "relative")
-                container.style.setProperty("flex", "0 0 auto", "important")
+                container.style.setProperty("flex", sectionCS.flex)
+                container.style.setProperty("align-self", sectionCS.alignSelf)
+                container.style.setProperty("justify-self", sectionCS.justifySelf)
+                container.style.setProperty("order", sectionCS.order)
+                container.style.setProperty("grid-column", sectionCS.gridColumn)
+                container.style.setProperty("grid-row", sectionCS.gridRow)
+                container.style.setProperty("margin", sectionCS.margin)
                 // Insert container where the Hero was, then move Hero inside
                 sectionEl.parentElement.insertBefore(container, sectionEl)
                 container.appendChild(sectionEl)
+                // Reset Hero's margin since container now handles it
+                sectionEl.style.setProperty("margin", "0", "important")
+                // Ensure Hero fills the container width
+                sectionEl.style.setProperty("width", "100%", "important")
                 stickyContainer = container
                 scrollSpacer = container // track for cleanup
                 // Mark section as claimed so other instances don't double-pin
@@ -1726,6 +1745,11 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer.parentElement.insertBefore(scrollSectionEl, scrollSpacer)
                 scrollSpacer.parentElement.removeChild(scrollSpacer)
                 scrollSpacer = null
+            }
+            if (scrollSectionEl) {
+                // Remove styles we added to the section
+                scrollSectionEl.style.removeProperty("margin")
+                scrollSectionEl.style.removeProperty("width")
             }
             if (scrollSectionEl && scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                 scrollSectionEl.removeAttribute("data-choreo-pin-owner")
