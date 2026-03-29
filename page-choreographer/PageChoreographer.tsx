@@ -179,7 +179,6 @@ function buildExitKeyframes(t: TargetEntry) {
 interface TargetEntry {
     id: string
     ref: { current: HTMLElement | null }
-    group: string
     groupId: string
     enterPreset: string
     exitPreset: string
@@ -188,7 +187,6 @@ interface TargetEntry {
     sortPriority: number
     delayOffset: number
     mobileEnabled: boolean
-    visibilityThreshold: number
     duration: number
     stagger: number
     easing: number[]
@@ -238,23 +236,10 @@ function createStore() {
         return Object.keys(targets).length
     }
 
-    function getVisibleTargets() {
-        var vh = window.innerHeight
-        var vw = window.innerWidth
+    function getAllTargets() {
         var result: TargetEntry[] = []
         for (var id in targets) {
-            var t = targets[id]
-            var el = t.ref.current
-            if (!el) continue
-            var r = el.getBoundingClientRect()
-            var visH = Math.min(r.bottom, vh) - Math.max(r.top, 0)
-            var visW = Math.min(r.right, vw) - Math.max(r.left, 0)
-            if (visH <= 0 || visW <= 0) continue
-            var area = r.width * r.height
-            if (area === 0) continue
-            if ((visH * visW) / area >= t.visibilityThreshold) {
-                result.push(t)
-            }
+            if (targets[id].ref.current) result.push(targets[id])
         }
         return result
     }
@@ -352,7 +337,7 @@ function createStore() {
             window.matchMedia("(prefers-reduced-motion: reduce)").matches
         var mobile = window.innerWidth < 768
 
-        var eligible = getVisibleTargets().filter(function (t) {
+        var eligible = getAllTargets().filter(function (t) {
             return t.enterEnabled && (t.mobileEnabled || !mobile) && t.ref.current
         })
 
@@ -443,7 +428,7 @@ function createStore() {
             window.matchMedia("(prefers-reduced-motion: reduce)").matches
         var mobile = window.innerWidth < 768
 
-        var eligible = getVisibleTargets().filter(function (t) {
+        var eligible = getAllTargets().filter(function (t) {
             return t.exitEnabled && (t.mobileEnabled || !mobile) && t.ref.current
         })
 
@@ -687,7 +672,6 @@ function useStableGroupId() {
 export default function PageChoreographer(props: any) {
     var {
         scanMode = "cmsItems",
-        group = "default",
         enterPreset = "fadeUp",
         exitPreset = "riseWave",
         enterEnabled = true,
@@ -695,7 +679,6 @@ export default function PageChoreographer(props: any) {
         mobileEnabled = true,
         sortPriority = 0,
         delayOffset = 0,
-        visibilityThreshold = 0.1,
         duration = 0.6,
         stagger = 0.06,
         easingPreset = "smooth",
@@ -745,7 +728,6 @@ export default function PageChoreographer(props: any) {
             store.registerTarget({
                 id: targetId,
                 ref: { current: el },
-                group: group,
                 groupId: baseId,
                 enterPreset: enterPreset,
                 exitPreset: exitPreset,
@@ -754,7 +736,6 @@ export default function PageChoreographer(props: any) {
                 sortPriority: sortPriority,
                 delayOffset: delayOffset,
                 mobileEnabled: mobileEnabled,
-                visibilityThreshold: visibilityThreshold,
                 duration: duration,
                 stagger: stagger,
                 easing: easing,
@@ -831,9 +812,9 @@ export default function PageChoreographer(props: any) {
             unregisterAll(getStore())
         }
     }, [
-        baseId, scanMode, group, enterPreset, exitPreset,
+        baseId, scanMode, enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, delayOffset,
-        mobileEnabled, visibilityThreshold, duration, stagger,
+        mobileEnabled, duration, stagger,
         easingPreset, staggerDirection, distance, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
@@ -1177,18 +1158,5 @@ addPropertyControls(PageChoreographer, {
         max: 2,
         step: 0.05,
         unit: "s",
-    },
-    group: {
-        type: ControlType.String,
-        title: "Group",
-        defaultValue: "default",
-    },
-    visibilityThreshold: {
-        type: ControlType.Number,
-        title: "Visibility",
-        defaultValue: 0.1,
-        min: 0,
-        max: 1,
-        step: 0.05,
     },
 })
