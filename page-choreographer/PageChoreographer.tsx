@@ -1339,7 +1339,6 @@ export default function PageChoreographer(props: any) {
                 wrapper.style.setProperty("gap", gpCS.gap)
             }
             wrapper.style.setProperty("position", "relative")
-            wrapper.style.setProperty("height", parentHeight + "px")
             wrapper.style.setProperty("overflow", "hidden")
 
             // Insert wrapper into the section
@@ -1377,9 +1376,8 @@ export default function PageChoreographer(props: any) {
             var isFollower = scrollPin && sectionAlreadyClaimed
             var isOwner = scrollPin && !isFollower
 
-            // Wrapper height: parentHeight only when pinning (scroll room is external spacer)
-            // parentHeight + scrollLength when not pinning (wrapper provides scroll room internally)
-            wrapper.style.setProperty("height", parentHeight + "px")
+            // No fixed height on wrapper — let content size it naturally.
+            // This prevents gaps when responsive content changes height.
 
             if (isOwner && sectionEl) {
                 sectionEl.setAttribute("data-choreo-pin-owner", baseId)
@@ -1716,7 +1714,7 @@ export default function PageChoreographer(props: any) {
                     if (wp) {
                         parentWidth = wp.clientWidth
                     }
-                    wrapper.style.setProperty("height", parentHeight + "px")
+                    // wrapper height is auto — content sizes it
                     pinElWidth = parentWidth
                     pinElHeight = parentHeight
 
