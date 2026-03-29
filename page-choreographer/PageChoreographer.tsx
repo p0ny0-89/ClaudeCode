@@ -756,6 +756,38 @@ function findNodeWithMostChildren(
     return best
 }
 
+function nodeMatchesNames(node: HTMLElement, names: string[]): boolean {
+    var attrs = ["data-framer-name", "data-framer-component", "aria-label"]
+    for (var a = 0; a < attrs.length; a++) {
+        var val = (node.getAttribute(attrs[a]) || "").toLowerCase()
+        if (!val) continue
+        for (var n = 0; n < names.length; n++) {
+            if (val === names[n] || val.indexOf(names[n]) !== -1) return true
+        }
+    }
+    // Check trimmed text content (only if short — avoids matching paragraphs)
+    var text = (node.textContent || "").trim().toLowerCase()
+    if (text.length > 0 && text.length < 60) {
+        for (var n = 0; n < names.length; n++) {
+            if (text === names[n]) return true
+        }
+    }
+    return false
+}
+
+function elementMatchesNames(el: HTMLElement, names: string[]): boolean {
+    // Check element itself
+    if (nodeMatchesNames(el, names)) return true
+    // Check all descendants
+    try {
+        var all = el.querySelectorAll("*")
+        for (var i = 0; i < all.length; i++) {
+            if (nodeMatchesNames(all[i] as HTMLElement, names)) return true
+        }
+    } catch (e) {}
+    return false
+}
+
 function collectTargets(
     parent: HTMLElement,
     marker: HTMLElement,
@@ -780,8 +812,8 @@ function collectTargets(
     }
     // Filter out elements whose layer name matches any excluded name.
     // User types comma-separated layer names like "Load More, Footer".
-    // We match against Framer's data-framer-name attribute on the element
-    // itself or any of its descendants.
+    // Checks data-framer-name, data-framer-component, aria-label, and
+    // trimmed text content — on the element itself and its descendants.
     if (excludeSelector && excludeSelector.trim()) {
         var names = excludeSelector.split(",").map(function (n) {
             return n.trim().toLowerCase()
@@ -789,28 +821,7 @@ function collectTargets(
 
         if (names.length > 0) {
             result = result.filter(function (el) {
-                // Check the element's own framer name
-                var elName = (el.getAttribute("data-framer-name") || "").toLowerCase()
-                for (var n = 0; n < names.length; n++) {
-                    if (elName === names[n]) return false
-                }
-                // Check descendants for a matching framer name
-                for (var n = 0; n < names.length; n++) {
-                    try {
-                        var sel = '[data-framer-name="' + names[n] + '" i]'
-                        if (el.querySelector(sel)) return false
-                    } catch (e) {
-                        // Fallback: case-sensitive if 'i' flag not supported
-                        try {
-                            var found = el.querySelectorAll("[data-framer-name]")
-                            for (var f = 0; f < found.length; f++) {
-                                if ((found[f].getAttribute("data-framer-name") || "")
-                                    .toLowerCase() === names[n]) return false
-                            }
-                        } catch (e2) {}
-                    }
-                }
-                return true
+                return !elementMatchesNames(el, names)
             })
         }
     }
