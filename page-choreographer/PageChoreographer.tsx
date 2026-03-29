@@ -1080,7 +1080,7 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.String,
         title: "Exclude",
         defaultValue: "",
-        placeholder: "Load More",
+        placeholder: "Layer Name",
         description:
             "Layer names to skip (comma-separated). e.g. Load More, Button",
     },
