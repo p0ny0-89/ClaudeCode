@@ -1553,28 +1553,46 @@ export default function PageChoreographer(props: any) {
                 clearTimeout(scrollResizeTimer)
                 scrollResizeTimer = window.setTimeout(function () {
                     if (!wrapper || !parent) return
+
+                    // Temporarily unpin so measurements are in normal flow
+                    var wasPinned = scrollPinState.pinned
+                    if (wasPinned) {
+                        scrollPinState.pinned = false
+                        pinEl.style.cssText = scrollPinState.origStyles
+                    }
+
+                    // Re-measure all dimensions
+                    parentHeight = parent.offsetHeight
+                    parentWidth = parent.offsetWidth
+
                     if (scrollSpacer && parentGP) {
-                        // Spacer mode: section dimensions
-                        if (!scrollPinState.pinned) {
-                            pinElWidth = parentGP.offsetWidth
-                            pinElHeight = parentGP.offsetHeight
-                        }
+                        pinElWidth = parentGP.offsetWidth
+                        pinElHeight = parentGP.offsetHeight
+                        // Update spacer to match new dimensions
+                        scrollSpacer.style.setProperty("height",
+                            (pinElHeight + scrollLength + parentHeight) + "px")
                     } else {
                         var wp = wrapper.parentElement
                         if (wp) {
                             parentWidth = wp.clientWidth
-                            wrapper.style.setProperty("width", parentWidth + "px")
                         }
-                        pinElWidth = parent.offsetWidth
+                        wrapper.style.setProperty("width", parentWidth + "px")
+                        wrapper.style.setProperty("height",
+                            (parentHeight + scrollLength) + "px")
+                        pinElWidth = parentWidth
+                        pinElHeight = parentHeight
                     }
+
+                    // Recalculate pin range
+                    totalPinLength = scrollSpacer
+                        ? scrollLength + parentHeight
+                        : scrollLength
                     var measureEl = scrollSpacer ? pinEl : wrapper
                     pinStart = measureEl.getBoundingClientRect().top + window.scrollY
                     pinEnd = pinStart + totalPinLength
                     wrapRectLeft = pinEl.getBoundingClientRect().left
-                    if (scrollPinState.pinned) {
-                        pinEl.style.setProperty("width", pinElWidth + "px", "important")
-                        pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
-                    }
+
+                    // Re-run scroll handler (will re-pin if needed)
                     handleScroll()
                 }, 150) as unknown as number
             }
