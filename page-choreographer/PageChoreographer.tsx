@@ -1457,13 +1457,12 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.pinned = true
                         wrapRectLeft = wrapper.getBoundingClientRect().left
                         parent.style.setProperty("position", "fixed", "important")
+                        parent.style.setProperty("top", "0px", "important")
                         parent.style.setProperty("left", wrapRectLeft + "px", "important")
                         parent.style.setProperty("width", parentWidth + "px", "important")
-                        parent.style.setProperty("height", parentHeight + "px", "important")
                         parent.style.setProperty("z-index", "9999", "important")
                     }
 
-                    parent.style.setProperty("top", "0px", "important")
                     var progress = (scrollY - pinStart) / scrollLength
                     updateAnimProgress(Math.max(0, Math.min(1, progress)))
 
@@ -1482,21 +1481,22 @@ export default function PageChoreographer(props: any) {
                     updateAnimProgress(0)
 
                 } else {
-                    // ── AFTER PIN (scrollY > pinEnd): switch to absolute ──
-                    // At scrollY=pinEnd: fixed top:0 puts element at viewport top.
-                    // Absolute top:scrollLength puts element at wrapper offset
-                    // scrollLength, which is at document position pinStart+scrollLength
-                    // = pinEnd, so viewport position = pinEnd - scrollY = 0.
-                    // Both positions match — no jump.
-                    if (scrollPinState.pinned) {
-                        scrollPinState.pinned = false
-                        parent.style.setProperty("position", "absolute", "important")
-                        parent.style.setProperty("top", scrollLength + "px", "important")
-                        parent.style.setProperty("left", "0px", "important")
+                    // ── AFTER PIN (scrollY > pinEnd): keep fixed, slide top
+                    // to match natural scroll position — no position switch
+                    // means no visual jump at all ──
+                    if (!scrollPinState.pinned) {
+                        // Coming from before-pin directly (fast scroll)
+                        scrollPinState.pinned = true
+                        wrapRectLeft = wrapper.getBoundingClientRect().left
+                        parent.style.setProperty("position", "fixed", "important")
+                        parent.style.setProperty("left", wrapRectLeft + "px", "important")
                         parent.style.setProperty("width", parentWidth + "px", "important")
-                        parent.style.setProperty("height", parentHeight + "px", "important")
-                        parent.style.removeProperty("z-index")
                     }
+                    // Slide element up to match where it would be in normal flow
+                    // At pinEnd: top=0 (seamless). Past pinEnd: top goes negative.
+                    parent.style.setProperty("top", (pinEnd - scrollY) + "px", "important")
+                    // Remove z-index so content below scrolls over this
+                    parent.style.removeProperty("z-index")
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         updateAnimProgress(1)
