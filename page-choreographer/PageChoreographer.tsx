@@ -1336,7 +1336,9 @@ export default function PageChoreographer(props: any) {
             // but the section stays pinned for an extra parentHeight so
             // the completed animation is visible within the frame bounds
             // before the section slides off.
-            var pinStart = (scrollSpacer ? pinEl : wrapper).getBoundingClientRect().top + window.scrollY
+            // Clamp to >= 0 — Framer's layout can report negative top
+            // for the hero section due to DOM changes during setup
+            var pinStart = Math.max(0, (scrollSpacer ? pinEl : wrapper).getBoundingClientRect().top + window.scrollY)
             var totalPinLength = scrollSpacer ? scrollLength + parentHeight : scrollLength
             var pinEnd = pinStart + totalPinLength
             var wrapRectLeft = pinEl.getBoundingClientRect().left
@@ -1452,9 +1454,9 @@ export default function PageChoreographer(props: any) {
             }
 
             var revealIfNeeded = function (progress: number) {
-                console.log("[choreo] revealIfNeeded progress:", progress, "scrollY:", window.scrollY, "pinStart:", pinStart)
-                if (visibilityRevealed || progress <= 0) return
-                console.log("[choreo] REVEALING! progress:", progress)
+                // Require actual scrolling (scrollY > 0) before revealing,
+                // as a safety net against negative pinStart edge cases
+                if (visibilityRevealed || progress <= 0 || window.scrollY <= 0) return
                 visibilityRevealed = true
                 for (var ph = 0; ph < preHiddenEls.length; ph++) {
                     preHiddenEls[ph].removeAttribute("data-choreo-hide")
@@ -1613,7 +1615,7 @@ export default function PageChoreographer(props: any) {
                         ? scrollLength + parentHeight
                         : scrollLength
                     var measureEl = scrollSpacer ? pinEl : wrapper
-                    pinStart = measureEl.getBoundingClientRect().top + window.scrollY
+                    pinStart = Math.max(0, measureEl.getBoundingClientRect().top + window.scrollY)
                     pinEnd = pinStart + totalPinLength
                     wrapRectLeft = pinEl.getBoundingClientRect().left
 
