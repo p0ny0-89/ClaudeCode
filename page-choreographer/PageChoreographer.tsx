@@ -1502,6 +1502,8 @@ export default function PageChoreographer(props: any) {
                 // hidden until scroll progress > 0 to prevent flash
             }
 
+            var interactivityRestored = false
+
             var revealIfNeeded = function (progress: number) {
                 // Require actual scrolling (scrollY > 0) before revealing,
                 // as a safety net against negative pinStart edge cases
@@ -1511,12 +1513,21 @@ export default function PageChoreographer(props: any) {
                     preHiddenEls[ph].removeAttribute("data-choreo-hide")
                     preHiddenEls[ph].style.removeProperty("visibility")
                     preHiddenEls[ph].style.removeProperty("opacity")
-                    preHiddenEls[ph].style.removeProperty("pointer-events")
+                    // Keep pointer-events: none until animation completes
+                    preHiddenEls[ph].style.setProperty("pointer-events", "none", "important")
                 }
                 // Remove the style tag — no longer needed
                 if (preHideStyleTag && preHideStyleTag.parentNode) {
                     preHideStyleTag.parentNode.removeChild(preHideStyleTag)
                     preHideStyleTag = null
+                }
+            }
+
+            var restoreInteractivity = function () {
+                if (interactivityRestored) return
+                interactivityRestored = true
+                for (var ri = 0; ri < preHiddenEls.length; ri++) {
+                    preHiddenEls[ri].style.removeProperty("pointer-events")
                 }
             }
 
@@ -1558,6 +1569,7 @@ export default function PageChoreographer(props: any) {
                     if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
                         scrollPinState.completed = true
                         bakeAndCancelAnims()
+                        restoreInteractivity()
                     }
 
                 } else if (scrollY < pinStart) {
@@ -1588,6 +1600,7 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.pinned = false
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
+                        restoreInteractivity()
                     }
                 }
             }
