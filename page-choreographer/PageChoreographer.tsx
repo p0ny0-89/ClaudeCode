@@ -1242,40 +1242,61 @@ export default function PageChoreographer(props: any) {
 
             scrollPinState.origStyles = parent.style.cssText
 
-            wrapper = document.createElement("div")
+            // Check if section is visible in the viewport on load
+            var parentRect = parent.getBoundingClientRect()
+            var sectionInViewport = parentRect.top < window.innerHeight && parentRect.bottom > 0
 
-            // Copy layout properties so wrapper takes same slot
-            if (parentGP) {
-                var parentCS = window.getComputedStyle(parent)
-                wrapper.style.setProperty("align-self", parentCS.alignSelf)
-                wrapper.style.setProperty("justify-self", parentCS.justifySelf)
-                wrapper.style.setProperty("order", parentCS.order)
-                wrapper.style.setProperty("grid-column", parentCS.gridColumn)
-                wrapper.style.setProperty("grid-row", parentCS.gridRow)
-            }
-            wrapper.style.setProperty("position", "relative")
-            wrapper.style.setProperty("width", parentWidth + "px")
-            var wrapperHeight = parentHeight + scrollLength
-            wrapper.style.setProperty("height", wrapperHeight + "px")
-            wrapper.style.setProperty("flex", "0 0 auto", "important")
-            wrapper.style.setProperty("overflow", "visible")
-
-            parentGP!.insertBefore(wrapper, parent)
-            wrapper.appendChild(parent)
-            scrollWrapper = wrapper
-
-            // Parent lost its flex/grid sizing context — give it explicit dimensions
-            parent.style.setProperty("width", parentWidth + "px")
-            parent.style.setProperty("height", parentHeight + "px")
-
-            // Measure pin range after wrapper is in the DOM
-            var pinStart = wrapper.getBoundingClientRect().top + window.scrollY
+            // Calculate pinStart from parent position (before wrapper creation)
+            var pinStart = parentRect.top + window.scrollY
             var pinEnd = pinStart + scrollLength
+            var wrapperCreated = false
+
+            // Creates the wrapper div that provides scroll room
+            var createWrapper = function () {
+                if (wrapperCreated) return
+                wrapperCreated = true
+
+                // Re-measure in case content changed since mount
+                parentHeight = parent.offsetHeight
+                parentWidth = parent.offsetWidth
+                scrollPinState.origStyles = parent.style.cssText
+
+                wrapper = document.createElement("div")
+
+                if (parentGP) {
+                    var parentCS = window.getComputedStyle(parent)
+                    wrapper.style.setProperty("align-self", parentCS.alignSelf)
+                    wrapper.style.setProperty("justify-self", parentCS.justifySelf)
+                    wrapper.style.setProperty("order", parentCS.order)
+                    wrapper.style.setProperty("grid-column", parentCS.gridColumn)
+                    wrapper.style.setProperty("grid-row", parentCS.gridRow)
+                }
+                wrapper.style.setProperty("position", "relative")
+                wrapper.style.setProperty("width", parentWidth + "px")
+                wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
+                wrapper.style.setProperty("flex", "0 0 auto", "important")
+                wrapper.style.setProperty("overflow", "visible")
+
+                parentGP!.insertBefore(wrapper, parent)
+                wrapper.appendChild(parent)
+                scrollWrapper = wrapper
+
+                parent.style.setProperty("width", parentWidth + "px")
+                parent.style.setProperty("height", parentHeight + "px")
+
+                // Re-measure pinStart now that wrapper is in the DOM
+                pinStart = wrapper.getBoundingClientRect().top + window.scrollY
+                pinEnd = pinStart + scrollLength
+
+                try {
+                    scrollResizeObs = new ResizeObserver(function () { remeasure() })
+                    scrollResizeObs.observe(parent)
+                } catch (e) {}
+            }
 
             // Re-measure when parent size changes (CMS images loading, etc.)
             var remeasure = function () {
                 if (!wrapper || !parent) return
-                // Don't remeasure during active scroll animation
                 if (scrollPinState.pinned || scrollPinState.afterPin) return
                 var newHeight = parent.scrollHeight || parent.offsetHeight
                 var newWidth = parent.offsetWidth
@@ -1291,10 +1312,13 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            try {
-                scrollResizeObs = new ResizeObserver(function () { remeasure() })
-                scrollResizeObs.observe(parent)
-            } catch (e) {}
+            // For sections BELOW the viewport: create wrapper and
+            // animations immediately so elements start hidden
+            if (!sectionInViewport) {
+                createWrapper()
+            }
+            // For sections IN the viewport: wrapper created lazily
+            // on first scroll approaching pin range
 
             // ── Animation creation/destruction ──
             var reduced =
@@ -1415,17 +1439,9 @@ export default function PageChoreographer(props: any) {
                 scrollAnimsCreated = false
             }
 
-            // Decide whether to create animations now or lazily:
-            // - Sections BELOW the viewport: create eagerly so elements
-            //   start in their "from" state (hidden) — no flash when
-            //   scrolling to them.
-            // - Sections IN the viewport on load: don't create yet so
-            //   content appears natural. Animations created lazily when
-            //   the user actually scrolls into the pin range.
-            var wrapperRect = wrapper.getBoundingClientRect()
-            var sectionBelowViewport = wrapperRect.top >= window.innerHeight
-
-            if (sectionBelowViewport) {
+            // For sections below viewport, animations were created eagerly
+            // above (along with wrapper). Create animations here too.
+            if (!sectionInViewport) {
                 ensureScrollAnims()
                 updateAnimProgress(0)
             }
@@ -1435,10 +1451,17 @@ export default function PageChoreographer(props: any) {
             // both yield the same viewport position (top of viewport), so
             // there is no visual jump. The section remains visible and
             // scrolls naturally with the page after unpinning.
-            var wrapRectLeft = wrapper.getBoundingClientRect().left
+            var wrapRectLeft = wrapper ? wrapper.getBoundingClientRect().left : parentRect.left
 
             var handleScroll = function () {
-                if (!parent || !wrapper) return
+                if (!parent) return
+
+                // Create wrapper on first scroll for sections that were
+                // in the viewport on load (deferred to avoid layout changes)
+                if (!wrapperCreated) {
+                    createWrapper()
+                }
+                if (!wrapper) return
 
                 if (scrollOnce && scrollPinState.completed) {
                     // Don't collapse wrapper or restore styles — that removes
@@ -1544,10 +1567,10 @@ export default function PageChoreographer(props: any) {
 
             scrollHandler = handleScroll
             window.addEventListener("scroll", handleScroll, { passive: true })
-            // Only run initial handleScroll if page loaded mid-scroll
-            // AND section is below the viewport. Sections visible on load
-            // should stay natural until the user actually scrolls.
-            if (sectionBelowViewport && window.scrollY > pinStart) {
+            // Only run initial handleScroll if section is below viewport
+            // and page loaded mid-scroll. Sections visible on load stay
+            // natural until the user actually scrolls.
+            if (!sectionInViewport && window.scrollY > pinStart) {
                 handleScroll()
             }
 
