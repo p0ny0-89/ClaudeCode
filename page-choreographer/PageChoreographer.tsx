@@ -237,41 +237,20 @@ function createStore() {
     var phase = "idle"
     var overlay: HTMLDivElement | null = null
     var linkInterceptionSetup = false
-    var enterScheduled = false
     var skipNextClick = false
     var exitTimeout = 3
-    var currentPath = typeof window !== "undefined" ? window.location.pathname : ""
-    var resetTimer: any = null
+    // WeakSet tracks DOM elements that have already been enter-animated.
+    // React re-renders reuse the same DOM nodes → elements stay in set → skip.
+    // Replay/reload/navigation creates fresh DOM nodes → not in set → animate.
+    var animatedElements: WeakSet<Element> | null =
+        typeof WeakSet !== "undefined" ? new WeakSet<Element>() : null
 
     function registerTarget(t: TargetEntry) {
-        // If a debounced reset is pending (from unregisterTarget), cancel it.
-        // This means targets are being re-registered quickly (React re-render),
-        // not a real unmount/reload cycle.
-        if (resetTimer) {
-            clearTimeout(resetTimer)
-            resetTimer = null
-        }
         targets[t.id] = t
     }
 
     function unregisterTarget(id: string) {
         delete targets[id]
-        // When all targets are gone, wait briefly. If nobody re-registers
-        // within 150ms this was a real unmount (replay/reload), so reset
-        // state so the next mount cycle can replay enter animations.
-        // React re-renders re-register within the same frame (~0ms),
-        // so the timer gets cleared in registerTarget above.
-        if (Object.keys(targets).length === 0 && !resetTimer) {
-            resetTimer = setTimeout(function () {
-                resetTimer = null
-                if (Object.keys(targets).length === 0) {
-                    enterScheduled = false
-                    phase = "idle"
-                    cancelActive()
-                    activeAnims = []
-                }
-            }, 150)
-        }
     }
 
     function getTargetCount() {
@@ -370,20 +349,23 @@ function createStore() {
     }
 
     function playEnter() {
-        if (phase === "entering") return Promise.resolve()
-        cancelActive()
-        phase = "entering"
-
         var reduced =
             window.matchMedia &&
             window.matchMedia("(prefers-reduced-motion: reduce)").matches
         var mobile = window.innerWidth < 768
 
         // Only auto-play "onLoad" targets — "inView" targets are
-        // triggered independently by IntersectionObserver
+        // triggered independently by IntersectionObserver.
+        // Skip elements already animated (WeakSet tracks DOM nodes).
         var eligible = getAllTargets().filter(function (t) {
-            return t.trigger === "onLoad" && t.enterEnabled && (t.mobileEnabled || !mobile) && t.ref.current
+            var el = t.ref.current
+            return t.trigger === "onLoad" && t.enterEnabled &&
+                (t.mobileEnabled || !mobile) && el &&
+                !(animatedElements && animatedElements.has(el))
         })
+
+        if (eligible.length === 0) return Promise.resolve()
+        phase = "entering"
 
         var groups = groupByGroupId(eligible)
         var sortedGids = getSortedGroupIds(groups)
@@ -422,6 +404,10 @@ function createStore() {
 
                 if (localDelay > maxDelayInGroup) maxDelayInGroup = localDelay
 
+                // Mark element as animated BEFORE starting so re-renders
+                // during the animation won't try to animate it again
+                if (animatedElements) animatedElements.add(el)
+
                 try {
                     var anim = el.animate([kf.from, kf.to], {
                         duration: dur,
@@ -457,7 +443,7 @@ function createStore() {
 
         return Promise.all(promises).then(function () {
             activeAnims = []
-            phase = "idle"
+            phase = "done"
         })
     }
 
@@ -465,6 +451,8 @@ function createStore() {
         if (phase === "exiting") return Promise.resolve()
         cancelActive()
         phase = "exiting"
+        // Clear animated tracking so enter animations replay on next page
+        animatedElements = typeof WeakSet !== "undefined" ? new WeakSet() : null
         lockInteractions()
 
         var reduced =
@@ -544,8 +532,10 @@ function createStore() {
         var mobile = window.innerWidth < 768
 
         var eligible = getAllTargets().filter(function (t) {
+            var el = t.ref.current
             return t.groupId === groupId && t.enterEnabled &&
-                (t.mobileEnabled || !mobile) && t.ref.current
+                (t.mobileEnabled || !mobile) && el &&
+                !(animatedElements && animatedElements.has(el))
         })
 
         if (eligible.length === 0) return Promise.resolve()
@@ -558,6 +548,8 @@ function createStore() {
             var target = sorted[i]
             var el = target.ref.current
             if (!el) continue
+
+            if (animatedElements) animatedElements.add(el)
 
             var kf = reduced
                 ? { from: { opacity: "0" }, to: { opacity: "1" } }
@@ -651,30 +643,23 @@ function createStore() {
 
     // ─── Auto enter ──────────────────────────────────────────────────────────
 
+    var scheduleTimer: any = null
+
     function scheduleEnter(delay: number) {
-        // Detect page navigation — reset state so enter animations
-        // replay on the new page, but never reset mid-page due to
-        // React re-render cycles (fixes random card disappearance)
-        var newPath = typeof window !== "undefined" ? window.location.pathname : ""
-        if (newPath !== currentPath) {
-            currentPath = newPath
-            enterScheduled = false
-            phase = "idle"
-        }
-
-        if (enterScheduled) return
-        enterScheduled = true
-
-        requestAnimationFrame(function () {
-            requestAnimationFrame(function () {
-                var delayMs = delay * 1000
-                if (delayMs > 0) {
-                    setTimeout(function () { playEnter() }, delayMs)
-                } else {
-                    playEnter()
-                }
-            })
-        })
+        // Debounce: each call resets the timer so we wait for all
+        // components to finish registering before playing.
+        // The WeakSet inside playEnter handles idempotency —
+        // already-animated DOM elements are skipped automatically.
+        if (scheduleTimer) clearTimeout(scheduleTimer)
+        scheduleTimer = setTimeout(function () {
+            scheduleTimer = null
+            var delayMs = delay * 1000
+            if (delayMs > 0) {
+                setTimeout(function () { playEnter() }, delayMs)
+            } else {
+                playEnter()
+            }
+        }, 50)
     }
 
     return {
