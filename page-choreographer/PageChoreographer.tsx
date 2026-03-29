@@ -1273,19 +1273,20 @@ export default function PageChoreographer(props: any) {
             wrapper.style.setProperty("flex", "0 0 auto", "important")
             wrapper.style.setProperty("overflow", "visible")
 
-            // Insert wrapper with full scroll room height
-            var docHeightBefore = document.documentElement.scrollHeight
+            // Insert wrapper into the section
             parentGP!.insertBefore(wrapper, parent)
             wrapper.appendChild(parent)
             scrollWrapper = wrapper
-            var docHeightAfter = document.documentElement.scrollHeight
 
-            // If the document didn't grow enough, the wrapper is inside a
-            // constrained container (e.g. 100vh section with overflow:hidden).
-            // Add an external spacer after the section to create scroll room.
-            if (docHeightAfter - docHeightBefore < scrollLength * 0.5 &&
-                parentGP && parentGP.parentElement) {
-                // Shrink wrapper to just parent height (no room needed inside)
+            // Check if the section expanded to fit the wrapper.
+            // If the section didn't grow (fixed height like 100vh),
+            // its background won't cover the scroll range. In that case
+            // add an external spacer and pin the section itself.
+            var neededHeight = parentHeight + scrollLength
+            var sectionGrew = parentGP!.offsetHeight >= neededHeight * 0.8
+
+            if (!sectionGrew && parentGP && parentGP.parentElement) {
+                // Section has fixed height — shrink wrapper, add spacer
                 wrapper.style.setProperty("height", parentHeight + "px")
                 var spacer = document.createElement("div")
                 spacer.style.setProperty("height", scrollLength + "px")
