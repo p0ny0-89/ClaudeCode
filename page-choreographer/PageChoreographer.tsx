@@ -94,7 +94,7 @@ function buildEnterKeyframes(t: TargetEntry) {
             }
         case "maskReveal": {
             var mFrom = "inset(0 100% 0 0)" // default: left to right
-            switch (t.maskDirection) {
+            switch (t.enterMaskDirection) {
                 case "right":  mFrom = "inset(0 0 0 100%)"; break
                 case "up":     mFrom = "inset(0 0 100% 0)"; break
                 case "down":   mFrom = "inset(100% 0 0 0)"; break
@@ -175,7 +175,7 @@ function buildExitKeyframes(t: TargetEntry) {
             }
         case "maskOut": {
             var mTo = "inset(0 0 0 100%)" // default: left to right
-            switch (t.maskDirection) {
+            switch (t.exitMaskDirection) {
                 case "right":  mTo = "inset(0 100% 0 0)"; break
                 case "up":     mTo = "inset(100% 0 0 0)"; break
                 case "down":   mTo = "inset(0 0 100% 0)"; break
@@ -215,7 +215,8 @@ interface TargetEntry {
     easing: number[]
     staggerDirection: string
     distance: number
-    maskDirection: string
+    enterMaskDirection: string
+    exitMaskDirection: string
     blurAmount: number
     scaleFrom: number
     // Custom enter
@@ -868,7 +869,8 @@ export default function PageChoreographer(props: any) {
         easingPreset = "smooth",
         staggerDirection = "leftToRight",
         distance = 40,
-        maskDirection = "left",
+        enterMaskDirection = "left",
+        exitMaskDirection = "left",
         blurAmount = 8,
         scaleFrom = 0.92,
         exitTimeout = 3,
@@ -933,7 +935,8 @@ export default function PageChoreographer(props: any) {
                 easing: easing,
                 staggerDirection: staggerDirection,
                 distance: distance,
-                maskDirection: maskDirection,
+                enterMaskDirection: enterMaskDirection,
+                exitMaskDirection: exitMaskDirection,
                 blurAmount: blurAmount,
                 scaleFrom: scaleFrom,
                 enterOpacity: enterOpacity,
@@ -1051,7 +1054,7 @@ export default function PageChoreographer(props: any) {
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, delayOffset,
         mobileEnabled, duration, stagger,
-        easingPreset, staggerDirection, distance, maskDirection, blurAmount,
+        easingPreset, staggerDirection, distance, enterMaskDirection, exitMaskDirection, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
         enterScale, enterRotateX, enterRotateY, enterRotateZ,
@@ -1139,6 +1142,16 @@ addPropertyControls(PageChoreographer, {
             "Mask Reveal", "Scale In", "Blur In", "Custom",
         ],
         hidden: function (props: any) { return props.enterEnabled === false },
+    },
+    enterMaskDirection: {
+        type: ControlType.Enum,
+        title: "↳ Direction",
+        defaultValue: "left",
+        options: ["left", "right", "up", "down"],
+        optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top"],
+        hidden: function (props: any) {
+            return props.enterEnabled === false || props.enterPreset !== "maskReveal"
+        },
     },
     enterOpacity: {
         type: ControlType.Number,
@@ -1268,6 +1281,16 @@ addPropertyControls(PageChoreographer, {
             "Mask Out", "Blur Lift", "Scale Fade", "Scale Out", "Custom",
         ],
         hidden: function (props: any) { return props.exitEnabled === false },
+    },
+    exitMaskDirection: {
+        type: ControlType.Enum,
+        title: "↳ Direction",
+        defaultValue: "left",
+        options: ["left", "right", "up", "down"],
+        optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top"],
+        hidden: function (props: any) {
+            return props.exitEnabled === false || props.exitPreset !== "maskOut"
+        },
     },
     exitOpacity: {
         type: ControlType.Number,
@@ -1435,16 +1458,6 @@ addPropertyControls(PageChoreographer, {
             var enterUsesDistance = directionalEnter.indexOf(props.enterPreset) !== -1
             var exitUsesDistance = directionalExit.indexOf(props.exitPreset) !== -1
             return !enterUsesDistance && !exitUsesDistance
-        },
-    },
-    maskDirection: {
-        type: ControlType.Enum,
-        title: "Mask Direction",
-        defaultValue: "left",
-        options: ["left", "right", "up", "down"],
-        optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top"],
-        hidden: function (props: any) {
-            return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
         },
     },
     blurAmount: {
