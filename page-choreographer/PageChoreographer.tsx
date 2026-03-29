@@ -1066,9 +1066,13 @@ export default function PageChoreographer(props: any) {
 
     return (
         <div
-            ref={markerRef}
+            ref={(node) => {
+                (markerRef as any).current = node
+                if (node) {
+                    node.style.setProperty("position", "absolute", "important")
+                }
+            }}
             style={{
-                position: "absolute",
                 width: 0,
                 height: 0,
                 overflow: "hidden",
