@@ -64,29 +64,31 @@ function isMarkerOrWrapper(el: HTMLElement, marker: HTMLElement): boolean {
     return el === marker || el.contains(marker)
 }
 
-// Drill down through single-child wrappers until reaching a level with
-// multiple children. Framer wraps CMS collections in several nested divs.
-//   wrapper1 → wrapper2 → wrapper3 → [Card1, Card2, Card3, ...]
-// This function returns [Card1, Card2, Card3, ...].
-function drillDown(node: HTMLElement, maxDepth: number): HTMLElement[] {
-    if (maxDepth <= 0) return [node]
+// Walk the entire subtree to find the node with the most direct children.
+// This is the CMS collection list, regardless of how deeply Framer nests it.
+function findNodeWithMostChildren(
+    root: HTMLElement,
+    marker: HTMLElement
+): HTMLElement | null {
+    var best: HTMLElement | null = null
+    var bestCount = 0
 
-    // Multiple children = we found the actual items
-    if (node.children.length > 1) {
-        var items: HTMLElement[] = []
-        for (var i = 0; i < node.children.length; i++) {
-            items.push(node.children[i] as HTMLElement)
+    function walk(node: HTMLElement) {
+        if (isMarkerOrWrapper(node, marker)) return
+
+        // Only consider nodes with 2+ children as candidates
+        if (node.children.length >= 2 && node.children.length > bestCount) {
+            bestCount = node.children.length
+            best = node
         }
-        return items
+
+        for (var i = 0; i < node.children.length; i++) {
+            walk(node.children[i] as HTMLElement)
+        }
     }
 
-    // Single child = keep drilling
-    if (node.children.length === 1) {
-        return drillDown(node.children[0] as HTMLElement, maxDepth - 1)
-    }
-
-    // Leaf node
-    return [node]
+    walk(root)
+    return best
 }
 
 function collectTargets(
@@ -97,21 +99,17 @@ function collectTargets(
     var targets: HTMLElement[] = []
 
     if (scanMode === "cmsItems") {
-        // CMS mode: find the sibling branch with the most items, drilling
-        // through any single-child wrappers Framer adds.
-        var bestItems: HTMLElement[] = []
+        // CMS mode: search the entire subtree for the node with the most
+        // children — that's the CMS collection list with the actual cards.
+        var listNode = findNodeWithMostChildren(parent, marker)
 
-        for (var i = 0; i < parent.children.length; i++) {
-            var child = parent.children[i] as HTMLElement
-            if (isMarkerOrWrapper(child, marker)) continue
-
-            var items = drillDown(child, 8)
-            if (items.length > bestItems.length) {
-                bestItems = items
+        if (listNode) {
+            for (var j = 0; j < listNode.children.length; j++) {
+                targets.push(listNode.children[j] as HTMLElement)
             }
         }
 
-        targets = bestItems
+        targets = targets
     } else {
         // Siblings mode: all children except the marker wrapper
         for (var k = 0; k < parent.children.length; k++) {
