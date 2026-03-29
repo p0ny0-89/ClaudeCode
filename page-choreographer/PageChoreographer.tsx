@@ -240,12 +240,9 @@ function createStore() {
     var enterScheduled = false
     var skipNextClick = false
     var exitTimeout = 3
+    var currentPath = typeof window !== "undefined" ? window.location.pathname : ""
 
     function registerTarget(t: TargetEntry) {
-        if (Object.keys(targets).length === 0) {
-            enterScheduled = false
-            phase = "idle"
-        }
         targets[t.id] = t
     }
 
@@ -631,6 +628,16 @@ function createStore() {
     // ─── Auto enter ──────────────────────────────────────────────────────────
 
     function scheduleEnter(delay: number) {
+        // Detect page navigation — reset state so enter animations
+        // replay on the new page, but never reset mid-page due to
+        // React re-render cycles (fixes random card disappearance)
+        var newPath = typeof window !== "undefined" ? window.location.pathname : ""
+        if (newPath !== currentPath) {
+            currentPath = newPath
+            enterScheduled = false
+            phase = "idle"
+        }
+
         if (enterScheduled) return
         enterScheduled = true
 
