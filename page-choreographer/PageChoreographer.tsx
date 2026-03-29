@@ -759,7 +759,8 @@ function findNodeWithMostChildren(
 function collectTargets(
     parent: HTMLElement,
     marker: HTMLElement,
-    scanMode: string
+    scanMode: string,
+    excludeSelector?: string
 ): HTMLElement[] {
     var result: HTMLElement[] = []
     if (scanMode === "cmsItems") {
@@ -776,6 +777,18 @@ function collectTargets(
             if (isMarkerBranch(el, marker)) continue
             result.push(el)
         }
+    }
+    // Filter out elements matching the exclude selector
+    if (excludeSelector && excludeSelector.trim()) {
+        var sel = excludeSelector.trim()
+        result = result.filter(function (el) {
+            try {
+                // Check element itself and whether it contains a match
+                if (el.matches(sel)) return false
+                if (el.querySelector(sel)) return false
+            } catch (e) {}
+            return true
+        })
     }
     return result
 }
@@ -795,6 +808,7 @@ function useStableGroupId() {
 export default function PageChoreographer(props: any) {
     var {
         scanMode = "cmsItems",
+        excludeSelector = "",
         enterPreset = "fadeUp",
         exitPreset = "riseWave",
         enterEnabled = true,
@@ -917,7 +931,7 @@ export default function PageChoreographer(props: any) {
 
         unregisterAll(store)
 
-        var targets = collectTargets(parent, marker, scanMode)
+        var targets = collectTargets(parent, marker, scanMode, excludeSelector)
         registerElements(targets, store)
 
         // MutationObserver for dynamic CMS content
@@ -942,7 +956,7 @@ export default function PageChoreographer(props: any) {
                     var p = findRealParent(marker)
                     if (!p) return
                     unregisterAll(s)
-                    var t = collectTargets(p, marker, scanMode)
+                    var t = collectTargets(p, marker, scanMode, excludeSelector)
                     registerElements(t, s)
                 })
                 mutObs.observe(observeTarget, { childList: true })
@@ -987,7 +1001,7 @@ export default function PageChoreographer(props: any) {
             unregisterAll(getStore())
         }
     }, [
-        baseId, scanMode, trigger, viewOffset, viewRepeat,
+        baseId, scanMode, excludeSelector, trigger, viewOffset, viewRepeat,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, delayOffset,
         mobileEnabled, duration, stagger,
@@ -1026,6 +1040,14 @@ addPropertyControls(PageChoreographer, {
         defaultValue: "cmsItems",
         options: ["siblings", "cmsItems"],
         optionTitles: ["Siblings", "CMS Items"],
+    },
+    excludeSelector: {
+        type: ControlType.String,
+        title: "Exclude",
+        defaultValue: "",
+        placeholder: '[data-framer-name="Load More"]',
+        description:
+            "CSS selector — matching elements (or parents of matches) are skipped. Use [data-framer-name=\"Name\"] to target by layer name.",
     },
     trigger: {
         type: ControlType.Enum,
