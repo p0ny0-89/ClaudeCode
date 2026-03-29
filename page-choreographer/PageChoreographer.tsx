@@ -1309,9 +1309,9 @@ export default function PageChoreographer(props: any) {
                 pinElWidth = parentGP.offsetWidth
                 pinElHeight = parentGP.offsetHeight
                 scrollPinState.origStyles = parentGP.style.cssText
-                // Spacer covers section height + scroll room so page
+                // Spacer covers section height + full pin range so page
                 // doesn't jump when section goes position:fixed
-                scrollSpacer.style.setProperty("height", (pinElHeight + scrollLength) + "px")
+                scrollSpacer.style.setProperty("height", (pinElHeight + scrollLength + parentHeight) + "px")
             } else {
                 pinEl = parent
                 pinElWidth = parentWidth
@@ -1320,9 +1320,13 @@ export default function PageChoreographer(props: any) {
             }
             scrollPinEl = pinEl
 
-            // Measure pin range
+            // Measure pin range. The animation plays over scrollLength,
+            // but the section stays pinned for an extra parentHeight so
+            // the completed animation is visible within the frame bounds
+            // before the section slides off.
             var pinStart = (scrollSpacer ? pinEl : wrapper).getBoundingClientRect().top + window.scrollY
-            var pinEnd = pinStart + scrollLength
+            var totalPinLength = scrollSpacer ? scrollLength + parentHeight : scrollLength
+            var pinEnd = pinStart + totalPinLength
             var wrapRectLeft = pinEl.getBoundingClientRect().left
 
             // ── Animation creation/destruction ──
@@ -1564,7 +1568,7 @@ export default function PageChoreographer(props: any) {
                     }
                     var measureEl = scrollSpacer ? pinEl : wrapper
                     pinStart = measureEl.getBoundingClientRect().top + window.scrollY
-                    pinEnd = pinStart + scrollLength
+                    pinEnd = pinStart + totalPinLength
                     wrapRectLeft = pinEl.getBoundingClientRect().left
                     if (scrollPinState.pinned) {
                         pinEl.style.setProperty("width", pinElWidth + "px", "important")
