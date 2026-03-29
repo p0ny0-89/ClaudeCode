@@ -1,4 +1,4 @@
-// ─── Page Choreographer — Transition Target (All-in-One) ─────────────────────
+// ─── Page Choreographer ──────────────────────────────────────────────────────
 // The ONLY component you need. Drop one per section/group of elements.
 // The first instance automatically sets up:
 //   • The shared animation store
@@ -8,14 +8,9 @@
 // Each instance has its OWN animation settings (duration, easing, stagger, etc.)
 // so different sections can have completely different effects.
 //
-// How to use:
-//   1. Drop this INTO any frame alongside your content
-//   2. Configure enter/exit presets and timing in the property panel
-//   3. That's it — enter plays on load, exit plays on any link click
-//
-// Scan Modes:
-//   "Siblings"  — registers all children of the parent container
-//   "CMS Items" — digs deeper to find CMS collection items
+// Presets provide quick common effects. Choose "Custom" for full control over
+// opacity, offset X/Y, scale, rotate, and blur — matching Framer's native
+// appear effect level of control.
 
 import * as React from "react"
 import { addPropertyControls, ControlType } from "framer"
@@ -29,6 +24,7 @@ var EASING_MAP: Record<string, number[]> = {
     snappy: [0.16, 1, 0.3, 1],
     dramatic: [0.76, 0, 0.24, 1],
     gentle: [0.25, 0.1, 0.25, 1],
+    bounce: [0.34, 1.56, 0.64, 1],
     linear: [0, 0, 1, 1],
 }
 
@@ -36,10 +32,59 @@ function easingToCss(e: number[]): string {
     return "cubic-bezier(" + e[0] + "," + e[1] + "," + e[2] + "," + e[3] + ")"
 }
 
-// ─── Keyframe presets ────────────────────────────────────────────────────────
+// ─── Keyframe builders ───────────────────────────────────────────────────────
 
-function getEnterKeyframes(preset: string, distance: number) {
-    switch (preset) {
+function buildEnterKeyframes(t: TargetEntry) {
+    if (t.enterPreset === "custom") {
+        var from: any = { opacity: String(t.enterOpacity) }
+        var to: any = { opacity: "1" }
+
+        from.transform =
+            "translateX(" + t.enterOffsetX + "px) " +
+            "translateY(" + t.enterOffsetY + "px) " +
+            "scale(" + t.enterScale + ") " +
+            "rotate(" + t.enterRotate + "deg)"
+        to.transform =
+            "translateX(0px) translateY(0px) scale(1) rotate(0deg)"
+
+        if (t.enterBlur > 0) {
+            from.filter = "blur(" + t.enterBlur + "px)"
+            to.filter = "blur(0px)"
+        }
+
+        return { from: from, to: to }
+    }
+
+    var d = t.distance
+    switch (t.enterPreset) {
+        case "fadeDown":
+            return {
+                from: { opacity: "0", transform: "translateY(" + -d + "px)" },
+                to: { opacity: "1", transform: "translateY(0px)" },
+            }
+        case "fadeLeft":
+            return {
+                from: { opacity: "0", transform: "translateX(" + d + "px)" },
+                to: { opacity: "1", transform: "translateX(0px)" },
+            }
+        case "fadeRight":
+            return {
+                from: { opacity: "0", transform: "translateX(" + -d + "px)" },
+                to: { opacity: "1", transform: "translateX(0px)" },
+            }
+        case "scaleIn":
+            return {
+                from: { opacity: "0", transform: "scale(" + t.scaleFrom + ")" },
+                to: { opacity: "1", transform: "scale(1)" },
+            }
+        case "blurIn":
+            return {
+                from: {
+                    opacity: "0",
+                    filter: "blur(" + t.blurAmount + "px)",
+                },
+                to: { opacity: "1", filter: "blur(0px)" },
+            }
         case "maskRevealX":
             return {
                 from: { clipPath: "inset(0 100% 0 0)" },
@@ -53,19 +98,35 @@ function getEnterKeyframes(preset: string, distance: number) {
         case "fadeUp":
         default:
             return {
-                from: { opacity: "0", transform: "translateY(" + distance + "px)" },
+                from: { opacity: "0", transform: "translateY(" + d + "px)" },
                 to: { opacity: "1", transform: "translateY(0px)" },
             }
     }
 }
 
-function getExitKeyframes(
-    preset: string,
-    distance: number,
-    blurAmount: number,
-    scaleFrom: number
-) {
-    switch (preset) {
+function buildExitKeyframes(t: TargetEntry) {
+    if (t.exitPreset === "custom") {
+        var from: any = { opacity: "1" }
+        var to: any = { opacity: String(t.exitOpacity) }
+
+        from.transform =
+            "translateX(0px) translateY(0px) scale(1) rotate(0deg)"
+        to.transform =
+            "translateX(" + t.exitOffsetX + "px) " +
+            "translateY(" + t.exitOffsetY + "px) " +
+            "scale(" + t.exitScale + ") " +
+            "rotate(" + t.exitRotate + "deg)"
+
+        if (t.exitBlur > 0) {
+            from.filter = "blur(0px)"
+            to.filter = "blur(" + t.exitBlur + "px)"
+        }
+
+        return { from: from, to: to }
+    }
+
+    var d = t.distance
+    switch (t.exitPreset) {
         case "blurLift":
             return {
                 from: {
@@ -75,20 +136,40 @@ function getExitKeyframes(
                 },
                 to: {
                     opacity: "0",
-                    transform: "translateY(" + -(distance * 0.5) + "px)",
-                    filter: "blur(" + blurAmount + "px)",
+                    transform: "translateY(" + -(d * 0.5) + "px)",
+                    filter: "blur(" + t.blurAmount + "px)",
                 },
             }
         case "scaleFadeGrid":
             return {
                 from: { opacity: "1", transform: "scale(1)" },
-                to: { opacity: "0", transform: "scale(" + scaleFrom + ")" },
+                to: { opacity: "0", transform: "scale(" + t.scaleFrom + ")" },
+            }
+        case "fadeDown":
+            return {
+                from: { opacity: "1", transform: "translateY(0px)" },
+                to: { opacity: "0", transform: "translateY(" + d + "px)" },
+            }
+        case "fadeLeft":
+            return {
+                from: { opacity: "1", transform: "translateX(0px)" },
+                to: { opacity: "0", transform: "translateX(" + -d + "px)" },
+            }
+        case "fadeRight":
+            return {
+                from: { opacity: "1", transform: "translateX(0px)" },
+                to: { opacity: "0", transform: "translateX(" + d + "px)" },
+            }
+        case "scaleOut":
+            return {
+                from: { opacity: "1", transform: "scale(1)" },
+                to: { opacity: "0", transform: "scale(" + t.scaleFrom + ")" },
             }
         case "riseWave":
         default:
             return {
                 from: { opacity: "1", transform: "translateY(0px)" },
-                to: { opacity: "0", transform: "translateY(" + -distance + "px)" },
+                to: { opacity: "0", transform: "translateY(" + -d + "px)" },
             }
     }
 }
@@ -115,6 +196,20 @@ interface TargetEntry {
     distance: number
     blurAmount: number
     scaleFrom: number
+    // Custom enter
+    enterOpacity: number
+    enterOffsetX: number
+    enterOffsetY: number
+    enterScale: number
+    enterRotate: number
+    enterBlur: number
+    // Custom exit
+    exitOpacity: number
+    exitOffsetX: number
+    exitOffsetY: number
+    exitScale: number
+    exitRotate: number
+    exitBlur: number
 }
 
 function createStore() {
@@ -128,8 +223,6 @@ function createStore() {
     var exitTimeout = 3
 
     function registerTarget(t: TargetEntry) {
-        // If first target after all were unregistered (new page),
-        // reset enter scheduling so enter plays on the new page
         if (Object.keys(targets).length === 0) {
             enterScheduled = false
             phase = "idle"
@@ -209,9 +302,7 @@ function createStore() {
 
     function cancelActive() {
         for (var i = 0; i < activeAnims.length; i++) {
-            try {
-                activeAnims[i].cancel()
-            } catch (e) {}
+            try { activeAnims[i].cancel() } catch (e) {}
         }
         activeAnims = []
     }
@@ -231,10 +322,7 @@ function createStore() {
         }
     }
 
-    // Group targets by their source TransitionTarget instance
-    function groupByGroupId(
-        list: TargetEntry[]
-    ): Record<string, TargetEntry[]> {
+    function groupByGroupId(list: TargetEntry[]): Record<string, TargetEntry[]> {
         var groups: Record<string, TargetEntry[]> = {}
         for (var i = 0; i < list.length; i++) {
             var t = list[i]
@@ -255,11 +343,7 @@ function createStore() {
         var mobile = window.innerWidth < 768
 
         var eligible = getVisibleTargets().filter(function (t) {
-            return (
-                t.enterEnabled &&
-                (t.mobileEnabled || !mobile) &&
-                t.ref.current
-            )
+            return t.enterEnabled && (t.mobileEnabled || !mobile) && t.ref.current
         })
 
         var groups = groupByGroupId(eligible)
@@ -277,7 +361,7 @@ function createStore() {
 
                 var kf = reduced
                     ? { from: { opacity: "0" }, to: { opacity: "1" } }
-                    : getEnterKeyframes(target.enterPreset, target.distance)
+                    : buildEnterKeyframes(target)
 
                 var stagger = reduced ? 0 : target.stagger
                 var delay = stagger * i + target.delayOffset
@@ -296,16 +380,12 @@ function createStore() {
                         anim.finished.then(
                             (function (a) {
                                 return function () {
-                                    try {
-                                        a.cancel()
-                                    } catch (e) {}
+                                    try { a.cancel() } catch (e) {}
                                 }
                             })(anim)
                         )
                     )
-                } catch (e) {
-                    // WAAPI not available — element stays visible
-                }
+                } catch (e) {}
             }
         }
 
@@ -327,11 +407,7 @@ function createStore() {
         var mobile = window.innerWidth < 768
 
         var eligible = getVisibleTargets().filter(function (t) {
-            return (
-                t.exitEnabled &&
-                (t.mobileEnabled || !mobile) &&
-                t.ref.current
-            )
+            return t.exitEnabled && (t.mobileEnabled || !mobile) && t.ref.current
         })
 
         var groups = groupByGroupId(eligible)
@@ -349,12 +425,7 @@ function createStore() {
 
                 var kf = reduced
                     ? { from: { opacity: "1" }, to: { opacity: "0" } }
-                    : getExitKeyframes(
-                          target.exitPreset,
-                          target.distance,
-                          target.blurAmount,
-                          target.scaleFrom
-                      )
+                    : buildExitKeyframes(target)
 
                 var stagger = reduced ? 0 : target.stagger
                 var delay = stagger * i + target.delayOffset
@@ -368,9 +439,7 @@ function createStore() {
                     })
                     activeAnims.push(anim)
                     promises.push(anim.finished)
-                } catch (e) {
-                    // WAAPI not available
-                }
+                } catch (e) {}
             }
         }
 
@@ -381,16 +450,14 @@ function createStore() {
         })
     }
 
-    // ─── Link interception (auto-setup, runs once) ───────────────────────────
+    // ─── Link interception ───────────────────────────────────────────────────
 
     function setupLinkInterception(timeout: number) {
-        exitTimeout = timeout // Always update timeout
+        exitTimeout = timeout
         if (linkInterceptionSetup) return
         linkInterceptionSetup = true
 
-        function findAnchor(
-            target: EventTarget | null
-        ): HTMLAnchorElement | null {
+        function findAnchor(target: EventTarget | null): HTMLAnchorElement | null {
             var node = target as HTMLElement | null
             while (node && node !== document.body) {
                 if (node.tagName === "A") return node as HTMLAnchorElement
@@ -400,15 +467,13 @@ function createStore() {
         }
 
         function shouldIntercept(anchor: HTMLAnchorElement): boolean {
-            var href = anchor.href
-            if (!href) return false
+            if (!anchor.href) return false
             if (anchor.hasAttribute("data-no-exit")) return false
             if (anchor.target === "_blank") return false
             try {
-                var url = new URL(href, window.location.origin)
+                var url = new URL(anchor.href, window.location.origin)
                 if (url.origin !== window.location.origin) return false
-                if (url.pathname === window.location.pathname && url.hash)
-                    return false
+                if (url.pathname === window.location.pathname && url.hash) return false
             } catch (e) {
                 return false
             }
@@ -420,41 +485,30 @@ function createStore() {
             anchor.click()
         }
 
-        document.addEventListener(
-            "click",
-            function (e: MouseEvent) {
-                if (skipNextClick) {
-                    skipNextClick = false
-                    return
-                }
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+        document.addEventListener("click", function (e: MouseEvent) {
+            if (skipNextClick) { skipNextClick = false; return }
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
 
-                var anchor = findAnchor(e.target)
-                if (!anchor) return
-                if (!shouldIntercept(anchor)) return
-                if (getTargetCount() === 0) return
+            var anchor = findAnchor(e.target)
+            if (!anchor) return
+            if (!shouldIntercept(anchor)) return
+            if (getTargetCount() === 0) return
 
-                e.preventDefault()
-                e.stopPropagation()
+            e.preventDefault()
+            e.stopPropagation()
 
-                Promise.race([
-                    playExit(),
-                    new Promise(function (resolve) {
-                        setTimeout(resolve, exitTimeout * 1000)
-                    }),
-                ])
-                    .then(function () {
-                        navigateViaAnchor(anchor)
-                    })
-                    .catch(function () {
-                        navigateViaAnchor(anchor)
-                    })
-            },
-            true
-        )
+            Promise.race([
+                playExit(),
+                new Promise(function (resolve) {
+                    setTimeout(resolve, exitTimeout * 1000)
+                }),
+            ])
+                .then(function () { navigateViaAnchor(anchor) })
+                .catch(function () { navigateViaAnchor(anchor) })
+        }, true)
     }
 
-    // ─── Auto enter (runs once per page) ─────────────────────────────────────
+    // ─── Auto enter ──────────────────────────────────────────────────────────
 
     function scheduleEnter(delay: number) {
         if (enterScheduled) return
@@ -464,9 +518,7 @@ function createStore() {
             requestAnimationFrame(function () {
                 var delayMs = delay * 1000
                 if (delayMs > 0) {
-                    setTimeout(function () {
-                        playEnter()
-                    }, delayMs)
+                    setTimeout(function () { playEnter() }, delayMs)
                 } else {
                     playEnter()
                 }
@@ -496,16 +548,14 @@ function getStore() {
     return null
 }
 
-// ─── DOM scanning helpers ────────────────────────────────────────────────────
+// ─── DOM scanning ────────────────────────────────────────────────────────────
 
 function findRealParent(marker: HTMLElement): HTMLElement | null {
     var node = marker.parentElement
     var maxDepth = 5
     while (node && maxDepth > 0) {
         var count = 0
-        for (var i = 0; i < node.children.length; i++) {
-            count++
-        }
+        for (var i = 0; i < node.children.length; i++) count++
         if (count > 1) return node
         node = node.parentElement
         maxDepth--
@@ -599,6 +649,20 @@ export default function PageChoreographer(props: any) {
         scaleFrom = 0.92,
         exitTimeout = 3,
         enterDelay = 0.05,
+        // Custom enter
+        enterOpacity = 0,
+        enterOffsetX = 0,
+        enterOffsetY = 40,
+        enterScale = 1,
+        enterRotate = 0,
+        enterBlur = 0,
+        // Custom exit
+        exitOpacity = 0,
+        exitOffsetX = 0,
+        exitOffsetY = -40,
+        exitScale = 1,
+        exitRotate = 0,
+        exitBlur = 0,
         style,
     } = props
 
@@ -642,6 +706,18 @@ export default function PageChoreographer(props: any) {
                 distance: distance,
                 blurAmount: blurAmount,
                 scaleFrom: scaleFrom,
+                enterOpacity: enterOpacity,
+                enterOffsetX: enterOffsetX,
+                enterOffsetY: enterOffsetY,
+                enterScale: enterScale,
+                enterRotate: enterRotate,
+                enterBlur: enterBlur,
+                exitOpacity: exitOpacity,
+                exitOffsetX: exitOffsetX,
+                exitOffsetY: exitOffsetY,
+                exitScale: exitScale,
+                exitRotate: exitRotate,
+                exitBlur: exitBlur,
             })
 
             registeredIds.current.push(targetId)
@@ -653,11 +729,9 @@ export default function PageChoreographer(props: any) {
         var marker = markerRef.current
         if (!store || !marker) return
 
-        // First instance sets up link interception and schedules enter
         store.setupLinkInterception(exitTimeout)
         store.scheduleEnter(enterDelay)
 
-        // Walk up past Framer's wrappers to find the real container
         var parent = findRealParent(marker)
         if (!parent) return
 
@@ -666,7 +740,6 @@ export default function PageChoreographer(props: any) {
         var targets = collectTargets(parent, marker, scanMode)
         registerElements(targets, store)
 
-        // Watch for dynamic changes (CMS load-more, etc.)
         var observeTarget = parent
         if (scanMode === "cmsItems") {
             for (var i = 0; i < parent.children.length; i++) {
@@ -697,9 +770,7 @@ export default function PageChoreographer(props: any) {
 
         return function () {
             if (observer) {
-                try {
-                    observer.disconnect()
-                } catch (e) {}
+                try { observer.disconnect() } catch (e) {}
             }
             unregisterAll(getStore())
         }
@@ -709,9 +780,12 @@ export default function PageChoreographer(props: any) {
         mobileEnabled, visibilityThreshold, duration, stagger,
         easingPreset, staggerDirection, distance, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
+        enterOpacity, enterOffsetX, enterOffsetY,
+        enterScale, enterRotate, enterBlur,
+        exitOpacity, exitOffsetX, exitOffsetY,
+        exitScale, exitRotate, exitBlur,
     ])
 
-    // Invisible — no layout impact
     return (
         <div
             ref={markerRef}
@@ -738,30 +812,193 @@ addPropertyControls(PageChoreographer, {
         options: ["siblings", "cmsItems"],
         optionTitles: ["Siblings", "CMS Items"],
     },
-    enterPreset: {
-        type: ControlType.Enum,
-        title: "Enter Preset",
-        defaultValue: "fadeUp",
-        options: ["fadeUp", "maskRevealX", "maskRevealY"],
-        optionTitles: ["Fade Up", "Mask Reveal X", "Mask Reveal Y"],
-    },
-    exitPreset: {
-        type: ControlType.Enum,
-        title: "Exit Preset",
-        defaultValue: "riseWave",
-        options: ["riseWave", "blurLift", "scaleFadeGrid"],
-        optionTitles: ["Rise Wave", "Blur Lift", "Scale Fade Grid"],
-    },
+
+    // ── Enter ────────────────────────────────────────────────────────────────
+
     enterEnabled: {
         type: ControlType.Boolean,
         title: "Enter",
         defaultValue: true,
     },
+    enterPreset: {
+        type: ControlType.Enum,
+        title: "Enter Style",
+        defaultValue: "fadeUp",
+        options: [
+            "fadeUp", "fadeDown", "fadeLeft", "fadeRight",
+            "maskRevealX", "maskRevealY", "scaleIn", "blurIn", "custom",
+        ],
+        optionTitles: [
+            "Fade Up", "Fade Down", "Fade Left", "Fade Right",
+            "Mask Reveal X", "Mask Reveal Y", "Scale In", "Blur In", "Custom",
+        ],
+        hidden: function (props: any) { return props.enterEnabled === false },
+    },
+    enterOpacity: {
+        type: ControlType.Number,
+        title: "↳ Opacity",
+        defaultValue: 0,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        hidden: function (props: any) {
+            return props.enterEnabled === false || props.enterPreset !== "custom"
+        },
+    },
+    enterOffsetX: {
+        type: ControlType.Number,
+        title: "↳ Offset X",
+        defaultValue: 0,
+        min: -500,
+        max: 500,
+        step: 5,
+        unit: "px",
+        hidden: function (props: any) {
+            return props.enterEnabled === false || props.enterPreset !== "custom"
+        },
+    },
+    enterOffsetY: {
+        type: ControlType.Number,
+        title: "↳ Offset Y",
+        defaultValue: 40,
+        min: -500,
+        max: 500,
+        step: 5,
+        unit: "px",
+        hidden: function (props: any) {
+            return props.enterEnabled === false || props.enterPreset !== "custom"
+        },
+    },
+    enterScale: {
+        type: ControlType.Number,
+        title: "↳ Scale",
+        defaultValue: 1,
+        min: 0,
+        max: 2,
+        step: 0.01,
+        hidden: function (props: any) {
+            return props.enterEnabled === false || props.enterPreset !== "custom"
+        },
+    },
+    enterRotate: {
+        type: ControlType.Number,
+        title: "↳ Rotate",
+        defaultValue: 0,
+        min: -360,
+        max: 360,
+        step: 5,
+        unit: "°",
+        hidden: function (props: any) {
+            return props.enterEnabled === false || props.enterPreset !== "custom"
+        },
+    },
+    enterBlur: {
+        type: ControlType.Number,
+        title: "↳ Blur",
+        defaultValue: 0,
+        min: 0,
+        max: 50,
+        step: 1,
+        unit: "px",
+        hidden: function (props: any) {
+            return props.enterEnabled === false || props.enterPreset !== "custom"
+        },
+    },
+
+    // ── Exit ─────────────────────────────────────────────────────────────────
+
     exitEnabled: {
         type: ControlType.Boolean,
         title: "Exit",
         defaultValue: true,
     },
+    exitPreset: {
+        type: ControlType.Enum,
+        title: "Exit Style",
+        defaultValue: "riseWave",
+        options: [
+            "riseWave", "fadeDown", "fadeLeft", "fadeRight",
+            "blurLift", "scaleFadeGrid", "scaleOut", "custom",
+        ],
+        optionTitles: [
+            "Rise Wave", "Fade Down", "Fade Left", "Fade Right",
+            "Blur Lift", "Scale Fade", "Scale Out", "Custom",
+        ],
+        hidden: function (props: any) { return props.exitEnabled === false },
+    },
+    exitOpacity: {
+        type: ControlType.Number,
+        title: "↳ Opacity",
+        defaultValue: 0,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        hidden: function (props: any) {
+            return props.exitEnabled === false || props.exitPreset !== "custom"
+        },
+    },
+    exitOffsetX: {
+        type: ControlType.Number,
+        title: "↳ Offset X",
+        defaultValue: 0,
+        min: -500,
+        max: 500,
+        step: 5,
+        unit: "px",
+        hidden: function (props: any) {
+            return props.exitEnabled === false || props.exitPreset !== "custom"
+        },
+    },
+    exitOffsetY: {
+        type: ControlType.Number,
+        title: "↳ Offset Y",
+        defaultValue: -40,
+        min: -500,
+        max: 500,
+        step: 5,
+        unit: "px",
+        hidden: function (props: any) {
+            return props.exitEnabled === false || props.exitPreset !== "custom"
+        },
+    },
+    exitScale: {
+        type: ControlType.Number,
+        title: "↳ Scale",
+        defaultValue: 1,
+        min: 0,
+        max: 2,
+        step: 0.01,
+        hidden: function (props: any) {
+            return props.exitEnabled === false || props.exitPreset !== "custom"
+        },
+    },
+    exitRotate: {
+        type: ControlType.Number,
+        title: "↳ Rotate",
+        defaultValue: 0,
+        min: -360,
+        max: 360,
+        step: 5,
+        unit: "°",
+        hidden: function (props: any) {
+            return props.exitEnabled === false || props.exitPreset !== "custom"
+        },
+    },
+    exitBlur: {
+        type: ControlType.Number,
+        title: "↳ Blur",
+        defaultValue: 0,
+        min: 0,
+        max: 50,
+        step: 1,
+        unit: "px",
+        hidden: function (props: any) {
+            return props.exitEnabled === false || props.exitPreset !== "custom"
+        },
+    },
+
+    // ── Timing ───────────────────────────────────────────────────────────────
+
     duration: {
         type: ControlType.Number,
         title: "Duration",
@@ -784,62 +1021,67 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Enum,
         title: "Easing",
         defaultValue: "smooth",
-        options: ["smooth", "snappy", "dramatic", "gentle", "linear"],
-        optionTitles: ["Smooth", "Snappy", "Dramatic", "Gentle", "Linear"],
+        options: ["smooth", "snappy", "dramatic", "gentle", "bounce", "linear"],
+        optionTitles: ["Smooth", "Snappy", "Dramatic", "Gentle", "Bounce", "Linear"],
     },
     staggerDirection: {
         type: ControlType.Enum,
         title: "Stagger Order",
         defaultValue: "leftToRight",
         options: [
-            "leftToRight",
-            "rightToLeft",
-            "topToBottom",
-            "bottomToTop",
-            "rowMajor",
-            "columnMajor",
+            "leftToRight", "rightToLeft", "topToBottom",
+            "bottomToTop", "rowMajor", "columnMajor",
         ],
         optionTitles: [
-            "Left → Right",
-            "Right → Left",
-            "Top → Bottom",
-            "Bottom → Top",
-            "Row Major",
-            "Column Major",
+            "Left → Right", "Right → Left", "Top → Bottom",
+            "Bottom → Top", "Row Major", "Column Major",
         ],
     },
+
+    // ── Preset parameters ────────────────────────────────────────────────────
+
     distance: {
         type: ControlType.Number,
         title: "Distance",
         defaultValue: 40,
         min: 0,
-        max: 200,
+        max: 500,
         step: 5,
         unit: "px",
+        hidden: function (props: any) {
+            return props.enterPreset === "custom" && props.exitPreset === "custom"
+        },
     },
     blurAmount: {
         type: ControlType.Number,
         title: "Blur Amount",
         defaultValue: 8,
         min: 0,
-        max: 30,
+        max: 50,
         step: 1,
         unit: "px",
         hidden: function (props: any) {
-            return props.exitPreset !== "blurLift"
+            return props.enterPreset !== "blurIn" && props.exitPreset !== "blurLift"
         },
     },
     scaleFrom: {
         type: ControlType.Number,
         title: "Scale From",
         defaultValue: 0.92,
-        min: 0.5,
-        max: 1.5,
+        min: 0,
+        max: 2,
         step: 0.01,
         hidden: function (props: any) {
-            return props.exitPreset !== "scaleFadeGrid"
+            return (
+                props.enterPreset !== "scaleIn" &&
+                props.exitPreset !== "scaleFadeGrid" &&
+                props.exitPreset !== "scaleOut"
+            )
         },
     },
+
+    // ── Advanced ─────────────────────────────────────────────────────────────
+
     sortPriority: {
         type: ControlType.Number,
         title: "Priority",
