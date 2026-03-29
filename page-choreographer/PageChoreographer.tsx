@@ -1241,10 +1241,6 @@ export default function PageChoreographer(props: any) {
             var parentWidth = parent.offsetWidth
             var parentGP = parent.parentElement
 
-            // Check if section is visible in the viewport on load
-            var sectionInViewport = parent.getBoundingClientRect().top < window.innerHeight &&
-                parent.getBoundingClientRect().bottom > 0
-
             // ── Create wrapper inside the section ──
             var wrapper = document.createElement("div")
 
@@ -1440,13 +1436,10 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // For sections below viewport: create animations eagerly so
-            // elements start in their hidden "from" state. For sections
-            // in viewport: keep visibility:hidden, create lazily on scroll.
-            if (!sectionInViewport) {
-                ensureScrollAnims()
-                updateAnimProgress(0)
-            }
+            // Create animations eagerly so elements start in their
+            // hidden "from" state (opacity:0 via WAAPI fill:both).
+            ensureScrollAnims()
+            updateAnimProgress(0)
 
             // ── Scroll handler (position:fixed pinning) ──
             var handleScroll = function () {
@@ -1580,8 +1573,9 @@ export default function PageChoreographer(props: any) {
             scrollResizeHandler = handleResize
             window.addEventListener("resize", handleResize)
 
-            // Run initial scroll check for pages loaded mid-scroll
-            if (window.scrollY > pinStart) {
+            // Run initial scroll check — use >= so hero sections
+            // (pinStart=0) get pinned immediately on load
+            if (window.scrollY >= pinStart) {
                 handleScroll()
             }
 
