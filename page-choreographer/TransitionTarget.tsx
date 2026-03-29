@@ -1,7 +1,17 @@
+// ─── Page Choreographer — Transition Target (Sibling Scanner) ────────────────
+// Drop this component INTO any frame alongside your content. It automatically
+// registers all sibling elements (the other children of the same parent) as
+// transition targets. No wrapping required.
+//
+// Example:
+//   Frame (your layout)
+//     ├── Card 1          ← auto-registered
+//     ├── Card 2          ← auto-registered
+//     ├── Card 3          ← auto-registered
+//     └── TransitionTarget ← invisible scanner (configure presets here)
+
 import * as React from "react"
 import { addPropertyControls, ControlType } from "framer"
-
-// ─── Access shared store from window (created by PageChoreographer) ──────────
 
 const STORE_KEY = "__pageChoreographerStore"
 
@@ -12,15 +22,13 @@ function getStore(): any {
     return null
 }
 
-// ─── Stable ID counter ──────────────────────────────────────────────────────
+var groupCounter = 0
 
-var idCounter = 0
-
-function useStableId() {
+function useStableGroupId() {
     var ref = React.useRef("")
     if (ref.current === "") {
-        idCounter += 1
-        ref.current = "target-" + idCounter
+        groupCounter += 1
+        ref.current = "scan-" + groupCounter
     }
     return ref.current
 }
@@ -29,7 +37,6 @@ function useStableId() {
 
 export default function TransitionTarget(props: any) {
     var {
-        children,
         group = "default",
         enterPreset = "fadeUp",
         exitPreset = "riseWave",
@@ -42,64 +49,155 @@ export default function TransitionTarget(props: any) {
         style,
     } = props
 
-    var ref = React.useRef<HTMLDivElement>(null)
-    var id = useStableId()
+    var markerRef = React.useRef<HTMLDivElement>(null)
+    var baseId = useStableGroupId()
+    var registeredIds = React.useRef<string[]>([])
 
-    // Register with store
     React.useEffect(function () {
         var store = getStore()
-        if (!store) return
+        var marker = markerRef.current
+        if (!store || !marker) return
 
-        store.registerTarget({
-            id: id,
-            ref: ref,
-            group: group,
-            enterPreset: enterPreset,
-            exitPreset: exitPreset,
-            enterEnabled: enterEnabled,
-            exitEnabled: exitEnabled,
-            sortPriority: sortPriority,
-            delayOffset: delayOffset,
-            mobileEnabled: mobileEnabled,
-            visibilityThreshold: visibilityThreshold,
-        })
+        var parent = marker.parentElement
+        if (!parent) return
+
+        // Unregister any previous targets from this scanner
+        unregisterAll(store)
+
+        // Find all sibling elements (skip the invisible marker itself)
+        var children = parent.children
+        var siblingIndex = 0
+
+        for (var i = 0; i < children.length; i++) {
+            var child = children[i] as HTMLElement
+            if (child === marker) continue
+
+            var targetId = baseId + "-" + siblingIndex
+            siblingIndex++
+
+            store.registerTarget({
+                id: targetId,
+                ref: { current: child },
+                group: group,
+                enterPreset: enterPreset,
+                exitPreset: exitPreset,
+                enterEnabled: enterEnabled,
+                exitEnabled: exitEnabled,
+                sortPriority: sortPriority,
+                delayOffset: delayOffset,
+                mobileEnabled: mobileEnabled,
+                visibilityThreshold: visibilityThreshold,
+            })
+
+            registeredIds.current.push(targetId)
+
+            // Set initial hidden state for enter animation
+            if (enterEnabled) {
+                var cfg = store.getConfig()
+                var kf = store.getEnterKeyframes(enterPreset, cfg)
+                for (var k in kf.from) {
+                    if (kf.from.hasOwnProperty(k)) {
+                        ;(child.style as any)[k] = kf.from[k]
+                    }
+                }
+            }
+        }
+
+        // Watch for siblings being added/removed (e.g. CMS items loading)
+        var observer: MutationObserver | null = null
+        if (typeof MutationObserver !== "undefined") {
+            observer = new MutationObserver(function () {
+                rescan()
+            })
+            observer.observe(parent, { childList: true })
+        }
+
+        function rescan() {
+            var s = getStore()
+            if (!s || !marker) return
+
+            var p = marker.parentElement
+            if (!p) return
+
+            // Unregister old
+            unregisterAll(s)
+
+            var ch = p.children
+            var idx = 0
+            for (var j = 0; j < ch.length; j++) {
+                var el = ch[j] as HTMLElement
+                if (el === marker) continue
+
+                var tid = baseId + "-" + idx
+                idx++
+
+                s.registerTarget({
+                    id: tid,
+                    ref: { current: el },
+                    group: group,
+                    enterPreset: enterPreset,
+                    exitPreset: exitPreset,
+                    enterEnabled: enterEnabled,
+                    exitEnabled: exitEnabled,
+                    sortPriority: sortPriority,
+                    delayOffset: delayOffset,
+                    mobileEnabled: mobileEnabled,
+                    visibilityThreshold: visibilityThreshold,
+                })
+
+                registeredIds.current.push(tid)
+
+                if (enterEnabled) {
+                    var c = s.getConfig()
+                    var kf2 = s.getEnterKeyframes(enterPreset, c)
+                    for (var k2 in kf2.from) {
+                        if (kf2.from.hasOwnProperty(k2)) {
+                            ;(el.style as any)[k2] = kf2.from[k2]
+                        }
+                    }
+                }
+            }
+        }
 
         return function () {
-            var s = getStore()
-            if (s) s.unregisterTarget(id)
+            if (observer) observer.disconnect()
+            unregisterAll(getStore())
         }
     }, [
-        id, group, enterPreset, exitPreset,
+        baseId, group, enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority,
         delayOffset, mobileEnabled, visibilityThreshold,
     ])
 
-    // Set initial hidden state for enter animations
-    React.useEffect(function () {
-        if (!enterEnabled || !ref.current) return
-
-        var store = getStore()
+    function unregisterAll(store: any) {
         if (!store) return
-
-        var cfg = store.getConfig()
-        var kf = store.getEnterKeyframes(enterPreset, cfg)
-
-        var el = ref.current
-        for (var k in kf.from) {
-            if (kf.from.hasOwnProperty(k)) {
-                ;(el.style as any)[k] = kf.from[k]
-            }
+        var ids = registeredIds.current
+        for (var i = 0; i < ids.length; i++) {
+            store.unregisterTarget(ids[i])
         }
-    }, [enterEnabled, enterPreset])
+        registeredIds.current = []
+    }
 
+    // Render as invisible — takes no space in the parent layout
     return (
-        <div ref={ref} style={style}>
-            {children}
-        </div>
+        <div
+            ref={markerRef}
+            style={{
+                ...style,
+                width: 0,
+                height: 0,
+                overflow: "hidden",
+                pointerEvents: "none",
+                position: "absolute",
+                opacity: 0,
+            }}
+        />
     )
 }
 
 TransitionTarget.displayName = "Transition Target"
+
+// ─── Property Controls ───────────────────────────────────────────────────────
 
 addPropertyControls(TransitionTarget, {
     group: {
