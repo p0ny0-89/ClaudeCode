@@ -1322,13 +1322,11 @@ export default function PageChoreographer(props: any) {
                 wrapper.style.setProperty("grid-column", parentCS.gridColumn)
                 wrapper.style.setProperty("grid-row", parentCS.gridRow)
                 // Preserve the parent's flex sizing (e.g. flex:1 for "fill")
+                // Don't copy computed width — it's always resolved to px
+                // and prevents responsive sizing. Flex properties handle it.
                 wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
                 wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
                 wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
-                // Preserve parent's width behavior (auto, fill, %, px)
-                wrapper.style.setProperty("width", parentCS.width)
-                wrapper.style.setProperty("min-width", parentCS.minWidth)
-                wrapper.style.setProperty("max-width", parentCS.maxWidth)
 
                 // Mirror the section's flex layout so the Stack inside
                 // the wrapper retains its flex-based sizing & centering
