@@ -1428,15 +1428,36 @@ export default function PageChoreographer(props: any) {
                 if (!parent || !wrapper) return
 
                 if (scrollOnce && scrollPinState.completed) {
-                    if (!scrollPinState.onceFinalized) {
-                        scrollPinState.onceFinalized = true
-                        scrollPinState.pinned = false
-                        scrollPinState.afterPin = false
-                        wrapper.style.setProperty("height", parentHeight + "px")
-                        parent.style.cssText = scrollPinState.origStyles
-                        parent.style.setProperty("width", parentWidth + "px")
-                        parent.style.setProperty("height", parentHeight + "px")
-                        destroyScrollAnims()
+                    // Don't collapse wrapper or restore styles — that removes
+                    // scrollLength from document height causing a scroll jump.
+                    // Just handle positioning normally without animation changes.
+                    var scrollY2 = window.scrollY
+                    if (scrollY2 >= pinStart && scrollY2 <= pinEnd) {
+                        if (!scrollPinState.pinned) {
+                            scrollPinState.pinned = true
+                            wrapRectLeft = wrapper.getBoundingClientRect().left
+                            parent.style.setProperty("position", "fixed", "important")
+                            parent.style.setProperty("top", "0px", "important")
+                            parent.style.setProperty("left", wrapRectLeft + "px", "important")
+                            parent.style.setProperty("width", parentWidth + "px", "important")
+                        }
+                    } else if (scrollY2 < pinStart) {
+                        if (scrollPinState.pinned) {
+                            scrollPinState.pinned = false
+                            parent.style.cssText = scrollPinState.origStyles
+                            parent.style.setProperty("width", parentWidth + "px")
+                            parent.style.setProperty("height", parentHeight + "px")
+                        }
+                    } else {
+                        if (!scrollPinState.pinned) {
+                            scrollPinState.pinned = true
+                            wrapRectLeft = wrapper.getBoundingClientRect().left
+                            parent.style.setProperty("position", "fixed", "important")
+                            parent.style.setProperty("left", wrapRectLeft + "px", "important")
+                            parent.style.setProperty("width", parentWidth + "px", "important")
+                        }
+                        parent.style.setProperty("top", (pinEnd - scrollY2) + "px", "important")
+                        parent.style.removeProperty("z-index")
                     }
                     return
                 }
