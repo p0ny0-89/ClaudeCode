@@ -1219,7 +1219,6 @@ export default function PageChoreographer(props: any) {
         var scrollHandler: (() => void) | null = null
         var scrollSetupListener: (() => void) | null = null
         var scrollWrapper: HTMLElement | null = null
-        var scrollSetupIO: IntersectionObserver | null = null
         var scrollPinState = { pinned: false, afterPin: false, completed: false, origStyles: "" }
 
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
@@ -1354,7 +1353,8 @@ export default function PageChoreographer(props: any) {
                         item.el.style.removeProperty(keys[k])
                     }
                 }
-                createScrollAnims()
+                scrollAnimsCreated = false
+                ensureScrollAnims()
             }
 
             var updateAnimProgress = function (progress: number) {
@@ -1386,28 +1386,22 @@ export default function PageChoreographer(props: any) {
                 if (scrollAnimsCreated) return
                 scrollAnimsCreated = true
                 createScrollAnims()
-                updateAnimProgress(0)
+                // Don't call updateAnimProgress(0) here — that would hide
+                // elements immediately. Let the scroll handler set the
+                // correct progress right after calling this.
             }
 
-            // Use IntersectionObserver to create animations just before
-            // the section enters the viewport — prevents empty gap
-            try {
-                scrollSetupIO = new IntersectionObserver(
-                    function (entries) {
-                        for (var e = 0; e < entries.length; e++) {
-                            if (entries[e].isIntersecting) {
-                                ensureScrollAnims()
-                                if (scrollSetupIO) scrollSetupIO.disconnect()
-                                scrollSetupIO = null
-                                break
-                            }
-                        }
-                    },
-                    // Trigger 200px before section enters viewport
-                    { rootMargin: "200px 0px 200px 0px" }
-                )
-                scrollSetupIO.observe(wrapper)
-            } catch (e) {}
+            // Destroy animations so elements return to their natural
+            // visible state (no "from" keyframe hiding them)
+            var destroyScrollAnims = function () {
+                if (!scrollAnimsCreated) return
+                for (var da = 0; da < scrollAnims.length; da++) {
+                    try { scrollAnims[da].cancel() } catch (e) {}
+                }
+                scrollAnims = []
+                scrollAnimFinalStyles = []
+                scrollAnimsCreated = false
+            }
 
             // Main scroll handler
             var handleScroll = function () {
@@ -1456,15 +1450,23 @@ export default function PageChoreographer(props: any) {
                 } else if (scrollY < pinStart) {
                     // ── BEFORE PIN: restore to normal flow ──
                     if (scrollPinState.afterPin) {
-                        // Scrolling back from after-pin: re-create animations
                         scrollPinState.afterPin = false
-                        unbakeAndRecreateAnims()
+                        // Remove baked inline styles
+                        for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
+                            var ubItem = scrollAnimFinalStyles[ub]
+                            var ubKeys = Object.keys(ubItem.to)
+                            for (var ubk = 0; ubk < ubKeys.length; ubk++) {
+                                ubItem.el.style.removeProperty(ubKeys[ubk])
+                            }
+                        }
                     }
                     if (scrollPinState.pinned) {
                         scrollPinState.pinned = false
                         parent.style.cssText = scrollPinState.origStyles
                     }
-                    updateAnimProgress(0)
+                    // Destroy animations so elements return to natural visible state
+                    // (no "from" keyframe hiding them — prevents empty gap)
+                    destroyScrollAnims()
 
                 } else {
                     // ── AFTER PIN: anchor to bottom of wrapper ──
@@ -1507,9 +1509,6 @@ export default function PageChoreographer(props: any) {
                 try { intObs.disconnect() } catch (e) {}
             }
             // Clean up scroll-scrub
-            if (scrollSetupIO) {
-                try { scrollSetupIO.disconnect() } catch (e) {}
-            }
             if (scrollHandler) {
                 window.removeEventListener("scroll", scrollHandler)
             }
