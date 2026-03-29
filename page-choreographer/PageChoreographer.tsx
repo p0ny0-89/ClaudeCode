@@ -1237,13 +1237,10 @@ export default function PageChoreographer(props: any) {
 
             wrapper = document.createElement("div")
 
-            // Copy flex/grid properties so wrapper takes same layout slot
+            // Copy layout properties so wrapper takes same slot, but lock
+            // its size to exactly parentHeight + scrollLength (the scroll room)
             if (parentGP) {
                 var parentCS = window.getComputedStyle(parent)
-                wrapper.style.setProperty("flex", parentCS.flex)
-                wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
-                wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
-                wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
                 wrapper.style.setProperty("align-self", parentCS.alignSelf)
                 wrapper.style.setProperty("justify-self", parentCS.justifySelf)
                 wrapper.style.setProperty("order", parentCS.order)
@@ -1252,7 +1249,10 @@ export default function PageChoreographer(props: any) {
             }
             wrapper.style.setProperty("position", "relative")
             wrapper.style.setProperty("width", parentWidth + "px")
-            wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
+            var wrapperHeight = parentHeight + scrollLength
+            wrapper.style.setProperty("height", wrapperHeight + "px")
+            // Prevent flex from stretching/shrinking the wrapper beyond its set height
+            wrapper.style.setProperty("flex", "0 0 auto", "important")
             wrapper.style.setProperty("overflow", "visible")
 
             parentGP!.insertBefore(wrapper, parent)
