@@ -1599,17 +1599,41 @@ export default function PageChoreographer(props: any) {
             // on parent containers (not just animated targets) are prevented.
             wrapper.style.setProperty("pointer-events", "none", "important")
 
-            // Threshold-based pointer-events with hysteresis to prevent flicker.
-            // The progress value is for the overall staggered timeline, but
-            // individual items finish at different times. A lower enable
-            // threshold ensures the last staggered items are hoverable once
-            // they're visually close to their final position.
-            // Enable at ≥0.6 (last items nearly done), disable ≤0.4 (clearly scrolled back).
+            // Per-element pointer-events based on each animation's own progress.
+            // The wrapper blocks pointer-events until the LAST animated element
+            // is near-complete (≥80% of its own animation). This accounts for
+            // stagger — the last card finishes much later than the first.
+            // Hysteresis: disable again only when the last element drops below 50%.
             var updateInteractivity = function (progress: number) {
-                if (!interactiveState && progress >= 0.6) {
+                if (scrollAnims.length === 0) {
+                    // No animations — enable immediately
+                    if (!interactiveState) {
+                        interactiveState = true
+                        wrapper.style.removeProperty("pointer-events")
+                    }
+                    return
+                }
+                // Check the LAST animation (highest delay = last to finish)
+                var lastAnim = scrollAnims[scrollAnims.length - 1]
+                var lastProgress = 0
+                try {
+                    var lt = lastAnim.effect && lastAnim.effect.getComputedTiming
+                        ? lastAnim.effect.getComputedTiming() : null
+                    var lDelay = lt ? (lt.delay || 0) : 0
+                    var lDur = lt ? (lt.duration || 600) : 600
+                    var lTime = (lastAnim.currentTime || 0) as number
+                    // How far is this specific element through its own animation?
+                    if (lTime <= lDelay) {
+                        lastProgress = 0
+                    } else {
+                        lastProgress = Math.min(1, (lTime - lDelay) / (lDur as number))
+                    }
+                } catch (e) {}
+
+                if (!interactiveState && lastProgress >= 0.8) {
                     interactiveState = true
                     wrapper.style.removeProperty("pointer-events")
-                } else if (interactiveState && progress <= 0.4) {
+                } else if (interactiveState && lastProgress <= 0.5) {
                     interactiveState = false
                     wrapper.style.setProperty("pointer-events", "none", "important")
                 }
