@@ -1401,7 +1401,8 @@ export default function PageChoreographer(props: any) {
                 if (scrollAnimsCreated) return
                 scrollAnimsCreated = true
                 createScrollAnims()
-                updateAnimProgress(0)
+                // Don't call updateAnimProgress(0) — let the scroll handler
+                // set the correct progress immediately after creation
             }
 
             var destroyScrollAnims = function () {
@@ -1414,8 +1415,9 @@ export default function PageChoreographer(props: any) {
                 scrollAnimsCreated = false
             }
 
-            // Create animations now — elements start in "from" state
-            ensureScrollAnims()
+            // Don't create animations on mount — sections visible on initial
+            // load should appear natural, not in the animation's "from" state.
+            // Animations are created lazily when entering the pin range.
 
             // Main scroll handler — at pinEnd, switches directly from
             // position:fixed to position:absolute. At exactly scrollY=pinEnd
@@ -1531,8 +1533,13 @@ export default function PageChoreographer(props: any) {
 
             scrollHandler = handleScroll
             window.addEventListener("scroll", handleScroll, { passive: true })
-            // Run once to handle case where page loads mid-scroll
-            handleScroll()
+            // Only run initial handleScroll if page loaded mid-scroll
+            // (past the pin start). If section is at/above viewport top
+            // on load, don't trigger — let elements stay naturally visible
+            // until the user actually scrolls.
+            if (window.scrollY > pinStart) {
+                handleScroll()
+            }
 
             }) // end inner rAF
             }) // end outer rAF
