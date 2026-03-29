@@ -1527,6 +1527,8 @@ export default function PageChoreographer(props: any) {
                     for (var k = 0; k < keys.length; k++) {
                         item.el.style.setProperty(keys[k], item.to[keys[k]])
                     }
+                    // Restore pointer-events since animation is baked (done)
+                    item.el.style.removeProperty("pointer-events")
                 }
                 for (var ca = 0; ca < scrollAnims.length; ca++) {
                     try { scrollAnims[ca].cancel() } catch (e) {}
@@ -1572,7 +1574,7 @@ export default function PageChoreographer(props: any) {
                 // hidden until scroll progress > 0 to prevent flash
             }
 
-            var interactiveState = false // true = pointer-events enabled
+            // interactivity is now per-element (see updateInteractivity)
 
             var revealIfNeeded = function (progress: number) {
                 // For maskPreview, elements are already visible — skip the
@@ -1595,60 +1597,48 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Block pointer-events on the whole wrapper so hover effects
-            // on parent containers (not just animated targets) are prevented.
-            wrapper.style.setProperty("pointer-events", "none", "important")
+            // Per-element pointer-events: block each animated element until
+            // its own animation is ≥80% complete. This avoids blocking hover
+            // on non-animated parent containers (like CMS cards) and correctly
+            // handles stagger where different elements finish at different times.
+            var interactiveEls: HTMLElement[] = [] // elements currently blocked
 
-            // Per-element pointer-events based on each animation's own progress.
-            // The wrapper blocks pointer-events until the LAST animated element
-            // is near-complete (≥80% of its own animation). This accounts for
-            // stagger — the last card finishes much later than the first.
-            // Hysteresis: disable again only when the last element drops below 50%.
             var updateInteractivity = function (progress: number) {
-                if (scrollAnims.length === 0) {
-                    // No animations — enable immediately
-                    if (!interactiveState) {
-                        interactiveState = true
-                        wrapper.style.setProperty("pointer-events", "auto", "important")
-                        console.log("[choreo] pointer-events → auto (no anims)")
-                    }
-                    return
+                for (var ai = 0; ai < scrollAnims.length; ai++) {
+                    try {
+                        var anim = scrollAnims[ai]
+                        var el = scrollAnimFinalStyles[ai] ? scrollAnimFinalStyles[ai].el : null
+                        if (!el) continue
+                        var at = anim.effect && anim.effect.getComputedTiming
+                            ? anim.effect.getComputedTiming() : null
+                        var aDelay = at ? (at.delay || 0) : 0
+                        var aDur = at ? (at.duration || 600) : 600
+                        var aTime = (anim.currentTime || 0) as number
+                        var elProg = aTime <= aDelay ? 0 : Math.min(1, (aTime - aDelay) / (aDur as number))
+
+                        var isBlocked = el.style.pointerEvents === "none"
+                        if (!isBlocked && elProg < 0.5) {
+                            // Block — animation scrolled back significantly
+                            el.style.setProperty("pointer-events", "none", "important")
+                        } else if (isBlocked && elProg >= 0.7) {
+                            // Unblock — animation nearly complete
+                            el.style.removeProperty("pointer-events")
+                        }
+                    } catch (e) {}
                 }
-                // Check the LAST animation (highest delay = last to finish)
-                var lastAnim = scrollAnims[scrollAnims.length - 1]
-                var lastProgress = 0
-                try {
-                    var lt = lastAnim.effect && lastAnim.effect.getComputedTiming
-                        ? lastAnim.effect.getComputedTiming() : null
-                    var lDelay = lt ? (lt.delay || 0) : 0
-                    var lDur = lt ? (lt.duration || 600) : 600
-                    var lTime = (lastAnim.currentTime || 0) as number
-                    // How far is this specific element through its own animation?
-                    if (lTime <= lDelay) {
-                        lastProgress = 0
-                    } else {
-                        lastProgress = Math.min(1, (lTime - lDelay) / (lDur as number))
-                    }
-                } catch (e) {}
+            }
 
-                console.log("[choreo] interactivity: lastProg=" + lastProgress.toFixed(3) +
-                    " overallProg=" + progress.toFixed(3) +
-                    " interactive=" + interactiveState +
-                    " animCount=" + scrollAnims.length)
-
-                if (!interactiveState && lastProgress >= 0.8) {
-                    interactiveState = true
-                    wrapper.style.setProperty("pointer-events", "auto", "important")
-                    console.log("[choreo] pointer-events → AUTO")
-                } else if (interactiveState && lastProgress <= 0.5) {
-                    interactiveState = false
-                    wrapper.style.setProperty("pointer-events", "none", "important")
-                    console.log("[choreo] pointer-events → NONE")
+            // Apply initial block on animated targets (set after anims created)
+            var applyInitialPointerBlock = function () {
+                for (var ib = 0; ib < scrollAnimFinalStyles.length; ib++) {
+                    var el = scrollAnimFinalStyles[ib].el
+                    el.style.setProperty("pointer-events", "none", "important")
                 }
             }
 
             // Create animations eagerly so they're ready for scroll
             ensureScrollAnims()
+            applyInitialPointerBlock()
             updateAnimProgress(0)
 
             // ── Viewport clip helper ──
@@ -1862,6 +1852,10 @@ export default function PageChoreographer(props: any) {
             }
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
+            }
+            // Restore pointer-events on animated elements
+            for (var pe = 0; pe < scrollAnimFinalStyles.length; pe++) {
+                try { scrollAnimFinalStyles[pe].el.style.removeProperty("pointer-events") } catch (e) {}
             }
             // Restore overflow on ancestors
             for (var oc = 0; oc < scrollOverflowAncestors.length; oc++) {
