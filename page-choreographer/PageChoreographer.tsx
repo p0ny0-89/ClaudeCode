@@ -1527,13 +1527,12 @@ export default function PageChoreographer(props: any) {
                     for (var k = 0; k < keys.length; k++) {
                         item.el.style.setProperty(keys[k], item.to[keys[k]])
                     }
-                    // Restore pointer-events since animation is baked (done)
-                    item.el.style.removeProperty("pointer-events")
                 }
                 for (var ca = 0; ca < scrollAnims.length; ca++) {
                     try { scrollAnims[ca].cancel() } catch (e) {}
                 }
                 scrollAnims = []
+                bakedIndices = {}
             }
 
             var unbakeAndRecreateAnims = function () {
@@ -1597,48 +1596,57 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Per-element pointer-events: block each animated element until
-            // its own animation is ≥80% complete. This avoids blocking hover
-            // on non-animated parent containers (like CMS cards) and correctly
-            // handles stagger where different elements finish at different times.
-            var interactiveEls: HTMLElement[] = [] // elements currently blocked
+            // Per-element animation baking: when an individual element's
+            // animation reaches 100%, cancel JUST that animation and apply
+            // its final styles as inline CSS. This frees the element from the
+            // Web Animation's fill:both override, allowing CSS :hover effects
+            // to work. When scrolling back, unbake and recreate the animation.
+            var bakedIndices: Record<number, boolean> = {}
 
             var updateInteractivity = function (progress: number) {
                 for (var ai = 0; ai < scrollAnims.length; ai++) {
                     try {
                         var anim = scrollAnims[ai]
-                        var el = scrollAnimFinalStyles[ai] ? scrollAnimFinalStyles[ai].el : null
-                        if (!el) continue
+                        var finalStyle = scrollAnimFinalStyles[ai]
+                        if (!anim || !finalStyle) continue
                         var at = anim.effect && anim.effect.getComputedTiming
                             ? anim.effect.getComputedTiming() : null
                         var aDelay = at ? (at.delay || 0) : 0
                         var aDur = at ? (at.duration || 600) : 600
                         var aTime = (anim.currentTime || 0) as number
-                        var elProg = aTime <= aDelay ? 0 : Math.min(1, (aTime - aDelay) / (aDur as number))
+                        var elEnd = aDelay + (aDur as number)
+                        var isBaked = bakedIndices[ai]
 
-                        var isBlocked = el.style.pointerEvents === "none"
-                        if (!isBlocked && elProg < 0.5) {
-                            // Block — animation scrolled back significantly
-                            el.style.setProperty("pointer-events", "none", "important")
-                        } else if (isBlocked && elProg >= 0.7) {
-                            // Unblock — animation nearly complete
-                            el.style.removeProperty("pointer-events")
+                        if (!isBaked && aTime >= elEnd * 0.98) {
+                            // Element animation complete — bake & cancel to free hover
+                            bakedIndices[ai] = true
+                            var keys = Object.keys(finalStyle.to)
+                            for (var k = 0; k < keys.length; k++) {
+                                finalStyle.el.style.setProperty(keys[k], finalStyle.to[keys[k]])
+                            }
+                            try { anim.cancel() } catch (e) {}
+                        } else if (isBaked && aTime < elEnd * 0.9) {
+                            // Scrolled back — unbake: remove inline styles, recreate anim
+                            bakedIndices[ai] = false
+                            var ukeys = Object.keys(finalStyle.to)
+                            for (var uk = 0; uk < ukeys.length; uk++) {
+                                finalStyle.el.style.removeProperty(ukeys[uk])
+                            }
+                            // The animation was canceled; we need to recreate all anims
+                            // to get this element animating again. Flag for rebuild.
+                            scrollAnimsCreated = false
+                            bakedIndices = {}
+                            ensureScrollAnims()
+                            // Re-scrub to current progress
+                            updateAnimProgress(progress)
+                            return // exit since scrollAnims array was rebuilt
                         }
                     } catch (e) {}
                 }
             }
 
-            // Apply initial block on animated targets (set after anims created)
-            var applyInitialPointerBlock = function () {
-                for (var ib = 0; ib < scrollAnimFinalStyles.length; ib++) {
-                    var el = scrollAnimFinalStyles[ib].el
-                    el.style.setProperty("pointer-events", "none", "important")
-                }
-            }
-
             // Create animations eagerly so they're ready for scroll
             ensureScrollAnims()
-            applyInitialPointerBlock()
             updateAnimProgress(0)
 
             // ── Viewport clip helper ──
@@ -1852,10 +1860,6 @@ export default function PageChoreographer(props: any) {
             }
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
-            }
-            // Restore pointer-events on animated elements
-            for (var pe = 0; pe < scrollAnimFinalStyles.length; pe++) {
-                try { scrollAnimFinalStyles[pe].el.style.removeProperty("pointer-events") } catch (e) {}
             }
             // Restore overflow on ancestors
             for (var oc = 0; oc < scrollOverflowAncestors.length; oc++) {
