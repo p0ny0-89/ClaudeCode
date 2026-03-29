@@ -241,13 +241,37 @@ function createStore() {
     var skipNextClick = false
     var exitTimeout = 3
     var currentPath = typeof window !== "undefined" ? window.location.pathname : ""
+    var resetTimer: any = null
 
     function registerTarget(t: TargetEntry) {
+        // If a debounced reset is pending (from unregisterTarget), cancel it.
+        // This means targets are being re-registered quickly (React re-render),
+        // not a real unmount/reload cycle.
+        if (resetTimer) {
+            clearTimeout(resetTimer)
+            resetTimer = null
+        }
         targets[t.id] = t
     }
 
     function unregisterTarget(id: string) {
         delete targets[id]
+        // When all targets are gone, wait briefly. If nobody re-registers
+        // within 150ms this was a real unmount (replay/reload), so reset
+        // state so the next mount cycle can replay enter animations.
+        // React re-renders re-register within the same frame (~0ms),
+        // so the timer gets cleared in registerTarget above.
+        if (Object.keys(targets).length === 0 && !resetTimer) {
+            resetTimer = setTimeout(function () {
+                resetTimer = null
+                if (Object.keys(targets).length === 0) {
+                    enterScheduled = false
+                    phase = "idle"
+                    cancelActive()
+                    activeAnims = []
+                }
+            }, 150)
+        }
     }
 
     function getTargetCount() {
