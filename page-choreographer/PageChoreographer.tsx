@@ -1255,10 +1255,13 @@ export default function PageChoreographer(props: any) {
                 wrapper.style.setProperty("grid-row", parentCS.gridRow)
             }
             wrapper.style.setProperty("position", "relative")
+            wrapper.style.setProperty("width", "100%")
             wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
             wrapper.style.setProperty("flex", "0 0 auto", "important")
             wrapper.style.setProperty("overflow", "visible")
-            // No explicit width — wrapper inherits from layout (stretch in flex column)
+            // Flex column so children (parent) stretch to wrapper width
+            wrapper.style.setProperty("display", "flex")
+            wrapper.style.setProperty("flex-direction", "column")
 
             parentGP!.insertBefore(wrapper, parent)
             wrapper.appendChild(parent)
