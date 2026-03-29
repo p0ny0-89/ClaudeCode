@@ -1068,6 +1068,7 @@ export default function PageChoreographer(props: any) {
         <div
             ref={markerRef}
             style={{
+                position: "absolute",
                 width: 0,
                 height: 0,
                 overflow: "hidden",
