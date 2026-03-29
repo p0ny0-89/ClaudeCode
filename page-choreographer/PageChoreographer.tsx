@@ -1287,11 +1287,10 @@ export default function PageChoreographer(props: any) {
                     initScrollAnims()
 
                     var gpRect = gp.getBoundingClientRect()
-                    // Progress: 0 when section enters viewport (grandparent top
-                    // aligns with bottom of viewport), 1 after scrolling
-                    // scrollLength pixels past that point
-                    var scrolled = window.innerHeight - gpRect.top
-                    var progress = Math.max(0, Math.min(1, scrolled / scrollLength))
+                    // Progress: 0 when grandparent top reaches viewport top
+                    // (section is pinned via sticky), 1 after scrolling
+                    // scrollLength pixels while pinned
+                    var progress = Math.max(0, Math.min(1, -gpRect.top / scrollLength))
 
                     for (var a = 0; a < scrollAnims.length; a++) {
                         try {
