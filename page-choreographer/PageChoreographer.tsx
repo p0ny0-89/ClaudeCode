@@ -1418,7 +1418,11 @@ addPropertyControls(PageChoreographer, {
         step: 5,
         unit: "px",
         hidden: function (props: any) {
-            return props.enterPreset === "custom" && props.exitPreset === "custom"
+            var directionalEnter = ["fadeUp", "fadeDown", "fadeLeft", "fadeRight"]
+            var directionalExit = ["riseWave", "fadeDown", "fadeLeft", "fadeRight", "blurLift"]
+            var enterUsesDistance = directionalEnter.indexOf(props.enterPreset) !== -1
+            var exitUsesDistance = directionalExit.indexOf(props.exitPreset) !== -1
+            return !enterUsesDistance && !exitUsesDistance
         },
     },
     blurAmount: {
