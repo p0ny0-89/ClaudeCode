@@ -814,6 +814,20 @@ function findRealParent(marker: HTMLElement): HTMLElement | null {
     return node
 }
 
+// Walk up from an element to find the section-level ancestor
+// (a child of the page root, which has many siblings like
+// Hero, Projects, Footer, etc.)
+function findSection(el: HTMLElement): HTMLElement {
+    var node = el
+    while (node.parentElement) {
+        var siblingCount = node.parentElement.children.length
+        // Page root has many direct children (the sections)
+        if (siblingCount >= 3) return node
+        node = node.parentElement
+    }
+    return el // fallback to original element
+}
+
 function isMarkerBranch(el: HTMLElement, marker: HTMLElement): boolean {
     return el === marker || el.contains(marker)
 }
@@ -1297,32 +1311,33 @@ export default function PageChoreographer(props: any) {
             var neededHeight = parentHeight + scrollLength
             var sectionGrew = parentGP!.offsetHeight >= neededHeight * 0.8
 
-            if (!sectionGrew && parentGP && parentGP.parentElement) {
+            // Find the actual section element (e.g. Hero) that has
+            // the background — this may be above parentGP
+            var sectionEl = parentGP ? findSection(parentGP) : parentGP!
+
+            if (!sectionGrew && sectionEl && sectionEl.parentElement) {
                 // Section has fixed height — shrink wrapper, add spacer
                 wrapper.style.setProperty("height", parentHeight + "px")
                 var spacer = document.createElement("div")
                 spacer.style.setProperty("height", scrollLength + "px")
                 spacer.style.setProperty("flex", "0 0 auto", "important")
                 spacer.style.setProperty("pointer-events", "none")
-                parentGP.parentElement.insertBefore(spacer, parentGP.nextSibling)
+                // Insert spacer after the SECTION (Hero), not parentGP
+                sectionEl.parentElement.insertBefore(spacer, sectionEl.nextSibling)
                 scrollSpacer = spacer
             }
 
-            // In spacer mode (100vh sections), pin the entire section
-            // so the background stays visible. The wrapper now has
-            // display:flex mirroring the section, so children keep their
-            // layout. In normal mode, pin just the Stack.
+            // In spacer mode, pin the section element (Hero) so the
+            // background stays visible. In normal mode, pin the Stack.
             var pinEl: HTMLElement
             var pinElWidth: number
             var pinElHeight: number
 
-            if (scrollSpacer && parentGP) {
-                pinEl = parentGP
-                pinElWidth = parentGP.offsetWidth
-                pinElHeight = parentGP.offsetHeight
-                scrollPinState.origStyles = parentGP.style.cssText
-                // Spacer covers section height + full pin range so page
-                // doesn't jump when section goes position:fixed
+            if (scrollSpacer && sectionEl) {
+                pinEl = sectionEl
+                pinElWidth = sectionEl.offsetWidth
+                pinElHeight = sectionEl.offsetHeight
+                // Spacer covers section height + full pin range
                 scrollSpacer.style.setProperty("height", (pinElHeight + scrollLength + parentHeight) + "px")
             } else {
                 pinEl = parent
@@ -1549,9 +1564,9 @@ export default function PageChoreographer(props: any) {
                     parentHeight = parent.offsetHeight
                     parentWidth = parent.offsetWidth
 
-                    if (scrollSpacer && parentGP) {
-                        pinElWidth = parentGP.offsetWidth
-                        pinElHeight = parentGP.offsetHeight
+                    if (scrollSpacer && sectionEl) {
+                        pinElWidth = sectionEl.offsetWidth
+                        pinElHeight = sectionEl.offsetHeight
                         scrollSpacer.style.setProperty("height",
                             (pinElHeight + scrollLength + parentHeight) + "px")
                     } else {
