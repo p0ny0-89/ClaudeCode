@@ -531,6 +531,18 @@ function createStore() {
         })
     }
 
+    // ─── Reset a group so it can be re-animated (used by viewRepeat) ────────
+
+    function resetGroup(groupId: string) {
+        if (!animatedElements) return
+        var all = getAllTargets()
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].groupId === groupId && all[i].ref.current) {
+                animatedElements.delete(all[i].ref.current!)
+            }
+        }
+    }
+
     // ─── Play enter for a single group (used by IntersectionObserver) ───────
 
     function playEnterGroup(groupId: string) {
@@ -682,6 +694,7 @@ function createStore() {
         getTargetCount: getTargetCount,
         playEnter: playEnter,
         playEnterGroup: playEnterGroup,
+        resetGroup: resetGroup,
         playExit: playExit,
         cancelActive: cancelActive,
         setupLinkInterception: setupLinkInterception,
@@ -951,8 +964,10 @@ export default function PageChoreographer(props: any) {
                                 // If not repeating, stop observing
                                 if (!viewRepeat && intObs) intObs.disconnect()
                             } else if (!entries[e].isIntersecting && isVisible && viewRepeat) {
-                                // Element left viewport — reset so it replays on next scroll in
+                                // Element left viewport — clear from WeakSet so it replays
                                 isVisible = false
+                                var s2 = getStore()
+                                if (s2) s2.resetGroup(baseId)
                             }
                         }
                     },
