@@ -1332,10 +1332,10 @@ export default function PageChoreographer(props: any) {
                 wrapper.style.setProperty("gap", gpCS.gap)
             }
             wrapper.style.setProperty("position", "relative")
-            wrapper.style.setProperty("width", parentWidth + "px")
+            wrapper.style.setProperty("width", "100%")
             wrapper.style.setProperty("height", parentHeight + "px")
             wrapper.style.setProperty("flex", "0 0 auto", "important")
-            wrapper.style.setProperty("overflow", "visible")
+            wrapper.style.setProperty("overflow", "hidden")
 
             // Insert wrapper into the section
             parentGP!.insertBefore(wrapper, parent)
@@ -1712,7 +1712,6 @@ export default function PageChoreographer(props: any) {
                     if (wp) {
                         parentWidth = wp.clientWidth
                     }
-                    wrapper.style.setProperty("width", parentWidth + "px")
                     wrapper.style.setProperty("height", parentHeight + "px")
                     pinElWidth = parentWidth
                     pinElHeight = parentHeight
