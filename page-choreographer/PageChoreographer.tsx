@@ -1329,46 +1329,16 @@ export default function PageChoreographer(props: any) {
                 "sectionAlreadyClaimed:", sectionAlreadyClaimed,
                 "parentHeight:", parentHeight, "scrollLength:", scrollLength)
 
-            // Track the sticky container so we can clean it up
-            var stickyContainer: HTMLElement | null = null
-
             if (!sectionGrew && !sectionAlreadyClaimed && sectionEl && sectionEl.parentElement) {
                 // Section has fixed height — shrink wrapper, add spacer
                 wrapper.style.setProperty("height", parentHeight + "px")
-
-                // Wrap the Hero section in a sticky container.
-                // height = Hero + scrollLength so sticky is scoped:
-                // the Hero sticks within this container, then naturally
-                // scrolls off when the container leaves the viewport.
-                var container = document.createElement("div")
-                var sectionHeight = sectionEl.offsetHeight
-                var sectionWidth = sectionEl.offsetWidth
-
-                // Copy the Hero's computed layout properties so the
-                // container occupies the same slot in the page's
-                // flex/grid layout
-                var sectionCS = window.getComputedStyle(sectionEl)
-                container.style.setProperty("height", (sectionHeight + scrollLength) + "px")
-                container.style.setProperty("width", sectionCS.width)
-                container.style.setProperty("min-width", sectionCS.minWidth)
-                container.style.setProperty("max-width", sectionCS.maxWidth)
-                container.style.setProperty("position", "relative")
-                container.style.setProperty("flex", sectionCS.flex)
-                container.style.setProperty("align-self", sectionCS.alignSelf)
-                container.style.setProperty("justify-self", sectionCS.justifySelf)
-                container.style.setProperty("order", sectionCS.order)
-                container.style.setProperty("grid-column", sectionCS.gridColumn)
-                container.style.setProperty("grid-row", sectionCS.gridRow)
-                container.style.setProperty("margin", sectionCS.margin)
-                // Insert container where the Hero was, then move Hero inside
-                sectionEl.parentElement.insertBefore(container, sectionEl)
-                container.appendChild(sectionEl)
-                // Reset Hero's margin since container now handles it
-                sectionEl.style.setProperty("margin", "0", "important")
-                // Ensure Hero fills the container width
-                sectionEl.style.setProperty("width", "100%", "important")
-                stickyContainer = container
-                scrollSpacer = container // track for cleanup
+                var spacer = document.createElement("div")
+                spacer.style.setProperty("height", scrollLength + "px")
+                spacer.style.setProperty("flex", "0 0 auto", "important")
+                spacer.style.setProperty("pointer-events", "none")
+                // Insert spacer after the SECTION (Hero), not parentGP
+                sectionEl.parentElement.insertBefore(spacer, sectionEl.nextSibling)
+                scrollSpacer = spacer
                 // Mark section as claimed so other instances don't double-pin
                 sectionEl.setAttribute("data-choreo-pin-owner", baseId)
             } else if (!sectionGrew && sectionAlreadyClaimed) {
@@ -1392,27 +1362,22 @@ export default function PageChoreographer(props: any) {
             // temporarily overridden during pinning
             var overflowAncestors: Array<{ el: HTMLElement; orig: string }> = []
 
-            if (stickyContainer && sectionEl) {
+            if (scrollSpacer && sectionEl) {
                 pinEl = sectionEl
                 pinElWidth = sectionEl.offsetWidth
                 pinElHeight = sectionEl.offsetHeight
 
-                // Use position:sticky for jitter-free pinning.
-                // The browser's compositor handles sticky natively —
-                // no 1-frame lag like transform-based pinning.
-                sectionEl.style.setProperty("position", "sticky", "important")
-                sectionEl.style.setProperty("top", "0px", "important")
-                sectionEl.style.setProperty("z-index", "9999", "important")
+                // Promote to compositor layer for smoother transform updates.
+                // This minimizes the 1-frame lag between scroll and transform.
+                sectionEl.style.setProperty("will-change", "transform")
 
-                // Override overflow:clip/hidden on ancestors — sticky
-                // requires overflow:visible on all ancestors between the
-                // sticky element and its scroll container (the viewport).
-                var ancestor: HTMLElement | null = stickyContainer.parentElement
+                // Check ancestors for overflow:clip/hidden that would clip
+                // the transform-pinned element
+                var ancestor: HTMLElement | null = sectionEl.parentElement
                 while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
                     var ov = window.getComputedStyle(ancestor).overflow
                     if (ov === "clip" || ov === "hidden") {
                         overflowAncestors.push({ el: ancestor, orig: ov })
-                        ancestor.style.setProperty("overflow", "visible", "important")
                     }
                     ancestor = ancestor.parentElement
                 }
@@ -1433,10 +1398,10 @@ export default function PageChoreographer(props: any) {
             // Measure pin range.
             // Clamp to >= 0 — Framer's layout can report negative top
             // for the hero section due to DOM changes during setup
-            var pinStart = Math.max(0, (stickyContainer ? stickyContainer : isFollower ? sectionEl : wrapper).getBoundingClientRect().top + window.scrollY)
+            var pinStart = Math.max(0, (scrollSpacer ? pinEl : isFollower ? sectionEl : wrapper).getBoundingClientRect().top + window.scrollY)
             var totalPinLength = scrollLength
             var pinEnd = pinStart + totalPinLength
-            console.log("[choreo] MODE:", stickyContainer ? "STICKY" : "WRAPPER",
+            console.log("[choreo] MODE:", scrollSpacer ? "SPACER" : "WRAPPER",
                 "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName,
                 "pinElWidth:", pinElWidth, "pinElHeight:", pinElHeight,
                 "pinStart:", pinStart, "pinEnd:", pinEnd, "totalPinLength:", totalPinLength,
@@ -1575,12 +1540,11 @@ export default function PageChoreographer(props: any) {
             ensureScrollAnims()
             updateAnimProgress(0)
 
-            // ── Scroll handler ──
-            // In spacer mode (sticky pinning), the browser handles pinning
-            // natively — we just scrub animation progress.
-            // In wrapper mode, we use translateY for pinning.
-            // Followers only scrub animations.
-            var usesStickyPin = !!stickyContainer && !isFollower
+            // ── Scroll handler (transform-based pinning) ──
+            // Uses translateY to keep the section pinned at viewport top.
+            // will-change:transform on pinEl promotes it to a compositor
+            // layer for smoother updates.
+            // Followers only scrub animations — the owner handles pinning.
             var handleScroll = function () {
                 if (!parent || !wrapper) return
 
@@ -1595,9 +1559,14 @@ export default function PageChoreographer(props: any) {
                         unbakeAndRecreateAnims()
                     }
 
-                    // Transform-based pinning only for wrapper mode (non-sticky)
-                    if (!isFollower && !usesStickyPin) {
+                    if (!isFollower) {
                         var offset = scrollY - pinStart
+                        if (!scrollPinState.pinned) {
+                            // Override overflow on ancestors when entering pin
+                            for (var oi = 0; oi < overflowAncestors.length; oi++) {
+                                overflowAncestors[oi].el.style.setProperty("overflow", "visible", "important")
+                            }
+                        }
                         pinEl.style.setProperty("transform", "translateY(" + offset + "px)", "important")
                         pinEl.style.setProperty("z-index", "9999", "important")
                     }
@@ -1619,22 +1588,32 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.afterPin = false
                         unbakeAndRecreateAnims()
                     }
-                    if (scrollPinState.pinned && !isFollower && !usesStickyPin) {
+                    if (scrollPinState.pinned && !isFollower) {
                         pinEl.style.removeProperty("transform")
                         pinEl.style.removeProperty("z-index")
+                        // Restore overflow on ancestors
+                        for (var oi2 = 0; oi2 < overflowAncestors.length; oi2++) {
+                            overflowAncestors[oi2].el.style.setProperty("overflow", overflowAncestors[oi2].orig)
+                        }
                     }
                     scrollPinState.pinned = false
                     updateAnimProgress(0)
 
                 } else {
                     // ── AFTER PIN ──
-                    if (!isFollower && !usesStickyPin) {
+                    if (!isFollower) {
                         pinEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
                         pinEl.style.removeProperty("z-index")
                     }
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
+                        if (!isFollower) {
+                            // Restore overflow on ancestors
+                            for (var oi3 = 0; oi3 < overflowAncestors.length; oi3++) {
+                                overflowAncestors[oi3].el.style.setProperty("overflow", overflowAncestors[oi3].orig)
+                            }
+                        }
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
                     }
@@ -1650,18 +1629,17 @@ export default function PageChoreographer(props: any) {
                 scrollResizeTimer = window.setTimeout(function () {
                     if (!wrapper || !parent) return
 
-                    // Remove transform for accurate measurement (wrapper mode only)
-                    if (!isFollower && !usesStickyPin) pinEl.style.removeProperty("transform")
+                    // Remove transform for accurate measurement
+                    if (!isFollower) pinEl.style.removeProperty("transform")
 
                     // Re-measure all dimensions
                     parentHeight = parent.offsetHeight
                     parentWidth = parent.offsetWidth
 
-                    if (stickyContainer && sectionEl) {
+                    if (scrollSpacer && sectionEl) {
                         pinElWidth = sectionEl.offsetWidth
                         pinElHeight = sectionEl.offsetHeight
-                        stickyContainer.style.setProperty("height",
-                            (pinElHeight + scrollLength) + "px")
+                        scrollSpacer.style.setProperty("height", scrollLength + "px")
                     } else {
                         var wp = wrapper.parentElement
                         if (wp) {
@@ -1676,7 +1654,7 @@ export default function PageChoreographer(props: any) {
 
                     // Recalculate pin range
                     totalPinLength = scrollLength
-                    var measureEl = stickyContainer ? stickyContainer : isFollower ? sectionEl : wrapper
+                    var measureEl = scrollSpacer ? pinEl : isFollower ? sectionEl : wrapper
                     pinStart = Math.max(0, measureEl.getBoundingClientRect().top + window.scrollY)
                     pinEnd = pinStart + totalPinLength
 
@@ -1738,25 +1716,14 @@ export default function PageChoreographer(props: any) {
             for (var oc = 0; oc < overflowAncestors.length; oc++) {
                 overflowAncestors[oc].el.style.setProperty("overflow", overflowAncestors[oc].orig)
             }
-            // Unwrap sticky container: move Hero back to its original
-            // position and remove the container div
-            if (scrollSpacer && scrollSpacer.parentElement && scrollSectionEl) {
-                // scrollSpacer IS the sticky container in sticky mode
-                scrollSpacer.parentElement.insertBefore(scrollSectionEl, scrollSpacer)
+            // Remove external spacer
+            if (scrollSpacer && scrollSpacer.parentElement) {
                 scrollSpacer.parentElement.removeChild(scrollSpacer)
                 scrollSpacer = null
             }
-            if (scrollSectionEl) {
-                // Remove styles we added to the section
-                scrollSectionEl.style.removeProperty("margin")
-                scrollSectionEl.style.removeProperty("width")
-            }
             if (scrollSectionEl && scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                 scrollSectionEl.removeAttribute("data-choreo-pin-owner")
-                // Remove sticky pinning styles
-                scrollSectionEl.style.removeProperty("position")
-                scrollSectionEl.style.removeProperty("top")
-                scrollSectionEl.style.removeProperty("z-index")
+                scrollSectionEl.style.removeProperty("will-change")
             }
             // Remove transform pinning and unwrap
             if (scrollPinEl) {
