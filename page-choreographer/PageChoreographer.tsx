@@ -1167,7 +1167,7 @@ export default function PageChoreographer(props: any) {
             // Framer's style management
             if (trigger === "onScroll") {
                 var styleTag = document.createElement("style")
-                styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; }"
+                styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
                 document.head.appendChild(styleTag)
                 preHideStyleTag = styleTag
             }
@@ -1511,6 +1511,7 @@ export default function PageChoreographer(props: any) {
                     preHiddenEls[ph].removeAttribute("data-choreo-hide")
                     preHiddenEls[ph].style.removeProperty("visibility")
                     preHiddenEls[ph].style.removeProperty("opacity")
+                    preHiddenEls[ph].style.removeProperty("pointer-events")
                 }
                 // Remove the style tag — no longer needed
                 if (preHideStyleTag && preHideStyleTag.parentNode) {
