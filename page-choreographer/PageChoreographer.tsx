@@ -1255,29 +1255,46 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Measure parent's natural position in the document flow
+            // Measure parent's natural position and dimensions
             var parentRect = parent.getBoundingClientRect()
-            var parentOffsetTop = parentRect.top + window.scrollY
             var parentHeight = parent.offsetHeight
             var parentWidth = parent.offsetWidth
+            var parentGP = parent.parentElement
 
-            // Create a spacer element that holds the total scroll space
-            // (section height + scroll distance for the animation)
-            scrollSpacer = document.createElement("div")
-            scrollSpacer.style.cssText =
-                "width:0;height:" + (parentHeight + scrollLength) + "px;" +
-                "margin:0;padding:0;border:0;visibility:hidden;pointer-events:none;" +
-                "position:relative;flex-shrink:0;"
-            // Insert spacer right after the parent so it creates scroll room
-            if (parent.nextSibling) {
-                parent.parentElement!.insertBefore(scrollSpacer, parent.nextSibling)
-            } else {
-                parent.parentElement!.appendChild(scrollSpacer)
+            // ── Create a wrapper that takes the parent's place in the layout ──
+            // The wrapper stays in flow (occupying the flex/grid slot) while
+            // the parent inside it gets position:fixed when pinned.
+            var wrapper = document.createElement("div")
+
+            // Copy flex-related computed styles from parent so the wrapper
+            // behaves identically in the parent's flex/grid container
+            if (parentGP) {
+                var parentCS = window.getComputedStyle(parent)
+                wrapper.style.setProperty("flex", parentCS.flex)
+                wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
+                wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
+                wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
+                wrapper.style.setProperty("align-self", parentCS.alignSelf)
+                wrapper.style.setProperty("justify-self", parentCS.justifySelf)
+                wrapper.style.setProperty("order", parentCS.order)
+                // Grid properties
+                wrapper.style.setProperty("grid-column", parentCS.gridColumn)
+                wrapper.style.setProperty("grid-row", parentCS.gridRow)
             }
+            // Set wrapper dimensions: same width, height = section + scroll room
+            wrapper.style.setProperty("position", "relative")
+            wrapper.style.setProperty("width", parentWidth + "px")
+            wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
+            wrapper.style.setProperty("overflow", "visible")
 
-            // Track the scroll position where pinning should start
-            // (when parent's top edge reaches viewport top)
-            var pinStart = parentOffsetTop
+            // Insert wrapper where parent is, then move parent inside it
+            parentGP!.insertBefore(wrapper, parent)
+            wrapper.appendChild(parent)
+            scrollSpacer = wrapper // track for cleanup
+
+            // Now measure wrapper's document position (this is the pin trigger point)
+            var wrapperOffsetTop = wrapper.getBoundingClientRect().top + window.scrollY
+            var pinStart = wrapperOffsetTop
             var pinEnd = pinStart + scrollLength
 
             var updateAnimProgress = function (progress: number) {
@@ -1305,11 +1322,13 @@ export default function PageChoreographer(props: any) {
                     // ── PINNED: fix parent to viewport top ──
                     if (!scrollPinState.pinned) {
                         scrollPinState.pinned = true
-                        var rect = parent.getBoundingClientRect()
+                        // Measure the wrapper's left edge for horizontal positioning
+                        var wrapRect = wrapper.getBoundingClientRect()
                         parent.style.setProperty("position", "fixed", "important")
                         parent.style.setProperty("top", "0px", "important")
-                        parent.style.setProperty("left", rect.left + "px", "important")
+                        parent.style.setProperty("left", wrapRect.left + "px", "important")
                         parent.style.setProperty("width", parentWidth + "px", "important")
+                        parent.style.setProperty("height", parentHeight + "px", "important")
                         parent.style.setProperty("z-index", "9999", "important")
                         // Initialize animations on first pin
                         initScrollAnims()
@@ -1324,18 +1343,20 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.pinned = false
                         parent.style.cssText = scrollPinState.origStyles
                     }
-                    // Ensure animations at start state if they've been created
                     if (scrollAnimsInitialized) {
                         updateAnimProgress(0)
                     }
 
                 } else {
-                    // ── AFTER PIN: restore and show final state ──
+                    // ── AFTER PIN: restore and offset to bottom of scroll room ──
                     if (scrollPinState.pinned) {
                         scrollPinState.pinned = false
                         parent.style.cssText = scrollPinState.origStyles
+                        // Position parent at the bottom of the wrapper so it
+                        // sits where it would be after scrolling past
+                        parent.style.setProperty("position", "relative", "important")
+                        parent.style.setProperty("top", scrollLength + "px", "important")
                     }
-                    // Ensure animations at end state
                     if (scrollAnimsInitialized) {
                         updateAnimProgress(1)
                     }
@@ -1361,10 +1382,12 @@ export default function PageChoreographer(props: any) {
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
             }
-            if (scrollSpacer && scrollSpacer.parentElement) {
+            // Unwrap parent from scroll wrapper back to its original position
+            if (scrollSpacer && scrollSpacer.parentElement && parent) {
+                parent.style.cssText = scrollPinState.origStyles
+                scrollSpacer.parentElement.insertBefore(parent, scrollSpacer)
                 scrollSpacer.parentElement.removeChild(scrollSpacer)
-            }
-            if (scrollPinState.pinned && parent) {
+            } else if (scrollPinState.pinned && parent) {
                 parent.style.cssText = scrollPinState.origStyles
             }
             unregisterAll(getStore())
