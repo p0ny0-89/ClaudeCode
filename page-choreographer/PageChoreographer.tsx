@@ -1513,8 +1513,7 @@ export default function PageChoreographer(props: any) {
                     preHiddenEls[ph].removeAttribute("data-choreo-hide")
                     preHiddenEls[ph].style.removeProperty("visibility")
                     preHiddenEls[ph].style.removeProperty("opacity")
-                    // Keep pointer-events: none until animation is near-complete
-                    preHiddenEls[ph].style.setProperty("pointer-events", "none", "important")
+                    preHiddenEls[ph].style.removeProperty("pointer-events")
                 }
                 // Remove the style tag — no longer needed
                 if (preHideStyleTag && preHideStyleTag.parentNode) {
@@ -1523,20 +1522,19 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
+            // Block pointer-events on the whole wrapper so hover effects
+            // on parent containers (not just animated targets) are prevented.
+            wrapper.style.setProperty("pointer-events", "none", "important")
+
             // Threshold-based pointer-events with hysteresis to prevent flicker.
             // Enable at ≥0.9 (almost done), disable again only if ≤0.75 (scrolled back a lot).
             var updateInteractivity = function (progress: number) {
-                if (!visibilityRevealed) return
                 if (!interactiveState && progress >= 0.9) {
                     interactiveState = true
-                    for (var ri = 0; ri < preHiddenEls.length; ri++) {
-                        preHiddenEls[ri].style.removeProperty("pointer-events")
-                    }
+                    wrapper.style.removeProperty("pointer-events")
                 } else if (interactiveState && progress <= 0.75) {
                     interactiveState = false
-                    for (var ri2 = 0; ri2 < preHiddenEls.length; ri2++) {
-                        preHiddenEls[ri2].style.setProperty("pointer-events", "none", "important")
-                    }
+                    wrapper.style.setProperty("pointer-events", "none", "important")
                 }
             }
 
