@@ -1567,37 +1567,38 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Handle window resize — re-measure everything
+            // Handle window resize — re-measure without unpinning
             var handleResize = function () {
                 if (!parent || !wrapper || !wrapperCreated) return
 
-                // Temporarily unpin to measure natural dimensions
-                var wasPinned = scrollPinState.pinned
-                if (wasPinned) {
-                    parent.style.cssText = scrollPinState.origStyles
+                // Measure new width from wrapper's container (parentGP)
+                // since both wrapper and parent may have fixed pixel widths
+                var containerWidth = parentGP ? parentGP.offsetWidth : window.innerWidth
+                parentWidth = containerWidth
+                // Height: use window.innerHeight if section was viewport-height,
+                // otherwise keep current parentHeight (can't measure while pinned)
+                if (!scrollPinState.pinned) {
+                    parentHeight = parent.offsetHeight
                 }
-
-                parentWidth = parent.offsetWidth
-                parentHeight = parent.offsetHeight
 
                 // Update wrapper and parent dimensions
                 wrapper.style.setProperty("width", parentWidth + "px")
                 wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
-                parent.style.setProperty("width", parentWidth + "px")
-                parent.style.setProperty("height", parentHeight + "px")
 
-                // Recalculate pin range
+                if (!scrollPinState.pinned) {
+                    parent.style.setProperty("width", parentWidth + "px")
+                    parent.style.setProperty("height", parentHeight + "px")
+                }
+
+                // Recalculate pin range and left position
                 pinStart = wrapper.getBoundingClientRect().top + window.scrollY
                 pinEnd = pinStart + scrollLength
+                wrapRectLeft = wrapper.getBoundingClientRect().left
 
-                // Re-pin if was pinned
-                if (wasPinned) {
-                    wrapRectLeft = wrapper.getBoundingClientRect().left
-                    parent.style.setProperty("position", "fixed", "important")
-                    parent.style.setProperty("top", "0px", "important")
+                // Update fixed position if currently pinned
+                if (scrollPinState.pinned) {
                     parent.style.setProperty("left", wrapRectLeft + "px", "important")
                     parent.style.setProperty("width", parentWidth + "px", "important")
-                    parent.style.setProperty("z-index", "9999", "important")
                 }
             }
 
