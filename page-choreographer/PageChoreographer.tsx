@@ -1008,6 +1008,7 @@ export default function PageChoreographer(props: any) {
         viewOffset = 100,
         viewRepeat = false,
         scrollLength = 500,
+        scrollOnce = false,
         sortPriority = 0,
         priorityGap = 0,
         delayOffset = 0,
@@ -1218,7 +1219,7 @@ export default function PageChoreographer(props: any) {
         var scrollHandler: (() => void) | null = null
         var scrollSetupListener: (() => void) | null = null
         var scrollWrapper: HTMLElement | null = null
-        var scrollPinState = { pinned: false, afterPin: false, origStyles: "" }
+        var scrollPinState = { pinned: false, afterPin: false, completed: false, origStyles: "" }
 
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
 
@@ -1381,6 +1382,23 @@ export default function PageChoreographer(props: any) {
             // Main scroll handler
             var handleScroll = function () {
                 if (!parent || !wrapper) return
+
+                // Once the animation has played and scrollOnce is enabled,
+                // skip all pin/animation logic — elements stay in final state
+                if (scrollOnce && scrollPinState.completed) {
+                    // Just ensure parent positioning is correct
+                    if (scrollPinState.pinned) {
+                        scrollPinState.pinned = false
+                        parent.style.setProperty("position", "absolute", "important")
+                        parent.style.setProperty("bottom", "0px", "important")
+                        parent.style.setProperty("left", "0px", "important")
+                        parent.style.setProperty("top", "auto", "important")
+                        parent.style.setProperty("width", parentWidth + "px", "important")
+                        parent.style.setProperty("height", parentHeight + "px", "important")
+                    }
+                    return
+                }
+
                 var scrollY = window.scrollY
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
@@ -1431,6 +1449,10 @@ export default function PageChoreographer(props: any) {
                         parent.style.setProperty("top", "auto", "important")
                         parent.style.setProperty("width", parentWidth + "px", "important")
                         parent.style.setProperty("height", parentHeight + "px", "important")
+                        // Mark as completed for scrollOnce
+                        if (scrollOnce) {
+                            scrollPinState.completed = true
+                        }
                     }
                 }
             }
@@ -1470,7 +1492,7 @@ export default function PageChoreographer(props: any) {
             unregisterAll(getStore())
         }
     }, [
-        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength,
+        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength, scrollOnce,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
@@ -1546,6 +1568,13 @@ addPropertyControls(PageChoreographer, {
         step: 50,
         unit: "px",
         description: "How many pixels of scrolling to complete the animation. Section stays pinned during this distance.",
+        hidden: function (props: any) { return props.trigger !== "onScroll" },
+    },
+    scrollOnce: {
+        type: ControlType.Boolean,
+        title: "Play Once",
+        defaultValue: false,
+        description: "When enabled, the scroll animation plays once and won't reverse when scrolling back up.",
         hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     viewOffset: {
