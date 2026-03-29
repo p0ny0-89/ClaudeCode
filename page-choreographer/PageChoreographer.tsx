@@ -15,7 +15,7 @@
 import * as React from "react"
 import { addPropertyControls, ControlType } from "framer"
 
-var STORE_KEY = "__pageChoreographerStore_v2"
+var STORE_KEY = "__pageChoreographerStore_v3"
 
 // ─── Easing presets ──────────────────────────────────────────────────────────
 
