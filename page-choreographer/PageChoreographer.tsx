@@ -1022,6 +1022,7 @@ export default function PageChoreographer(props: any) {
         viewOffset = 100,
         viewRepeat = false,
         scrollLength = 500,
+        scrollStart = "bottom",
         scrollPin = true,
         scrollOnce = false,
         sortPriority = 0,
@@ -1382,14 +1383,28 @@ export default function PageChoreographer(props: any) {
             scrollPinEl = pinEl
 
             // Measure pin/scroll range
-            var pinStart = (scrollPin && sectionEl)
-                ? Math.max(0, sectionEl.getBoundingClientRect().top + window.scrollY)
-                : Math.max(0, wrapper.getBoundingClientRect().top + window.scrollY)
+            // Calculate pinStart based on scrollStart alignment
+            // "bottom" = element top reaches viewport top (latest, default)
+            // "center" = element center at viewport center
+            // "top" = element top enters viewport bottom (earliest)
+            var measureEl = (scrollPin && sectionEl) ? sectionEl : wrapper
+            var measureRect = measureEl.getBoundingClientRect()
+            var measureDocTop = measureRect.top + window.scrollY
+            var vh = window.innerHeight
+            var startOffset = 0
+            if (scrollStart === "top") {
+                startOffset = -vh // start when element enters viewport bottom
+            } else if (scrollStart === "center") {
+                startOffset = -(vh / 2) + (measureRect.height / 2) // center-aligned
+            }
+            // "bottom" = 0 offset (element top at viewport top)
+
+            var pinStart = Math.max(0, measureDocTop + startOffset)
             var totalPinLength = scrollLength
             var pinEnd = pinStart + totalPinLength
             console.log("[choreo] MODE:", scrollPin ? (isOwner ? "OWNER" : "FOLLOWER") : "NO-PIN",
+                "scrollStart:", scrollStart, "startOffset:", startOffset,
                 "pinStart:", pinStart, "pinEnd:", pinEnd,
-                "sectionGrew:", sectionGrew,
                 "sectionEl:", sectionEl ? (sectionEl.getAttribute("data-framer-name") || sectionEl.tagName) : "null")
             var wrapRectLeft = pinEl.getBoundingClientRect().left
 
@@ -1647,11 +1662,18 @@ export default function PageChoreographer(props: any) {
                         scrollSpacer.style.setProperty("height", scrollLength + "px")
                     }
 
-                    // Recalculate pin range
+                    // Recalculate pin range with scrollStart offset
                     totalPinLength = scrollLength
-                    pinStart = (scrollPin && sectionEl)
-                        ? Math.max(0, sectionEl.getBoundingClientRect().top + window.scrollY)
-                        : Math.max(0, wrapper.getBoundingClientRect().top + window.scrollY)
+                    var resizeMeasureEl = (scrollPin && sectionEl) ? sectionEl : wrapper
+                    var resizeRect = resizeMeasureEl.getBoundingClientRect()
+                    var resizeVh = window.innerHeight
+                    var resizeOffset = 0
+                    if (scrollStart === "top") {
+                        resizeOffset = -resizeVh
+                    } else if (scrollStart === "center") {
+                        resizeOffset = -(resizeVh / 2) + (resizeRect.height / 2)
+                    }
+                    pinStart = Math.max(0, resizeRect.top + window.scrollY + resizeOffset)
                     pinEnd = pinStart + totalPinLength
 
                     // Reset afterPin so handleScroll re-evaluates state
@@ -1738,7 +1760,7 @@ export default function PageChoreographer(props: any) {
             unregisterAll(getStore())
         }
     }, [
-        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength, scrollPin, scrollOnce,
+        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength, scrollStart, scrollPin, scrollOnce,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
@@ -1814,6 +1836,16 @@ addPropertyControls(PageChoreographer, {
         step: 50,
         unit: "px",
         description: "How many pixels of scrolling to complete the animation. Section stays pinned during this distance.",
+        hidden: function (props: any) { return props.trigger !== "onScroll" },
+    },
+    scrollStart: {
+        type: ControlType.Enum,
+        title: "Start",
+        defaultValue: "bottom",
+        options: ["top", "center", "bottom"],
+        optionTitles: ["Top", "Center", "Bottom"],
+        optionIcons: ["align-top", "align-middle", "align-bottom"],
+        description: "When the animation starts: Top = element enters viewport, Center = element at viewport center, Bottom = element reaches viewport top.",
         hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     scrollPin: {
