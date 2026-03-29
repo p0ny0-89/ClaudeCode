@@ -1259,18 +1259,23 @@ export default function PageChoreographer(props: any) {
             }
             wrapper.style.setProperty("position", "relative")
             wrapper.style.setProperty("width", parentWidth + "px")
+            wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
             wrapper.style.setProperty("flex", "0 0 auto", "important")
             wrapper.style.setProperty("overflow", "visible")
 
-            // If parentGP has a constrained height (100vh etc), wrapper
-            // inside it can't create scroll room. Add external spacer.
-            var gpConstrained = false
-            if (parentGP) {
-                var gpCS = window.getComputedStyle(parentGP)
-                gpConstrained = gpCS.height !== "auto" && gpCS.height !== "fit-content"
-            }
+            // Insert wrapper with full scroll room height
+            var docHeightBefore = document.documentElement.scrollHeight
+            parentGP!.insertBefore(wrapper, parent)
+            wrapper.appendChild(parent)
+            scrollWrapper = wrapper
+            var docHeightAfter = document.documentElement.scrollHeight
 
-            if (gpConstrained && parentGP && parentGP.parentElement) {
+            // If the document didn't grow enough, the wrapper is inside a
+            // constrained container (e.g. 100vh section with overflow:hidden).
+            // Add an external spacer after the section to create scroll room.
+            if (docHeightAfter - docHeightBefore < scrollLength * 0.5 &&
+                parentGP && parentGP.parentElement) {
+                // Shrink wrapper to just parent height (no room needed inside)
                 wrapper.style.setProperty("height", parentHeight + "px")
                 var spacer = document.createElement("div")
                 spacer.style.setProperty("height", scrollLength + "px")
@@ -1278,13 +1283,7 @@ export default function PageChoreographer(props: any) {
                 spacer.style.setProperty("pointer-events", "none")
                 parentGP.parentElement.insertBefore(spacer, parentGP.nextSibling)
                 scrollSpacer = spacer
-            } else {
-                wrapper.style.setProperty("height", (parentHeight + scrollLength) + "px")
             }
-
-            parentGP!.insertBefore(wrapper, parent)
-            wrapper.appendChild(parent)
-            scrollWrapper = wrapper
 
             // Measure pin range after wrapper is in the DOM
             var pinStart = wrapper.getBoundingClientRect().top + window.scrollY
