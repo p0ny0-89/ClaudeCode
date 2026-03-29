@@ -1600,12 +1600,16 @@ export default function PageChoreographer(props: any) {
             wrapper.style.setProperty("pointer-events", "none", "important")
 
             // Threshold-based pointer-events with hysteresis to prevent flicker.
-            // Enable at ≥0.9 (almost done), disable again only if ≤0.75 (scrolled back a lot).
+            // The progress value is for the overall staggered timeline, but
+            // individual items finish at different times. A lower enable
+            // threshold ensures the last staggered items are hoverable once
+            // they're visually close to their final position.
+            // Enable at ≥0.6 (last items nearly done), disable ≤0.4 (clearly scrolled back).
             var updateInteractivity = function (progress: number) {
-                if (!interactiveState && progress >= 0.9) {
+                if (!interactiveState && progress >= 0.6) {
                     interactiveState = true
                     wrapper.style.removeProperty("pointer-events")
-                } else if (interactiveState && progress <= 0.75) {
+                } else if (interactiveState && progress <= 0.4) {
                     interactiveState = false
                     wrapper.style.setProperty("pointer-events", "none", "important")
                 }
