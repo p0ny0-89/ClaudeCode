@@ -1452,7 +1452,9 @@ export default function PageChoreographer(props: any) {
             }
 
             var revealIfNeeded = function (progress: number) {
+                console.log("[choreo] revealIfNeeded progress:", progress, "scrollY:", window.scrollY, "pinStart:", pinStart)
                 if (visibilityRevealed || progress <= 0) return
+                console.log("[choreo] REVEALING! progress:", progress)
                 visibilityRevealed = true
                 for (var ph = 0; ph < preHiddenEls.length; ph++) {
                     preHiddenEls[ph].removeAttribute("data-choreo-hide")
