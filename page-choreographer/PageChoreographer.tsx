@@ -1199,6 +1199,7 @@ export default function PageChoreographer(props: any) {
         var origParentStyles: { position: string; top: string; zIndex: string } | null = null
         var origGrandparentStyles: { minHeight: string } | null = null
         var grandparentEl: HTMLElement | null = null
+        var overflowFixedEls: HTMLElement[] = []
 
         if (trigger === "onScroll" && parent) {
             var gp = parent.parentElement as HTMLElement | null
@@ -1216,11 +1217,24 @@ export default function PageChoreographer(props: any) {
                 }
 
                 // Make parent sticky and add scroll room to grandparent
-                parent.style.position = "sticky"
-                parent.style.top = "0px"
-                parent.style.zIndex = "1"
+                // Use !important to override Framer's layout engine
+                parent.style.setProperty("position", "sticky", "important")
+                parent.style.setProperty("top", "0px", "important")
+                parent.style.setProperty("z-index", "1", "important")
                 var parentHeight = parent.offsetHeight
-                gp.style.minHeight = (parentHeight + scrollLength) + "px"
+                gp.style.setProperty("min-height", (parentHeight + scrollLength) + "px", "important")
+
+                // Sticky breaks if any ancestor has overflow: hidden/auto/scroll
+                // Walk up and fix overflow on ancestors up to body
+                var ancestor = gp.parentElement
+                while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+                    var cs = window.getComputedStyle(ancestor)
+                    if (cs.overflow !== "visible" || cs.overflowX !== "visible" || cs.overflowY !== "visible") {
+                        overflowFixedEls.push(ancestor)
+                        ancestor.style.setProperty("overflow", "visible", "important")
+                    }
+                    ancestor = ancestor.parentElement
+                }
 
                 // Lazy init flag — animations are created on first scroll event
                 // This keeps elements visible on the Framer canvas where scroll
@@ -1326,12 +1340,32 @@ export default function PageChoreographer(props: any) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
             }
             if (origParentStyles && parent) {
-                parent.style.position = origParentStyles.position
-                parent.style.top = origParentStyles.top
-                parent.style.zIndex = origParentStyles.zIndex
+                if (origParentStyles.position) {
+                    parent.style.setProperty("position", origParentStyles.position)
+                } else {
+                    parent.style.removeProperty("position")
+                }
+                if (origParentStyles.top) {
+                    parent.style.setProperty("top", origParentStyles.top)
+                } else {
+                    parent.style.removeProperty("top")
+                }
+                if (origParentStyles.zIndex) {
+                    parent.style.setProperty("z-index", origParentStyles.zIndex)
+                } else {
+                    parent.style.removeProperty("z-index")
+                }
             }
             if (origGrandparentStyles && grandparentEl) {
-                grandparentEl.style.minHeight = origGrandparentStyles.minHeight
+                if (origGrandparentStyles.minHeight) {
+                    grandparentEl.style.setProperty("min-height", origGrandparentStyles.minHeight)
+                } else {
+                    grandparentEl.style.removeProperty("min-height")
+                }
+            }
+            // Restore overflow on ancestors
+            for (var ofi = 0; ofi < overflowFixedEls.length; ofi++) {
+                overflowFixedEls[ofi].style.removeProperty("overflow")
             }
             unregisterAll(getStore())
         }
