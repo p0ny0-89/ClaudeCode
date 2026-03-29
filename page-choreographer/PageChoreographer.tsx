@@ -5,6 +5,14 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 const STORE_KEY = "__pageChoreographerStore"
 
+function isCanvasMode(): boolean {
+    try {
+        return RenderTarget.current() === RenderTarget.canvas
+    } catch (e) {
+        return false
+    }
+}
+
 interface TargetEntry {
     id: string
     ref: { current: HTMLDivElement | null }
@@ -404,8 +412,6 @@ export default function PageChoreographer(props: any) {
 
     React.useEffect(function () {
         if (!autoPlayEnter || hasPlayed.current) return
-        // Don't auto-play on Framer canvas
-        if (RenderTarget.current() === RenderTarget.canvas) return
         hasPlayed.current = true
 
         requestAnimationFrame(function () {

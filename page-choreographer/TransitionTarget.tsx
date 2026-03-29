@@ -12,6 +12,14 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 var STORE_KEY = "__pageChoreographerStore"
 
+function isCanvasMode(): boolean {
+    try {
+        return RenderTarget.current() === RenderTarget.canvas
+    } catch (e) {
+        return false
+    }
+}
+
 function getStore(): any {
     if (typeof window !== "undefined" && (window as any)[STORE_KEY]) {
         return (window as any)[STORE_KEY]
@@ -164,7 +172,12 @@ export default function TransitionTarget(props: any) {
         registeredIds.current = []
     }
 
+    var hiddenElements = React.useRef<{ el: HTMLElement; keys: string[] }[]>([])
+    var safetyTimer = React.useRef<any>(null)
+
     function registerElements(elements: HTMLElement[], store: any) {
+        hiddenElements.current = []
+
         for (var i = 0; i < elements.length; i++) {
             var el = elements[i]
             var targetId = baseId + "-" + i
@@ -186,20 +199,38 @@ export default function TransitionTarget(props: any) {
             registeredIds.current.push(targetId)
 
             // Set initial hidden state for enter animation (skip on canvas)
-            var isCanvas = RenderTarget.current() === RenderTarget.canvas
-            if (enterEnabled && !isCanvas) {
+            if (enterEnabled && !isCanvasMode()) {
                 try {
                     var cfg = store.getConfig()
                     var kf = store.getEnterKeyframes(enterPreset, cfg)
+                    var hiddenKeys: string[] = []
                     for (var k in kf.from) {
                         if (kf.from.hasOwnProperty(k)) {
                             ;(el.style as any)[k] = kf.from[k]
+                            hiddenKeys.push(k)
                         }
                     }
+                    hiddenElements.current.push({ el: el, keys: hiddenKeys })
                 } catch (e) {
                     // Silently skip if keyframes fail
                 }
             }
+        }
+
+        // Safety net: if enter animation hasn't cleared hidden state after 5s,
+        // force elements visible. Prevents permanently hidden content on canvas
+        // or if PageChoreographer fails to play enter.
+        if (safetyTimer.current) clearTimeout(safetyTimer.current)
+        if (hiddenElements.current.length > 0) {
+            var captured = hiddenElements.current.slice()
+            safetyTimer.current = setTimeout(function () {
+                for (var i = 0; i < captured.length; i++) {
+                    var entry = captured[i]
+                    for (var j = 0; j < entry.keys.length; j++) {
+                        ;(entry.el.style as any)[entry.keys[j]] = ""
+                    }
+                }
+            }, 5000)
         }
     }
 
