@@ -1330,51 +1330,23 @@ export default function PageChoreographer(props: any) {
                 "sectionAlreadyClaimed:", sectionAlreadyClaimed,
                 "parentHeight:", parentHeight, "scrollLength:", scrollLength)
 
-            // ── Background overlay mode for fixed-height sections ──
-            // When the section (Hero, 100vh) can't grow to fit the wrapper,
-            // we use a background overlay approach:
-            // 1. Clone the section's background into a position:fixed div
-            //    appended to document.body (outside Framer's transform
-            //    hierarchy, so fixed works correctly)
-            // 2. Set overflow:visible on ONLY the section (not page root)
-            //    so the pinned text isn't clipped as the section scrolls
-            // 3. Wrapper mode handles scroll room internally (no spacers)
-            // 4. Text content is pinned with transforms
-            var bgOverlay: HTMLElement | null = null
+            // ── Fixed-height section handling ──
+            // When the section (Hero, 100vh) can't grow, set overflow:visible
+            // on ONLY the section so pinned text isn't clipped as it scrolls.
+            // No spacers, no overlays, no page root changes.
             var isFollower = !sectionGrew && sectionAlreadyClaimed
 
-            if (!sectionGrew && sectionEl && sectionEl.parentElement) {
-                if (!sectionAlreadyClaimed) {
-                    sectionEl.setAttribute("data-choreo-pin-owner", baseId)
-
-                    // Allow text to overflow the section as it scrolls past.
-                    // Only override the section itself, NOT the page root.
-                    var sectionOv = window.getComputedStyle(sectionEl).overflow
-                    if (sectionOv === "clip" || sectionOv === "hidden") {
-                        scrollOverflowAncestors.push({ el: sectionEl, orig: sectionOv })
-                        sectionEl.style.setProperty("overflow", "visible", "important")
-                    }
-
-                    // Create background overlay INSIDE the same stacking
-                    // context as the text (appended to the section's parent).
-                    // Uses position:sticky so the browser handles pinning
-                    // natively. The overlay is behind the text (lower z-index).
-                    var sectionBg = window.getComputedStyle(sectionEl).background
-                    bgOverlay = document.createElement("div")
-                    bgOverlay.setAttribute("data-choreo-bg-overlay", "1")
-                    bgOverlay.style.cssText = "position:sticky;top:0;width:100%;height:" +
-                        sectionEl.offsetHeight + "px;z-index:9998;pointer-events:none;" +
-                        "margin-top:-" + sectionEl.offsetHeight + "px;display:none;"
-                    bgOverlay.style.background = sectionBg
-                    // Insert right after the section so it shares the same
-                    // parent stacking context
-                    sectionEl.parentElement.insertBefore(bgOverlay, sectionEl.nextSibling)
+            if (!sectionGrew && sectionEl && !sectionAlreadyClaimed) {
+                sectionEl.setAttribute("data-choreo-pin-owner", baseId)
+                // Allow text to overflow the section
+                var sectionOv = window.getComputedStyle(sectionEl).overflow
+                if (sectionOv === "clip" || sectionOv === "hidden") {
+                    scrollOverflowAncestors.push({ el: sectionEl, orig: sectionOv })
+                    sectionEl.style.setProperty("overflow", "visible", "important")
                 }
             }
 
-            // pinEl is always the text content (parent Stack).
-            // BOTH owner and follower pin their own text with transforms.
-            // Only the overlay creation is owner-only.
+            // All instances pin their own text content with transforms
             var pinEl: HTMLElement = parent
             var pinElWidth: number = parentWidth
             var pinElHeight: number = parentHeight
@@ -1385,10 +1357,10 @@ export default function PageChoreographer(props: any) {
             var pinStart = Math.max(0, wrapper.getBoundingClientRect().top + window.scrollY)
             var totalPinLength = scrollLength
             var pinEnd = pinStart + totalPinLength
-            console.log("[choreo] MODE:", bgOverlay ? "OVERLAY" : isFollower ? "FOLLOWER" : "WRAPPER",
+            console.log("[choreo] MODE:", isFollower ? "FOLLOWER" : "WRAPPER",
                 "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName,
                 "pinStart:", pinStart, "pinEnd:", pinEnd,
-                "isFollower:", isFollower, "sectionGrew:", sectionGrew)
+                "sectionGrew:", sectionGrew)
             var wrapRectLeft = pinEl.getBoundingClientRect().left
 
             // ── Animation creation/destruction ──
@@ -1542,8 +1514,6 @@ export default function PageChoreographer(props: any) {
                     var offset = scrollY - pinStart
                     pinEl.style.setProperty("transform", "translateY(" + offset + "px)", "important")
                     pinEl.style.setProperty("z-index", "9999", "important")
-                    // Show background overlay (owner only)
-                    if (bgOverlay) bgOverlay.style.display = "block"
                     scrollPinState.pinned = true
 
                     var progress = (scrollY - pinStart) / scrollLength
@@ -1566,7 +1536,6 @@ export default function PageChoreographer(props: any) {
                         pinEl.style.removeProperty("transform")
                         pinEl.style.removeProperty("z-index")
                     }
-                    if (bgOverlay) bgOverlay.style.display = "none"
                     scrollPinState.pinned = false
                     updateAnimProgress(0)
 
@@ -1574,7 +1543,6 @@ export default function PageChoreographer(props: any) {
                     // ── AFTER PIN ──
                     pinEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
                     pinEl.style.removeProperty("z-index")
-                    if (bgOverlay) bgOverlay.style.display = "none"
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
@@ -1609,11 +1577,6 @@ export default function PageChoreographer(props: any) {
                         (parentHeight + scrollLength) + "px")
                     pinElWidth = parentWidth
                     pinElHeight = parentHeight
-
-                    // Update overlay height on resize
-                    if (bgOverlay && sectionEl) {
-                        bgOverlay.style.height = sectionEl.offsetHeight + "px"
-                    }
 
                     // Recalculate pin range
                     totalPinLength = scrollLength
@@ -1680,11 +1643,6 @@ export default function PageChoreographer(props: any) {
                 scrollOverflowAncestors[oc].el.style.setProperty("overflow", scrollOverflowAncestors[oc].orig)
             }
             scrollOverflowAncestors = []
-            // Remove background overlay
-            var existingOverlay = document.querySelector("[data-choreo-bg-overlay]")
-            if (existingOverlay && existingOverlay.parentElement) {
-                existingOverlay.parentElement.removeChild(existingOverlay)
-            }
             // Release section claim
             if (scrollSectionEl && scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                 scrollSectionEl.removeAttribute("data-choreo-pin-owner")
