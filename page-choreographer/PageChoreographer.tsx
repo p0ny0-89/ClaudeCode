@@ -812,6 +812,7 @@ function collectTargets(
                 }
                 return true
             })
+        }
     }
     return result
 }
