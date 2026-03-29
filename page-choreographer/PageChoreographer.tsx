@@ -739,6 +739,7 @@ export default function PageChoreographer(props: any) {
         mobileEnabled = true,
         trigger = "onLoad",
         viewOffset = 100,
+        viewRepeat = false,
         sortPriority = 0,
         delayOffset = 0,
         duration = 0.6,
@@ -876,25 +877,25 @@ export default function PageChoreographer(props: any) {
         // IntersectionObserver for "inView" trigger
         var intObs: IntersectionObserver | null = null
         if (trigger === "inView" && typeof IntersectionObserver !== "undefined") {
-            var hasPlayed = false
+            var isVisible = false
             try {
                 intObs = new IntersectionObserver(
                     function (entries) {
-                        if (hasPlayed) return
                         for (var e = 0; e < entries.length; e++) {
-                            if (entries[e].isIntersecting) {
-                                hasPlayed = true
-                                if (intObs) intObs.disconnect()
+                            if (entries[e].isIntersecting && !isVisible) {
+                                isVisible = true
                                 var s = getStore()
                                 if (s) s.playEnterGroup(baseId)
-                                break
+                                // If not repeating, stop observing
+                                if (!viewRepeat && intObs) intObs.disconnect()
+                            } else if (!entries[e].isIntersecting && isVisible && viewRepeat) {
+                                // Element left viewport — reset so it replays on next scroll in
+                                isVisible = false
                             }
                         }
                     },
                     { rootMargin: "0px 0px " + viewOffset + "px 0px" }
                 )
-                // Observe the parent container so it triggers when the
-                // section scrolls into view
                 intObs.observe(parent)
             } catch (e) {}
         }
@@ -909,7 +910,7 @@ export default function PageChoreographer(props: any) {
             unregisterAll(getStore())
         }
     }, [
-        baseId, scanMode, trigger, viewOffset,
+        baseId, scanMode, trigger, viewOffset, viewRepeat,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, delayOffset,
         mobileEnabled, duration, stagger,
@@ -962,6 +963,12 @@ addPropertyControls(PageChoreographer, {
         max: 500,
         step: 10,
         unit: "px",
+        hidden: function (props: any) { return props.trigger !== "inView" },
+    },
+    viewRepeat: {
+        type: ControlType.Boolean,
+        title: "Repeat",
+        defaultValue: false,
         hidden: function (props: any) { return props.trigger !== "inView" },
     },
 
