@@ -448,12 +448,13 @@ function createStore() {
             }
 
             // If the NEXT group has a different priority, advance the offset
-            // so it starts after this group's last element begins animating
+            // so it starts after this group's last element finishes animating
             var nextGid = sortedGids[gi + 1]
             if (nextGid) {
                 var nextPriority = groups[nextGid][0].sortPriority
                 if (nextPriority !== currentPriority) {
-                    groupOffset += maxDelayInGroup + (sorted.length > 0 ? sorted[0].stagger : 0.06)
+                    var groupDur = sorted.length > 0 ? sorted[0].duration : 0.6
+                    groupOffset += maxDelayInGroup + groupDur
                 }
             }
             prevPriority = currentPriority
@@ -528,7 +529,8 @@ function createStore() {
             if (nextGid) {
                 var nextPriority = groups[nextGid][0].sortPriority
                 if (nextPriority !== currentPriority) {
-                    groupOffset += maxDelayInGroup + (sorted.length > 0 ? sorted[0].stagger : 0.06)
+                    var groupDur = sorted.length > 0 ? sorted[0].duration : 0.6
+                    groupOffset += maxDelayInGroup + groupDur
                 }
             }
             prevPriority = currentPriority
