@@ -408,6 +408,10 @@ function createStore() {
                 // during the animation won't try to animate it again
                 if (animatedElements) animatedElements.add(el)
 
+                // Block hover/click during animation to prevent Framer's
+                // hover variants from triggering re-renders mid-animation
+                el.style.pointerEvents = "none"
+
                 try {
                     var anim = el.animate([kf.from, kf.to], {
                         duration: dur,
@@ -419,14 +423,18 @@ function createStore() {
 
                     promises.push(
                         anim.finished.then(
-                            (function (a) {
+                            (function (a, e) {
                                 return function () {
-                                    try { a.cancel() } catch (e) {}
+                                    // Restore pointer events so hover effects work
+                                    e.style.pointerEvents = ""
+                                    try { a.cancel() } catch (ex) {}
                                 }
-                            })(anim)
+                            })(anim, el)
                         )
                     )
-                } catch (e) {}
+                } catch (e) {
+                    el.style.pointerEvents = ""
+                }
             }
 
             // If the NEXT group has a different priority, advance the offset
@@ -551,6 +559,9 @@ function createStore() {
 
             if (animatedElements) animatedElements.add(el)
 
+            // Block hover during animation
+            el.style.pointerEvents = "none"
+
             var kf = reduced
                 ? { from: { opacity: "0" }, to: { opacity: "1" } }
                 : buildEnterKeyframes(target)
@@ -570,14 +581,17 @@ function createStore() {
 
                 promises.push(
                     anim.finished.then(
-                        (function (a) {
+                        (function (a, e) {
                             return function () {
-                                try { a.cancel() } catch (e) {}
+                                e.style.pointerEvents = ""
+                                try { a.cancel() } catch (ex) {}
                             }
-                        })(anim)
+                        })(anim, el)
                     )
                 )
-            } catch (e) {}
+            } catch (e) {
+                el.style.pointerEvents = ""
+            }
         }
 
         return Promise.all(promises)
