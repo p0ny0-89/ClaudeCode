@@ -214,6 +214,7 @@ interface TargetEntry {
     stagger: number
     easing: number[]
     staggerDirection: string
+    priorityGap: number
     distance: number
     enterMaskDirection: string
     exitMaskDirection: string
@@ -449,12 +450,14 @@ function createStore() {
 
             // If the NEXT group has a different priority, advance the offset
             // so it starts after this group's last element finishes animating
+            // plus the priority gap
             var nextGid = sortedGids[gi + 1]
             if (nextGid) {
                 var nextPriority = groups[nextGid][0].sortPriority
                 if (nextPriority !== currentPriority) {
                     var groupDur = sorted.length > 0 ? sorted[0].duration : 0.6
-                    groupOffset += maxDelayInGroup + groupDur
+                    var gap = group[0].priorityGap || 0
+                    groupOffset += maxDelayInGroup + groupDur + gap
                 }
             }
             prevPriority = currentPriority
@@ -530,7 +533,8 @@ function createStore() {
                 var nextPriority = groups[nextGid][0].sortPriority
                 if (nextPriority !== currentPriority) {
                     var groupDur = sorted.length > 0 ? sorted[0].duration : 0.6
-                    groupOffset += maxDelayInGroup + groupDur
+                    var gap = group[0].priorityGap || 0
+                    groupOffset += maxDelayInGroup + groupDur + gap
                 }
             }
             prevPriority = currentPriority
@@ -656,7 +660,8 @@ function createStore() {
                 var nextPriority = groups[nextGid][0].sortPriority
                 if (nextPriority !== currentPriority) {
                     var groupDur = sorted.length > 0 ? sorted[0].duration : 0.6
-                    groupOffset += maxDelayInGroup + groupDur
+                    var gap = group[0].priorityGap || 0
+                    groupOffset += maxDelayInGroup + groupDur + gap
                 }
             }
             prevPriority = currentPriority
@@ -909,6 +914,7 @@ export default function PageChoreographer(props: any) {
         viewOffset = 100,
         viewRepeat = false,
         sortPriority = 0,
+        priorityGap = 0,
         delayOffset = 0,
         duration = 0.6,
         stagger = 0.06,
@@ -973,6 +979,7 @@ export default function PageChoreographer(props: any) {
                 enterEnabled: enterEnabled,
                 exitEnabled: exitEnabled,
                 sortPriority: sortPriority,
+                priorityGap: priorityGap,
                 delayOffset: delayOffset,
                 mobileEnabled: mobileEnabled,
                 trigger: trigger,
@@ -1098,7 +1105,7 @@ export default function PageChoreographer(props: any) {
     }, [
         baseId, scanMode, excludeSelector, trigger, viewOffset, viewRepeat,
         enterPreset, exitPreset,
-        enterEnabled, exitEnabled, sortPriority, delayOffset,
+        enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
         easingPreset, staggerDirection, distance, enterMaskDirection, exitMaskDirection, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
@@ -1549,6 +1556,16 @@ addPropertyControls(PageChoreographer, {
         max: 10,
         step: 1,
         description: "Controls animation order across groups. Lower numbers animate first.",
+    },
+    priorityGap: {
+        type: ControlType.Number,
+        title: "Priority Gap",
+        defaultValue: 0,
+        min: 0,
+        max: 5,
+        step: 0.05,
+        unit: "s",
+        description: "Extra pause between priority groups before the next one starts.",
     },
     delayOffset: {
         type: ControlType.Number,
