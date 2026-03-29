@@ -1304,16 +1304,15 @@ export default function PageChoreographer(props: any) {
             wrapper.appendChild(parent)
             scrollWrapper = wrapper
 
-            // Check if the section expanded to fit the wrapper.
-            // If the section didn't grow (fixed height like 100vh),
-            // its background won't cover the scroll range. In that case
-            // add an external spacer and pin the section itself.
-            var neededHeight = parentHeight + scrollLength
-            var sectionGrew = parentGP!.offsetHeight >= neededHeight * 0.8
-
             // Find the actual section element (e.g. Hero) that has
             // the background — this may be above parentGP
             var sectionEl = parentGP ? findSection(parentGP) : parentGP!
+
+            // Check if the SECTION (Hero) expanded to fit the wrapper.
+            // Important: check sectionEl, not parentGP — parentGP (inner
+            // Stack) may grow but the section (100vh) won't.
+            var neededHeight = parentHeight + scrollLength
+            var sectionGrew = sectionEl.offsetHeight >= neededHeight * 0.8
 
             if (!sectionGrew && sectionEl && sectionEl.parentElement) {
                 // Section has fixed height — shrink wrapper, add spacer
