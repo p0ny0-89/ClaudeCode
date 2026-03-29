@@ -1474,46 +1474,16 @@ export default function PageChoreographer(props: any) {
             ensureScrollAnims()
             updateAnimProgress(0)
 
-            // ── Scroll handler (position:fixed pinning) ──
+            // ── Scroll handler (transform-based pinning) ──
+            // Uses translateY instead of position:fixed so pinning works
+            // even inside Framer's transform ancestors.
             var handleScroll = function () {
                 if (!parent || !wrapper) return
-
-                if (scrollOnce && scrollPinState.completed) {
-                    var scrollY2 = window.scrollY
-                    if (scrollY2 >= pinStart && scrollY2 <= pinEnd) {
-                        if (!scrollPinState.pinned) {
-                            scrollPinState.pinned = true
-                            wrapRectLeft = pinEl.getBoundingClientRect().left
-                            pinEl.style.setProperty("position", "fixed", "important")
-                            pinEl.style.setProperty("top", "0px", "important")
-                            pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
-                            pinEl.style.setProperty("width", pinElWidth + "px", "important")
-                            pinEl.style.setProperty("height", pinElHeight + "px", "important")
-                        }
-                    } else if (scrollY2 < pinStart) {
-                        if (scrollPinState.pinned) {
-                            scrollPinState.pinned = false
-                            pinEl.style.cssText = scrollPinState.origStyles
-                        }
-                    } else {
-                        if (!scrollPinState.pinned) {
-                            scrollPinState.pinned = true
-                            wrapRectLeft = pinEl.getBoundingClientRect().left
-                            pinEl.style.setProperty("position", "fixed", "important")
-                            pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
-                            pinEl.style.setProperty("width", pinElWidth + "px", "important")
-                            pinEl.style.setProperty("height", pinElHeight + "px", "important")
-                        }
-                        pinEl.style.setProperty("top", (pinEnd - scrollY2) + "px", "important")
-                        pinEl.style.removeProperty("z-index")
-                    }
-                    return
-                }
 
                 var scrollY = window.scrollY
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
-                    // ── PINNED: animate based on scroll progress ──
+                    // ── PINNED: keep element at viewport top via transform ──
                     ensureScrollAnims()
 
                     if (scrollPinState.afterPin) {
@@ -1521,53 +1491,44 @@ export default function PageChoreographer(props: any) {
                         unbakeAndRecreateAnims()
                     }
 
-                    if (!scrollPinState.pinned) {
-                        scrollPinState.pinned = true
-                        wrapRectLeft = pinEl.getBoundingClientRect().left
-                        pinEl.style.setProperty("position", "fixed", "important")
-                        pinEl.style.setProperty("top", "0px", "important")
-                        pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
-                        pinEl.style.setProperty("width", pinElWidth + "px", "important")
-                        pinEl.style.setProperty("height", pinElHeight + "px", "important")
-                        pinEl.style.setProperty("z-index", "9999", "important")
-                    }
+                    var offset = scrollY - pinStart
+                    pinEl.style.setProperty("transform", "translateY(" + offset + "px)", "important")
+                    pinEl.style.setProperty("z-index", "9999", "important")
+                    scrollPinState.pinned = true
 
                     var progress = (scrollY - pinStart) / scrollLength
                     var clampedProgress = Math.max(0, Math.min(1, progress))
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
 
+                    // Play Once: bake when animation completes
+                    if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
+                        scrollPinState.completed = true
+                        bakeAndCancelAnims()
+                    }
+
                 } else if (scrollY < pinStart) {
-                    // ── BEFORE PIN: normal flow ──
+                    // ── BEFORE PIN: no transform ──
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
                         unbakeAndRecreateAnims()
                     }
                     if (scrollPinState.pinned) {
                         scrollPinState.pinned = false
-                        pinEl.style.cssText = scrollPinState.origStyles
+                        pinEl.style.removeProperty("transform")
+                        pinEl.style.removeProperty("z-index")
                     }
                     updateAnimProgress(0)
 
                 } else {
-                    // ── AFTER PIN: keep fixed, slide top negative ──
-                    if (!scrollPinState.pinned) {
-                        scrollPinState.pinned = true
-                        wrapRectLeft = pinEl.getBoundingClientRect().left
-                        pinEl.style.setProperty("position", "fixed", "important")
-                        pinEl.style.setProperty("left", wrapRectLeft + "px", "important")
-                        pinEl.style.setProperty("width", pinElWidth + "px", "important")
-                        pinEl.style.setProperty("height", pinElHeight + "px", "important")
-                    }
-                    pinEl.style.setProperty("top", (pinEnd - scrollY) + "px", "important")
+                    // ── AFTER PIN: hold at max offset, scrolls off naturally ──
+                    pinEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
                     pinEl.style.removeProperty("z-index")
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
+                        scrollPinState.pinned = false
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
-                        if (scrollOnce) {
-                            scrollPinState.completed = true
-                        }
                     }
                 }
             }
@@ -1581,12 +1542,8 @@ export default function PageChoreographer(props: any) {
                 scrollResizeTimer = window.setTimeout(function () {
                     if (!wrapper || !parent) return
 
-                    // Temporarily unpin so measurements are in normal flow
-                    var wasPinned = scrollPinState.pinned
-                    if (wasPinned) {
-                        scrollPinState.pinned = false
-                        pinEl.style.cssText = scrollPinState.origStyles
-                    }
+                    // Remove transform for accurate measurement
+                    pinEl.style.removeProperty("transform")
 
                     // Re-measure all dimensions
                     parentHeight = parent.offsetHeight
@@ -1595,7 +1552,6 @@ export default function PageChoreographer(props: any) {
                     if (scrollSpacer && parentGP) {
                         pinElWidth = parentGP.offsetWidth
                         pinElHeight = parentGP.offsetHeight
-                        // Update spacer to match new dimensions
                         scrollSpacer.style.setProperty("height",
                             (pinElHeight + scrollLength + parentHeight) + "px")
                     } else {
@@ -1617,9 +1573,8 @@ export default function PageChoreographer(props: any) {
                     var measureEl = scrollSpacer ? pinEl : wrapper
                     pinStart = Math.max(0, measureEl.getBoundingClientRect().top + window.scrollY)
                     pinEnd = pinStart + totalPinLength
-                    wrapRectLeft = pinEl.getBoundingClientRect().left
 
-                    // Re-run scroll handler (will re-pin if needed)
+                    // Re-run scroll handler (will re-apply transform)
                     handleScroll()
                 }, 150) as unknown as number
             }
@@ -1678,9 +1633,10 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer.parentElement.removeChild(scrollSpacer)
                 scrollSpacer = null
             }
-            // Restore pinned element styles and unwrap
-            if (scrollPinEl && scrollPinState.origStyles) {
-                scrollPinEl.style.cssText = scrollPinState.origStyles
+            // Remove transform pinning and unwrap
+            if (scrollPinEl) {
+                scrollPinEl.style.removeProperty("transform")
+                scrollPinEl.style.removeProperty("z-index")
             }
             if (scrollWrapper && scrollWrapper.parentElement && parent) {
                 scrollWrapper.parentElement.insertBefore(parent, scrollWrapper)
