@@ -13,7 +13,7 @@
 // appear effect level of control.
 
 import * as React from "react"
-import { addPropertyControls, ControlType } from "framer"
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 var STORE_KEY = "__pageChoreographerStore_v3"
 
@@ -1203,7 +1203,9 @@ export default function PageChoreographer(props: any) {
         var scrollWrapper: HTMLElement | null = null
         var scrollPinState = { pinned: false, afterPin: false, origStyles: "" }
 
-        if (trigger === "onScroll" && parent) {
+        var isPreview = RenderTarget.current() !== RenderTarget.canvas
+
+        if (trigger === "onScroll" && parent && isPreview) {
             var scrollAnimsInitialized = false
             var timelineDuration = 0
             var pinStart = 0
