@@ -1250,6 +1250,7 @@ export default function PageChoreographer(props: any) {
         var scrollResizeHandler: (() => void) | null = null
         var scrollWrapper: HTMLElement | null = null
         var scrollSpacer: HTMLElement | null = null
+        var scrollSectionEl: HTMLElement | null = null
         var scrollPinEl: HTMLElement | null = null
         var scrollSetupRaf = 0
         var scrollResizeTimer = 0
@@ -1307,6 +1308,7 @@ export default function PageChoreographer(props: any) {
             // Find the actual section element (e.g. Hero) that has
             // the background — this may be above parentGP
             var sectionEl = parentGP ? findSection(parentGP) : parentGP!
+            scrollSectionEl = sectionEl
 
             // Check if the SECTION (Hero) expanded to fit the wrapper.
             // Important: check sectionEl, not parentGP — parentGP (inner
@@ -1314,14 +1316,20 @@ export default function PageChoreographer(props: any) {
             var neededHeight = parentHeight + scrollLength
             var sectionGrew = sectionEl.offsetHeight >= neededHeight * 0.98
 
+            // Deduplication: if another Page Choreographer instance already
+            // claimed this section for spacer-mode pinning, this instance
+            // should NOT create a second spacer or try to pin the section.
+            // Instead it joins the existing pin (wrapper mode, no section pin).
+            var sectionAlreadyClaimed = sectionEl.hasAttribute("data-choreo-pin-owner")
+
             console.log("[choreo] sectionEl:", sectionEl.getAttribute("data-framer-name") || sectionEl.tagName,
                 "sectionEl.offsetHeight:", sectionEl.offsetHeight,
                 "neededHeight:", neededHeight,
                 "sectionGrew:", sectionGrew,
-                "parentGP.offsetHeight:", parentGP ? parentGP.offsetHeight : "N/A",
+                "sectionAlreadyClaimed:", sectionAlreadyClaimed,
                 "parentHeight:", parentHeight, "scrollLength:", scrollLength)
 
-            if (!sectionGrew && sectionEl && sectionEl.parentElement) {
+            if (!sectionGrew && !sectionAlreadyClaimed && sectionEl && sectionEl.parentElement) {
                 // Section has fixed height — shrink wrapper, add spacer
                 wrapper.style.setProperty("height", parentHeight + "px")
                 var spacer = document.createElement("div")
@@ -1331,7 +1339,18 @@ export default function PageChoreographer(props: any) {
                 // Insert spacer after the SECTION (Hero), not parentGP
                 sectionEl.parentElement.insertBefore(spacer, sectionEl.nextSibling)
                 scrollSpacer = spacer
+                // Mark section as claimed so other instances don't double-pin
+                sectionEl.setAttribute("data-choreo-pin-owner", baseId)
+            } else if (!sectionGrew && sectionAlreadyClaimed) {
+                // Another instance owns the section pin — this instance
+                // is a "follower": no wrapper height change, no pinning,
+                // just scrubs its own animation based on the same scroll range.
+                wrapper.style.setProperty("height", parentHeight + "px")
             }
+
+            // Follower mode: section already pinned by another instance.
+            // This instance just scrubs animations — no pinning needed.
+            var isFollower = !sectionGrew && sectionAlreadyClaimed
 
             // In spacer mode, pin the section element (Hero) so the
             // background stays visible. In normal mode, pin the Stack.
@@ -1347,8 +1366,8 @@ export default function PageChoreographer(props: any) {
                 pinEl = sectionEl
                 pinElWidth = sectionEl.offsetWidth
                 pinElHeight = sectionEl.offsetHeight
-                // Spacer covers section height + full pin range
-                scrollSpacer.style.setProperty("height", (pinElHeight + scrollLength + parentHeight) + "px")
+                // Spacer just needs scrollLength of scroll room
+                scrollSpacer.style.setProperty("height", scrollLength + "px")
 
                 // Check ancestors for overflow:clip/hidden that would clip
                 // the transform-pinned element
@@ -1360,22 +1379,25 @@ export default function PageChoreographer(props: any) {
                     }
                     ancestor = ancestor.parentElement
                 }
+            } else if (isFollower) {
+                // Follower: measure off the section for scroll range
+                // but don't pin anything
+                pinEl = parent
+                pinElWidth = parentWidth
+                pinElHeight = parentHeight
             } else {
                 pinEl = parent
                 pinElWidth = parentWidth
                 pinElHeight = parentHeight
                 scrollPinState.origStyles = parent.style.cssText
             }
-            scrollPinEl = pinEl
+            scrollPinEl = isFollower ? null : pinEl
 
-            // Measure pin range. The animation plays over scrollLength,
-            // but the section stays pinned for an extra parentHeight so
-            // the completed animation is visible within the frame bounds
-            // before the section slides off.
+            // Measure pin range.
             // Clamp to >= 0 — Framer's layout can report negative top
             // for the hero section due to DOM changes during setup
-            var pinStart = Math.max(0, (scrollSpacer ? pinEl : wrapper).getBoundingClientRect().top + window.scrollY)
-            var totalPinLength = scrollSpacer ? scrollLength + parentHeight : scrollLength
+            var pinStart = Math.max(0, (scrollSpacer ? pinEl : isFollower ? sectionEl : wrapper).getBoundingClientRect().top + window.scrollY)
+            var totalPinLength = scrollLength
             var pinEnd = pinStart + totalPinLength
             console.log("[choreo] MODE:", scrollSpacer ? "SPACER" : "WRAPPER",
                 "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName,
@@ -1519,31 +1541,34 @@ export default function PageChoreographer(props: any) {
             // ── Scroll handler (transform-based pinning) ──
             // Uses translateY instead of position:fixed so pinning works
             // even inside Framer's transform ancestors.
+            // Followers (second instance in same section) only scrub
+            // animations — the owner handles pinning.
             var handleScroll = function () {
                 if (!parent || !wrapper) return
 
                 var scrollY = window.scrollY
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
-                    // ── PINNED: keep element at viewport top via transform ──
+                    // ── PINNED ZONE ──
                     ensureScrollAnims()
 
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        unbakeAndRecreateAnims()
+                        if (!isFollower) unbakeAndRecreateAnims()
                     }
 
-                    var offset = scrollY - pinStart
-                    if (!scrollPinState.pinned) {
-                        console.log("[choreo] ENTERING PIN scrollY:", scrollY, "pinStart:", pinStart, "offset:", offset, "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName, "pinEl.style.transform BEFORE:", pinEl.style.transform, "MODE:", scrollSpacer ? "SPACER" : "WRAPPER")
-                        // Override overflow:clip/hidden on ancestors so
-                        // the translated section isn't clipped
-                        for (var oi = 0; oi < overflowAncestors.length; oi++) {
-                            overflowAncestors[oi].el.style.setProperty("overflow", "visible", "important")
+                    if (!isFollower) {
+                        var offset = scrollY - pinStart
+                        if (!scrollPinState.pinned) {
+                            console.log("[choreo] ENTERING PIN scrollY:", scrollY, "pinStart:", pinStart, "offset:", offset, "pinEl:", pinEl.getAttribute("data-framer-name") || pinEl.tagName, "MODE:", scrollSpacer ? "SPACER" : "WRAPPER")
+                            // Override overflow:clip/hidden on ancestors
+                            for (var oi = 0; oi < overflowAncestors.length; oi++) {
+                                overflowAncestors[oi].el.style.setProperty("overflow", "visible", "important")
+                            }
                         }
+                        pinEl.style.setProperty("transform", "translateY(" + offset + "px)", "important")
+                        pinEl.style.setProperty("z-index", "9999", "important")
                     }
-                    pinEl.style.setProperty("transform", "translateY(" + offset + "px)", "important")
-                    pinEl.style.setProperty("z-index", "9999", "important")
                     scrollPinState.pinned = true
 
                     var progress = (scrollY - pinStart) / scrollLength
@@ -1551,39 +1576,40 @@ export default function PageChoreographer(props: any) {
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
 
-                    // Play Once: bake when animation completes
                     if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
                         scrollPinState.completed = true
                         bakeAndCancelAnims()
                     }
 
                 } else if (scrollY < pinStart) {
-                    // ── BEFORE PIN: no transform ──
+                    // ── BEFORE PIN ──
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        unbakeAndRecreateAnims()
+                        if (!isFollower) unbakeAndRecreateAnims()
                     }
-                    if (scrollPinState.pinned) {
-                        scrollPinState.pinned = false
+                    if (scrollPinState.pinned && !isFollower) {
                         pinEl.style.removeProperty("transform")
                         pinEl.style.removeProperty("z-index")
-                        // Restore overflow on ancestors
                         for (var oi2 = 0; oi2 < overflowAncestors.length; oi2++) {
                             overflowAncestors[oi2].el.style.setProperty("overflow", overflowAncestors[oi2].orig)
                         }
                     }
+                    scrollPinState.pinned = false
                     updateAnimProgress(0)
 
                 } else {
-                    // ── AFTER PIN: hold at max offset, scrolls off naturally ──
-                    pinEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
-                    pinEl.style.removeProperty("z-index")
+                    // ── AFTER PIN ──
+                    if (!isFollower) {
+                        pinEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
+                        pinEl.style.removeProperty("z-index")
+                    }
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
-                        // Restore overflow on ancestors
-                        for (var oi3 = 0; oi3 < overflowAncestors.length; oi3++) {
-                            overflowAncestors[oi3].el.style.setProperty("overflow", overflowAncestors[oi3].orig)
+                        if (!isFollower) {
+                            for (var oi3 = 0; oi3 < overflowAncestors.length; oi3++) {
+                                overflowAncestors[oi3].el.style.setProperty("overflow", overflowAncestors[oi3].orig)
+                            }
                         }
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
@@ -1601,7 +1627,7 @@ export default function PageChoreographer(props: any) {
                     if (!wrapper || !parent) return
 
                     // Remove transform for accurate measurement
-                    pinEl.style.removeProperty("transform")
+                    if (!isFollower) pinEl.style.removeProperty("transform")
 
                     // Re-measure all dimensions
                     parentHeight = parent.offsetHeight
@@ -1610,8 +1636,7 @@ export default function PageChoreographer(props: any) {
                     if (scrollSpacer && sectionEl) {
                         pinElWidth = sectionEl.offsetWidth
                         pinElHeight = sectionEl.offsetHeight
-                        scrollSpacer.style.setProperty("height",
-                            (pinElHeight + scrollLength + parentHeight) + "px")
+                        scrollSpacer.style.setProperty("height", scrollLength + "px")
                     } else {
                         var wp = wrapper.parentElement
                         if (wp) {
@@ -1625,10 +1650,8 @@ export default function PageChoreographer(props: any) {
                     }
 
                     // Recalculate pin range
-                    totalPinLength = scrollSpacer
-                        ? scrollLength + parentHeight
-                        : scrollLength
-                    var measureEl = scrollSpacer ? pinEl : wrapper
+                    totalPinLength = scrollLength
+                    var measureEl = scrollSpacer ? pinEl : isFollower ? sectionEl : wrapper
                     pinStart = Math.max(0, measureEl.getBoundingClientRect().top + window.scrollY)
                     pinEnd = pinStart + totalPinLength
 
@@ -1690,10 +1713,13 @@ export default function PageChoreographer(props: any) {
             for (var oc = 0; oc < overflowAncestors.length; oc++) {
                 overflowAncestors[oc].el.style.setProperty("overflow", overflowAncestors[oc].orig)
             }
-            // Remove external spacer if present
+            // Remove external spacer and release section claim
             if (scrollSpacer && scrollSpacer.parentElement) {
                 scrollSpacer.parentElement.removeChild(scrollSpacer)
                 scrollSpacer = null
+            }
+            if (scrollSectionEl && scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
+                scrollSectionEl.removeAttribute("data-choreo-pin-owner")
             }
             // Remove transform pinning and unwrap
             if (scrollPinEl) {
