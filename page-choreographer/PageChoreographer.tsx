@@ -1381,19 +1381,16 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // Don't create animations on mount — elements stay visible in their
-            // natural state so the section doesn't appear as an empty gap.
-            // Animations are created lazily when the section approaches the
-            // viewport (via IO below) or when pinning first occurs.
+            // Create animations immediately on mount and pin at progress 0.
+            // Parent has explicit dimensions, so hidden children don't cause
+            // layout collapse or empty gaps.
             var scrollAnimsCreated = false
 
             var ensureScrollAnims = function () {
                 if (scrollAnimsCreated) return
                 scrollAnimsCreated = true
                 createScrollAnims()
-                // Don't call updateAnimProgress(0) here — that would hide
-                // elements immediately. Let the scroll handler set the
-                // correct progress right after calling this.
+                updateAnimProgress(0)
             }
 
             // Destroy animations so elements return to their natural
@@ -1407,6 +1404,9 @@ export default function PageChoreographer(props: any) {
                 scrollAnimFinalStyles = []
                 scrollAnimsCreated = false
             }
+
+            // Create animations now — elements start in "from" state
+            ensureScrollAnims()
 
             // Main scroll handler
             var handleScroll = function () {
@@ -1459,14 +1459,8 @@ export default function PageChoreographer(props: any) {
                     // ── BEFORE PIN: restore to normal flow ──
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        // Remove baked inline styles
-                        for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
-                            var ubItem = scrollAnimFinalStyles[ub]
-                            var ubKeys = Object.keys(ubItem.to)
-                            for (var ubk = 0; ubk < ubKeys.length; ubk++) {
-                                ubItem.el.style.removeProperty(ubKeys[ubk])
-                            }
-                        }
+                        // Remove baked inline styles and re-create WAAPI
+                        unbakeAndRecreateAnims()
                     }
                     if (scrollPinState.pinned) {
                         scrollPinState.pinned = false
@@ -1475,9 +1469,7 @@ export default function PageChoreographer(props: any) {
                         parent.style.setProperty("width", parentWidth + "px")
                         parent.style.setProperty("height", parentHeight + "px")
                     }
-                    // Destroy animations so elements return to natural visible state
-                    // (no "from" keyframe hiding them — prevents empty gap)
-                    destroyScrollAnims()
+                    updateAnimProgress(0)
 
                 } else {
                     // ── AFTER PIN: anchor to bottom of wrapper ──
