@@ -187,6 +187,7 @@ interface TargetEntry {
     sortPriority: number
     delayOffset: number
     mobileEnabled: boolean
+    trigger: string
     duration: number
     stagger: number
     easing: number[]
@@ -337,8 +338,10 @@ function createStore() {
             window.matchMedia("(prefers-reduced-motion: reduce)").matches
         var mobile = window.innerWidth < 768
 
+        // Only auto-play "onLoad" targets — "inView" targets are
+        // triggered independently by IntersectionObserver
         var eligible = getAllTargets().filter(function (t) {
-            return t.enterEnabled && (t.mobileEnabled || !mobile) && t.ref.current
+            return t.trigger === "onLoad" && t.enterEnabled && (t.mobileEnabled || !mobile) && t.ref.current
         })
 
         var groups = groupByGroupId(eligible)
@@ -491,6 +494,62 @@ function createStore() {
         })
     }
 
+    // ─── Play enter for a single group (used by IntersectionObserver) ───────
+
+    function playEnterGroup(groupId: string) {
+        var reduced =
+            window.matchMedia &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        var mobile = window.innerWidth < 768
+
+        var eligible = getAllTargets().filter(function (t) {
+            return t.groupId === groupId && t.enterEnabled &&
+                (t.mobileEnabled || !mobile) && t.ref.current
+        })
+
+        if (eligible.length === 0) return Promise.resolve()
+
+        var direction = eligible[0].staggerDirection
+        var sorted = sortTargets(eligible, direction)
+        var promises: Promise<any>[] = []
+
+        for (var i = 0; i < sorted.length; i++) {
+            var target = sorted[i]
+            var el = target.ref.current
+            if (!el) continue
+
+            var kf = reduced
+                ? { from: { opacity: "0" }, to: { opacity: "1" } }
+                : buildEnterKeyframes(target)
+
+            var stagger = reduced ? 0 : target.stagger
+            var delay = stagger * i + target.delayOffset
+            var dur = reduced ? 10 : target.duration * 1000
+
+            try {
+                var anim = el.animate([kf.from, kf.to], {
+                    duration: dur,
+                    delay: delay * 1000,
+                    easing: easingToCss(target.easing),
+                    fill: "both",
+                })
+                activeAnims.push(anim)
+
+                promises.push(
+                    anim.finished.then(
+                        (function (a) {
+                            return function () {
+                                try { a.cancel() } catch (e) {}
+                            }
+                        })(anim)
+                    )
+                )
+            } catch (e) {}
+        }
+
+        return Promise.all(promises)
+    }
+
     // ─── Link interception ───────────────────────────────────────────────────
 
     function setupLinkInterception(timeout: number) {
@@ -572,6 +631,7 @@ function createStore() {
         unregisterTarget: unregisterTarget,
         getTargetCount: getTargetCount,
         playEnter: playEnter,
+        playEnterGroup: playEnterGroup,
         playExit: playExit,
         cancelActive: cancelActive,
         setupLinkInterception: setupLinkInterception,
@@ -677,6 +737,8 @@ export default function PageChoreographer(props: any) {
         enterEnabled = true,
         exitEnabled = true,
         mobileEnabled = true,
+        trigger = "onLoad",
+        viewOffset = 100,
         sortPriority = 0,
         delayOffset = 0,
         duration = 0.6,
@@ -736,6 +798,7 @@ export default function PageChoreographer(props: any) {
                 sortPriority: sortPriority,
                 delayOffset: delayOffset,
                 mobileEnabled: mobileEnabled,
+                trigger: trigger,
                 duration: duration,
                 stagger: stagger,
                 easing: easing,
@@ -767,7 +830,11 @@ export default function PageChoreographer(props: any) {
         if (!store || !marker) return
 
         store.setupLinkInterception(exitTimeout)
-        store.scheduleEnter(enterDelay)
+
+        // Only schedule global enter for "onLoad" groups
+        if (trigger === "onLoad") {
+            store.scheduleEnter(enterDelay)
+        }
 
         var parent = findRealParent(marker)
         if (!parent) return
@@ -777,6 +844,7 @@ export default function PageChoreographer(props: any) {
         var targets = collectTargets(parent, marker, scanMode)
         registerElements(targets, store)
 
+        // MutationObserver for dynamic CMS content
         var observeTarget = parent
         if (scanMode === "cmsItems") {
             for (var i = 0; i < parent.children.length; i++) {
@@ -789,10 +857,10 @@ export default function PageChoreographer(props: any) {
             }
         }
 
-        var observer: MutationObserver | null = null
+        var mutObs: MutationObserver | null = null
         try {
             if (typeof MutationObserver !== "undefined") {
-                observer = new MutationObserver(function () {
+                mutObs = new MutationObserver(function () {
                     var s = getStore()
                     if (!s || !marker) return
                     var p = findRealParent(marker)
@@ -801,18 +869,48 @@ export default function PageChoreographer(props: any) {
                     var t = collectTargets(p, marker, scanMode)
                     registerElements(t, s)
                 })
-                observer.observe(observeTarget, { childList: true })
+                mutObs.observe(observeTarget, { childList: true })
             }
         } catch (e) {}
 
+        // IntersectionObserver for "inView" trigger
+        var intObs: IntersectionObserver | null = null
+        if (trigger === "inView" && typeof IntersectionObserver !== "undefined") {
+            var hasPlayed = false
+            try {
+                intObs = new IntersectionObserver(
+                    function (entries) {
+                        if (hasPlayed) return
+                        for (var e = 0; e < entries.length; e++) {
+                            if (entries[e].isIntersecting) {
+                                hasPlayed = true
+                                if (intObs) intObs.disconnect()
+                                var s = getStore()
+                                if (s) s.playEnterGroup(baseId)
+                                break
+                            }
+                        }
+                    },
+                    { rootMargin: "0px 0px " + viewOffset + "px 0px" }
+                )
+                // Observe the parent container so it triggers when the
+                // section scrolls into view
+                intObs.observe(parent)
+            } catch (e) {}
+        }
+
         return function () {
-            if (observer) {
-                try { observer.disconnect() } catch (e) {}
+            if (mutObs) {
+                try { mutObs.disconnect() } catch (e) {}
+            }
+            if (intObs) {
+                try { intObs.disconnect() } catch (e) {}
             }
             unregisterAll(getStore())
         }
     }, [
-        baseId, scanMode, enterPreset, exitPreset,
+        baseId, scanMode, trigger, viewOffset,
+        enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, delayOffset,
         mobileEnabled, duration, stagger,
         easingPreset, staggerDirection, distance, blurAmount,
@@ -848,6 +946,23 @@ addPropertyControls(PageChoreographer, {
         defaultValue: "cmsItems",
         options: ["siblings", "cmsItems"],
         optionTitles: ["Siblings", "CMS Items"],
+    },
+    trigger: {
+        type: ControlType.Enum,
+        title: "Trigger",
+        defaultValue: "onLoad",
+        options: ["onLoad", "inView"],
+        optionTitles: ["On Load", "In View"],
+    },
+    viewOffset: {
+        type: ControlType.Number,
+        title: "View Offset",
+        defaultValue: 100,
+        min: -200,
+        max: 500,
+        step: 10,
+        unit: "px",
+        hidden: function (props: any) { return props.trigger !== "inView" },
     },
 
     // ── Enter ────────────────────────────────────────────────────────────────
