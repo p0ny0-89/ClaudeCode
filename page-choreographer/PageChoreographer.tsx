@@ -93,11 +93,17 @@ function buildEnterKeyframes(t: TargetEntry) {
                 to: { opacity: "1", filter: "blur(0px)" },
             }
         case "maskReveal": {
-            var mFrom = "inset(0 100% 0 0)" // default: left to right
+            // inset(top right bottom left) — 100% = fully clipped on that edge
+            var s = Math.max(0, Math.min(100, 100 - (t.maskStart || 0))) // remaining mask %
+            var mFrom = "inset(0 " + s + "% 0 0)" // default: left to right
             switch (t.enterMaskDirection) {
-                case "right":  mFrom = "inset(0 0 0 100%)"; break
-                case "up":     mFrom = "inset(0 0 100% 0)"; break
-                case "down":   mFrom = "inset(100% 0 0 0)"; break
+                case "right":      mFrom = "inset(0 0 0 " + s + "%)"; break
+                case "up":         mFrom = "inset(0 0 " + s + "% 0)"; break
+                case "down":       mFrom = "inset(" + s + "% 0 0 0)"; break
+                case "topLeft":    mFrom = "inset(0 " + s + "% " + s + "% 0)"; break
+                case "topRight":   mFrom = "inset(0 0 " + s + "% " + s + "%)"; break
+                case "bottomLeft": mFrom = "inset(" + s + "% " + s + "% 0 0)"; break
+                case "bottomRight":mFrom = "inset(" + s + "% 0 0 " + s + "%)"; break
             }
             var enterFrom: any = { clipPath: mFrom }
             var enterTo: any = { clipPath: "inset(0 0 0 0)" }
@@ -186,9 +192,13 @@ function buildExitKeyframes(t: TargetEntry) {
         case "maskOut": {
             var mTo = "inset(0 0 0 100%)" // default: left to right
             switch (t.exitMaskDirection) {
-                case "right":  mTo = "inset(0 100% 0 0)"; break
-                case "up":     mTo = "inset(100% 0 0 0)"; break
-                case "down":   mTo = "inset(0 0 100% 0)"; break
+                case "right":      mTo = "inset(0 100% 0 0)"; break
+                case "up":         mTo = "inset(100% 0 0 0)"; break
+                case "down":       mTo = "inset(0 0 100% 0)"; break
+                case "topLeft":    mTo = "inset(0 100% 100% 0)"; break
+                case "topRight":   mTo = "inset(0 0 100% 100%)"; break
+                case "bottomLeft": mTo = "inset(100% 100% 0 0)"; break
+                case "bottomRight":mTo = "inset(100% 0 0 100%)"; break
             }
             var exitFrom: any = { clipPath: "inset(0 0 0 0)" }
             var exitTo: any = { clipPath: mTo }
@@ -238,6 +248,7 @@ interface TargetEntry {
     distance: number
     enterMaskDirection: string
     exitMaskDirection: string
+    maskStart: number
     maskShiftX: number
     maskShiftY: number
     maskOpacity: number
@@ -1035,6 +1046,7 @@ export default function PageChoreographer(props: any) {
         distance = 40,
         enterMaskDirection = "left",
         exitMaskDirection = "left",
+        maskStart = 0,
         maskShiftX = 0,
         maskShiftY = 0,
         maskOpacity = 1,
@@ -1105,6 +1117,7 @@ export default function PageChoreographer(props: any) {
                 distance: distance,
                 enterMaskDirection: enterMaskDirection,
                 exitMaskDirection: exitMaskDirection,
+                maskStart: maskStart,
                 maskShiftX: maskShiftX,
                 maskShiftY: maskShiftY,
                 maskOpacity: maskOpacity,
@@ -1765,7 +1778,7 @@ export default function PageChoreographer(props: any) {
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
         easingPreset, staggerDirection, distance,
-        enterMaskDirection, exitMaskDirection, maskShiftX, maskShiftY, maskOpacity, blurAmount,
+        enterMaskDirection, exitMaskDirection, maskStart, maskShiftX, maskShiftY, maskOpacity, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
         enterScale, enterRotateX, enterRotateY, enterRotateZ,
@@ -1904,8 +1917,8 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Enum,
         title: "↳ Direction",
         defaultValue: "left",
-        options: ["left", "right", "up", "down"],
-        optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top"],
+        options: ["left", "right", "up", "down", "topLeft", "topRight", "bottomLeft", "bottomRight"],
+        optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top", "↘ Top-Left", "↙ Top-Right", "↗ Bottom-Left", "↖ Bottom-Right"],
         hidden: function (props: any) {
             return props.enterEnabled === false || props.enterPreset !== "maskReveal"
         },
@@ -2043,8 +2056,8 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Enum,
         title: "↳ Direction",
         defaultValue: "left",
-        options: ["left", "right", "up", "down"],
-        optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top"],
+        options: ["left", "right", "up", "down", "topLeft", "topRight", "bottomLeft", "bottomRight"],
+        optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top", "↘ Top-Left", "↙ Top-Right", "↗ Bottom-Left", "↖ Bottom-Right"],
         hidden: function (props: any) {
             return props.exitEnabled === false || props.exitPreset !== "maskOut"
         },
@@ -2239,6 +2252,19 @@ addPropertyControls(PageChoreographer, {
         unit: "px",
         hidden: function (props: any) {
             return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
+        },
+    },
+    maskStart: {
+        type: ControlType.Number,
+        title: "Mask Start",
+        defaultValue: 0,
+        min: 0,
+        max: 100,
+        step: 5,
+        unit: "%",
+        description: "How much of the element is visible before the mask animation begins. 0% = fully masked, 50% = half visible.",
+        hidden: function (props: any) {
+            return props.enterPreset !== "maskReveal"
         },
     },
     maskOpacity: {
