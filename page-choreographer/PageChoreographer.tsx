@@ -1415,11 +1415,22 @@ export default function PageChoreographer(props: any) {
                 scrollAnimsCreated = false
             }
 
-            // Don't create animations on mount — sections visible on initial
-            // load should appear natural, not in the animation's "from" state.
-            // Animations are created lazily when entering the pin range.
+            // Decide whether to create animations now or lazily:
+            // - Sections BELOW the viewport: create eagerly so elements
+            //   start in their "from" state (hidden) — no flash when
+            //   scrolling to them.
+            // - Sections IN the viewport on load: don't create yet so
+            //   content appears natural. Animations created lazily when
+            //   the user actually scrolls into the pin range.
+            var wrapperRect = wrapper.getBoundingClientRect()
+            var sectionBelowViewport = wrapperRect.top >= window.innerHeight
 
-            // Main scroll handler — at pinEnd, switches directly from
+            if (sectionBelowViewport) {
+                ensureScrollAnims()
+                updateAnimProgress(0)
+            }
+
+            // Main scroll handler — at pinEnd, keeps position:fixed and
             // position:fixed to position:absolute. At exactly scrollY=pinEnd
             // both yield the same viewport position (top of viewport), so
             // there is no visual jump. The section remains visible and
@@ -1534,10 +1545,9 @@ export default function PageChoreographer(props: any) {
             scrollHandler = handleScroll
             window.addEventListener("scroll", handleScroll, { passive: true })
             // Only run initial handleScroll if page loaded mid-scroll
-            // (past the pin start). If section is at/above viewport top
-            // on load, don't trigger — let elements stay naturally visible
-            // until the user actually scrolls.
-            if (window.scrollY > pinStart) {
+            // AND section is below the viewport. Sections visible on load
+            // should stay natural until the user actually scrolls.
+            if (sectionBelowViewport && window.scrollY > pinStart) {
                 handleScroll()
             }
 
