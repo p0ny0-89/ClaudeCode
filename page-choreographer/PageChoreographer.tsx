@@ -1117,7 +1117,7 @@ addPropertyControls(PageChoreographer, {
     },
     enterPreset: {
         type: ControlType.Enum,
-        title: "Enter Style",
+        title: "Enter Effect",
         defaultValue: "fadeUp",
         options: [
             "fadeUp", "fadeDown", "fadeLeft", "fadeRight",
@@ -1246,7 +1246,7 @@ addPropertyControls(PageChoreographer, {
     },
     exitPreset: {
         type: ControlType.Enum,
-        title: "Exit Style",
+        title: "Exit Effect",
         defaultValue: "riseWave",
         options: [
             "riseWave", "fadeDown", "fadeLeft", "fadeRight",
