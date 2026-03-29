@@ -1502,7 +1502,7 @@ export default function PageChoreographer(props: any) {
                 // hidden until scroll progress > 0 to prevent flash
             }
 
-            var interactivityRestored = false
+            var interactiveState = false // true = pointer-events enabled
 
             var revealIfNeeded = function (progress: number) {
                 // Require actual scrolling (scrollY > 0) before revealing,
@@ -1513,7 +1513,7 @@ export default function PageChoreographer(props: any) {
                     preHiddenEls[ph].removeAttribute("data-choreo-hide")
                     preHiddenEls[ph].style.removeProperty("visibility")
                     preHiddenEls[ph].style.removeProperty("opacity")
-                    // Keep pointer-events: none until animation completes
+                    // Keep pointer-events: none until animation is near-complete
                     preHiddenEls[ph].style.setProperty("pointer-events", "none", "important")
                 }
                 // Remove the style tag — no longer needed
@@ -1523,11 +1523,20 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            var restoreInteractivity = function () {
-                if (interactivityRestored) return
-                interactivityRestored = true
-                for (var ri = 0; ri < preHiddenEls.length; ri++) {
-                    preHiddenEls[ri].style.removeProperty("pointer-events")
+            // Threshold-based pointer-events with hysteresis to prevent flicker.
+            // Enable at ≥0.9 (almost done), disable again only if ≤0.75 (scrolled back a lot).
+            var updateInteractivity = function (progress: number) {
+                if (!visibilityRevealed) return
+                if (!interactiveState && progress >= 0.9) {
+                    interactiveState = true
+                    for (var ri = 0; ri < preHiddenEls.length; ri++) {
+                        preHiddenEls[ri].style.removeProperty("pointer-events")
+                    }
+                } else if (interactiveState && progress <= 0.75) {
+                    interactiveState = false
+                    for (var ri2 = 0; ri2 < preHiddenEls.length; ri2++) {
+                        preHiddenEls[ri2].style.setProperty("pointer-events", "none", "important")
+                    }
                 }
             }
 
@@ -1565,11 +1574,11 @@ export default function PageChoreographer(props: any) {
                     var clampedProgress = Math.max(0, Math.min(1, progress))
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
+                    updateInteractivity(clampedProgress)
 
                     if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
                         scrollPinState.completed = true
                         bakeAndCancelAnims()
-                        restoreInteractivity()
                     }
 
                 } else if (scrollY < pinStart) {
@@ -1584,6 +1593,7 @@ export default function PageChoreographer(props: any) {
                     }
                     scrollPinState.pinned = false
                     updateAnimProgress(0)
+                    updateInteractivity(0)
 
                 } else {
                     // ── AFTER PIN ──
@@ -1600,7 +1610,7 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.pinned = false
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
-                        restoreInteractivity()
+                        updateInteractivity(1)
                     }
                 }
             }
