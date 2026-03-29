@@ -1291,6 +1291,16 @@ export default function PageChoreographer(props: any) {
             wrapper.appendChild(pinEl)
             scrollWrapper = wrapper
 
+            // Set explicit dimensions on pinEl so it retains its size
+            // inside the wrapper (pinEl may use flex:1/1fr which only
+            // works in its original flex parent, not inside our wrapper div)
+            pinEl.style.setProperty("width", pinElWidth + "px")
+            pinEl.style.setProperty("height", pinElHeight + "px")
+
+            // Save the "in-wrapper" styles — used when unpinning back to
+            // normal flow while still inside the wrapper
+            var inWrapperStyles = pinEl.style.cssText
+
             // Measure pin range after wrapper is in the DOM
             var pinStart = wrapper.getBoundingClientRect().top + window.scrollY
             var pinEnd = pinStart + scrollLength
@@ -1447,7 +1457,7 @@ export default function PageChoreographer(props: any) {
                     } else if (scrollY2 < pinStart) {
                         if (scrollPinState.pinned) {
                             scrollPinState.pinned = false
-                            pinEl.style.cssText = scrollPinState.origStyles
+                            pinEl.style.cssText = inWrapperStyles
                         }
                     } else {
                         if (!scrollPinState.pinned) {
@@ -1497,7 +1507,7 @@ export default function PageChoreographer(props: any) {
                     }
                     if (scrollPinState.pinned) {
                         scrollPinState.pinned = false
-                        pinEl.style.cssText = scrollPinState.origStyles
+                        pinEl.style.cssText = inWrapperStyles
                     }
                     updateAnimProgress(0)
 
