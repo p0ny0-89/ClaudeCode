@@ -99,7 +99,13 @@ function buildEnterKeyframes(t: TargetEntry) {
                 case "up":     mFrom = "inset(0 0 100% 0)"; break
                 case "down":   mFrom = "inset(100% 0 0 0)"; break
             }
-            return { from: { clipPath: mFrom }, to: { clipPath: "inset(0 0 0 0)" } }
+            var enterFrom: any = { clipPath: mFrom }
+            var enterTo: any = { clipPath: "inset(0 0 0 0)" }
+            if (t.maskShiftX !== 0 || t.maskShiftY !== 0) {
+                enterFrom.transform = "translateX(" + t.maskShiftX + "px) translateY(" + t.maskShiftY + "px)"
+                enterTo.transform = "translateX(0px) translateY(0px)"
+            }
+            return { from: enterFrom, to: enterTo }
         }
         case "fadeUp":
         default:
@@ -180,7 +186,13 @@ function buildExitKeyframes(t: TargetEntry) {
                 case "up":     mTo = "inset(100% 0 0 0)"; break
                 case "down":   mTo = "inset(0 0 100% 0)"; break
             }
-            return { from: { clipPath: "inset(0 0 0 0)" }, to: { clipPath: mTo } }
+            var exitFrom: any = { clipPath: "inset(0 0 0 0)" }
+            var exitTo: any = { clipPath: mTo }
+            if (t.maskShiftX !== 0 || t.maskShiftY !== 0) {
+                exitFrom.transform = "translateX(0px) translateY(0px)"
+                exitTo.transform = "translateX(" + (-t.maskShiftX) + "px) translateY(" + (-t.maskShiftY) + "px)"
+            }
+            return { from: exitFrom, to: exitTo }
         }
         case "scaleOut":
             return {
@@ -218,6 +230,8 @@ interface TargetEntry {
     distance: number
     enterMaskDirection: string
     exitMaskDirection: string
+    maskShiftX: number
+    maskShiftY: number
     blurAmount: number
     scaleFrom: number
     // Custom enter
@@ -991,6 +1005,8 @@ export default function PageChoreographer(props: any) {
         distance = 40,
         enterMaskDirection = "left",
         exitMaskDirection = "left",
+        maskShiftX = 0,
+        maskShiftY = 0,
         blurAmount = 8,
         scaleFrom = 0.92,
         exitTimeout = 3,
@@ -1058,6 +1074,8 @@ export default function PageChoreographer(props: any) {
                 distance: distance,
                 enterMaskDirection: enterMaskDirection,
                 exitMaskDirection: exitMaskDirection,
+                maskShiftX: maskShiftX,
+                maskShiftY: maskShiftY,
                 blurAmount: blurAmount,
                 scaleFrom: scaleFrom,
                 enterOpacity: enterOpacity,
@@ -1175,7 +1193,8 @@ export default function PageChoreographer(props: any) {
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
-        easingPreset, staggerDirection, distance, enterMaskDirection, exitMaskDirection, blurAmount,
+        easingPreset, staggerDirection, distance,
+        enterMaskDirection, exitMaskDirection, maskShiftX, maskShiftY, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
         enterScale, enterRotateX, enterRotateY, enterRotateZ,
@@ -1590,6 +1609,30 @@ addPropertyControls(PageChoreographer, {
             var enterUsesDistance = directionalEnter.indexOf(props.enterPreset) !== -1
             var exitUsesDistance = directionalExit.indexOf(props.exitPreset) !== -1
             return !enterUsesDistance && !exitUsesDistance
+        },
+    },
+    maskShiftX: {
+        type: ControlType.Number,
+        title: "Mask Shift X",
+        defaultValue: 0,
+        min: -200,
+        max: 200,
+        step: 1,
+        unit: "px",
+        hidden: function (props: any) {
+            return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
+        },
+    },
+    maskShiftY: {
+        type: ControlType.Number,
+        title: "Mask Shift Y",
+        defaultValue: 0,
+        min: -200,
+        max: 200,
+        step: 1,
+        unit: "px",
+        hidden: function (props: any) {
+            return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
         },
     },
     blurAmount: {
