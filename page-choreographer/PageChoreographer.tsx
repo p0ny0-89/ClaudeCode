@@ -1022,6 +1022,7 @@ export default function PageChoreographer(props: any) {
         viewOffset = 100,
         viewRepeat = false,
         scrollLength = 500,
+        scrollPin = true,
         scrollOnce = false,
         sortPriority = 0,
         priorityGap = 0,
@@ -1331,14 +1332,14 @@ export default function PageChoreographer(props: any) {
                 "parentHeight:", parentHeight, "scrollLength:", scrollLength)
 
             // ── Determine pin mode ──
-            // Always use spacer + sticky pinning on the section.
-            // "owner" = first instance to claim a section — creates spacer, applies sticky
-            // "follower" = section already claimed — just scrubs animations
-            var isFollower = sectionAlreadyClaimed
-            var isOwner = !isFollower
+            // When scrollPin is enabled: spacer + sticky pinning on the section.
+            // When disabled: section scrolls naturally, animation scrubs based on position.
+            var isFollower = scrollPin && sectionAlreadyClaimed
+            var isOwner = scrollPin && !isFollower
 
-            // Wrapper never needs extra height — scroll room is external (spacer)
-            wrapper.style.setProperty("height", parentHeight + "px")
+            // Wrapper height: parentHeight only when pinning (scroll room is external spacer)
+            // parentHeight + scrollLength when not pinning (wrapper provides scroll room internally)
+            wrapper.style.setProperty("height", scrollPin ? parentHeight + "px" : (parentHeight + scrollLength) + "px")
 
             if (isOwner && sectionEl) {
                 sectionEl.setAttribute("data-choreo-pin-owner", baseId)
@@ -1380,13 +1381,13 @@ export default function PageChoreographer(props: any) {
             scrollPinState.origStyles = parent.style.cssText
             scrollPinEl = pinEl
 
-            // Measure pin range from section top
-            var pinStart = sectionEl
+            // Measure pin/scroll range
+            var pinStart = (scrollPin && sectionEl)
                 ? Math.max(0, sectionEl.getBoundingClientRect().top + window.scrollY)
                 : Math.max(0, wrapper.getBoundingClientRect().top + window.scrollY)
             var totalPinLength = scrollLength
             var pinEnd = pinStart + totalPinLength
-            console.log("[choreo] MODE:", isOwner ? "OWNER" : "FOLLOWER",
+            console.log("[choreo] MODE:", scrollPin ? (isOwner ? "OWNER" : "FOLLOWER") : "NO-PIN",
                 "pinStart:", pinStart, "pinEnd:", pinEnd,
                 "sectionGrew:", sectionGrew,
                 "sectionEl:", sectionEl ? (sectionEl.getAttribute("data-framer-name") || sectionEl.tagName) : "null")
@@ -1637,7 +1638,7 @@ export default function PageChoreographer(props: any) {
                         parentWidth = wp.clientWidth
                     }
                     wrapper.style.setProperty("width", parentWidth + "px")
-                    wrapper.style.setProperty("height", parentHeight + "px")
+                    wrapper.style.setProperty("height", scrollPin ? parentHeight + "px" : (parentHeight + scrollLength) + "px")
                     pinElWidth = parentWidth
                     pinElHeight = parentHeight
 
@@ -1648,7 +1649,7 @@ export default function PageChoreographer(props: any) {
 
                     // Recalculate pin range
                     totalPinLength = scrollLength
-                    pinStart = sectionEl
+                    pinStart = (scrollPin && sectionEl)
                         ? Math.max(0, sectionEl.getBoundingClientRect().top + window.scrollY)
                         : Math.max(0, wrapper.getBoundingClientRect().top + window.scrollY)
                     pinEnd = pinStart + totalPinLength
@@ -1737,7 +1738,7 @@ export default function PageChoreographer(props: any) {
             unregisterAll(getStore())
         }
     }, [
-        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength, scrollOnce,
+        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength, scrollPin, scrollOnce,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
@@ -1813,6 +1814,13 @@ addPropertyControls(PageChoreographer, {
         step: 50,
         unit: "px",
         description: "How many pixels of scrolling to complete the animation. Section stays pinned during this distance.",
+        hidden: function (props: any) { return props.trigger !== "onScroll" },
+    },
+    scrollPin: {
+        type: ControlType.Boolean,
+        title: "Pin Section",
+        defaultValue: true,
+        description: "When enabled, the section stays pinned (sticky) while the scroll animation plays. When disabled, the section scrolls naturally while the animation scrubs.",
         hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     scrollOnce: {
