@@ -1048,6 +1048,7 @@ export default function PageChoreographer(props: any) {
         exitMaskDirection = "left",
         maskStart = 0,
         maskPreview = false,
+        maskViewportClip = false,
         maskShiftX = 0,
         maskShiftY = 0,
         maskOpacity = 1,
@@ -1594,6 +1595,26 @@ export default function PageChoreographer(props: any) {
             ensureScrollAnims()
             updateAnimProgress(0)
 
+            // ── Viewport clip helper ──
+            // Clips the wrapper to viewport bounds so the mask reveal
+            // aligns with the viewport edge as the element scrolls in.
+            var updateViewportClip = function () {
+                if (!maskViewportClip || !wrapper) return
+                var wRect = wrapper.getBoundingClientRect()
+                var vpH = window.innerHeight
+                var vpW = window.innerWidth
+                var clipTop = Math.max(0, Math.round(-wRect.top))
+                var clipRight = Math.max(0, Math.round(wRect.right - vpW))
+                var clipBottom = Math.max(0, Math.round(wRect.bottom - vpH))
+                var clipLeft = Math.max(0, Math.round(-wRect.left))
+                if (clipTop === 0 && clipRight === 0 && clipBottom === 0 && clipLeft === 0) {
+                    wrapper.style.removeProperty("clip-path")
+                } else {
+                    wrapper.style.setProperty("clip-path",
+                        "inset(" + clipTop + "px " + clipRight + "px " + clipBottom + "px " + clipLeft + "px)", "important")
+                }
+            }
+
             // ── Scroll handler ──
             // Sticky handles the visual pinning (zero jitter). The scroll
             // handler only scrubs animation progress and manages the
@@ -1625,6 +1646,7 @@ export default function PageChoreographer(props: any) {
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
+                    updateViewportClip()
 
                     if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
                         scrollPinState.completed = true
@@ -1644,6 +1666,7 @@ export default function PageChoreographer(props: any) {
                     scrollPinState.pinned = false
                     updateAnimProgress(0)
                     updateInteractivity(0)
+                    updateViewportClip()
 
                 } else {
                     // ── AFTER PIN ──
@@ -1661,6 +1684,7 @@ export default function PageChoreographer(props: any) {
                         updateAnimProgress(1)
                         bakeAndCancelAnims()
                         updateInteractivity(1)
+                        updateViewportClip()
                     }
                 }
             }
@@ -1801,7 +1825,7 @@ export default function PageChoreographer(props: any) {
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
         easingPreset, staggerDirection, distance,
-        enterMaskDirection, exitMaskDirection, maskStart, maskPreview, maskShiftX, maskShiftY, maskOpacity, blurAmount,
+        enterMaskDirection, exitMaskDirection, maskStart, maskPreview, maskViewportClip, maskShiftX, maskShiftY, maskOpacity, blurAmount,
         scaleFrom, exitTimeout, enterDelay,
         enterOpacity, enterOffsetX, enterOffsetY,
         enterScale, enterRotateX, enterRotateY, enterRotateZ,
@@ -2297,6 +2321,15 @@ addPropertyControls(PageChoreographer, {
         description: "When enabled, shows the element at its Mask Start percentage on mount instead of hiding it until the scroll animation begins.",
         hidden: function (props: any) {
             return props.enterPreset !== "maskReveal" || (props.maskStart || 0) <= 0 || props.trigger !== "onScroll"
+        },
+    },
+    maskViewportClip: {
+        type: ControlType.Boolean,
+        title: "↳ Viewport Clip",
+        defaultValue: false,
+        description: "Clips the reveal to the viewport edge so the mask aligns with the screen boundary as the element scrolls into view.",
+        hidden: function (props: any) {
+            return props.enterPreset !== "maskReveal" || props.trigger !== "onScroll"
         },
     },
     maskOpacity: {
