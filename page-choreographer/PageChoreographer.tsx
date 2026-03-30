@@ -928,27 +928,32 @@ function findSection(el: HTMLElement): HTMLElement {
     var vh = window.innerHeight
     var node = el
     var heuristicCandidate: HTMLElement | null = null
+    var namedCandidate: HTMLElement | null = null
 
     while (node.parentElement) {
-        // Framer sections have data-framer-name — best signal
-        if (node.getAttribute("data-framer-name") != null) {
-            return node
+        // Framer sections have data-framer-name — good signal, but
+        // reject page-level containers that are much taller than the
+        // viewport (e.g. "main" wrapping the entire page).
+        if (node.getAttribute("data-framer-name") != null && !namedCandidate) {
+            if (node.offsetHeight <= vh * 2.5) {
+                namedCandidate = node
+            }
+            // If too tall, skip — keep looking for a smaller named ancestor
         }
 
         var siblingCount = node.parentElement.children.length
         if (siblingCount >= 3 && !heuristicCandidate) {
             // Only accept if the candidate isn't the entire page
-            // (page containers are usually taller than 2× viewport)
             if (node.offsetHeight < vh * 2) {
                 heuristicCandidate = node
             }
-            // Keep walking — a data-framer-name ancestor is better
         }
 
         node = node.parentElement
     }
 
-    return heuristicCandidate || el
+    // Prefer named section, fall back to heuristic, then starting element
+    return namedCandidate || heuristicCandidate || el
 }
 
 function isMarkerBranch(el: HTMLElement, marker: HTMLElement): boolean {
