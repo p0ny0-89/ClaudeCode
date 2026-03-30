@@ -1166,19 +1166,21 @@ function collectTargets(
         console.log("[choreo]   Masonry column?", isMasonryColumn, colParent ? "parent-children:" + colParent.children.length : "no-parent")
 
         if (isMasonryColumn) {
-            // Masonry: collect items from ALL sibling columns
+            // Masonry: collect items from ALL sibling columns.
+            // Include ALL items (even the one containing this marker)
+            // so every item is targeted regardless of which instance
+            // finds it.  Identical animations from multiple instances
+            // compose harmlessly for scroll-driven animations.
             for (var mc = 0; mc < colParent!.children.length; mc++) {
                 var column = colParent!.children[mc] as HTMLElement
                 for (var mi = 0; mi < column.children.length; mi++) {
-                    var mItem = column.children[mi] as HTMLElement
-                    if (!isMarkerBranch(mItem, marker)) result.push(mItem)
+                    result.push(column.children[mi] as HTMLElement)
                 }
             }
         } else {
             // Single collection — use its children as targets
             for (var cj = 0; cj < cmsAncestor.children.length; cj++) {
-                var cmsChild = cmsAncestor.children[cj] as HTMLElement
-                if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
+                result.push(cmsAncestor.children[cj] as HTMLElement)
             }
         }
     } else {
@@ -1215,12 +1217,11 @@ function collectTargets(
 
         if (masonryGrid) {
             console.log("[choreo]   Masonry grid fallback found, columns:", masonryGrid.children.length)
-            // Collect items from all columns
+            // Collect items from all columns (include all, even marker branch)
             for (var gc = 0; gc < masonryGrid.children.length; gc++) {
                 var gCol = masonryGrid.children[gc] as HTMLElement
                 for (var gi = 0; gi < gCol.children.length; gi++) {
-                    var gItem = gCol.children[gi] as HTMLElement
-                    if (!isMarkerBranch(gItem, marker)) result.push(gItem)
+                    result.push(gCol.children[gi] as HTMLElement)
                 }
             }
         } else {
@@ -1427,23 +1428,6 @@ export default function PageChoreographer(props: any) {
         unregisterAll(store)
 
         var targets = collectTargets(parent, marker, scanMode, excludeSelector, splitText)
-
-        // Claim mechanism: prevent multiple instances from animating
-        // the same element.  In CMS layouts each item has its own
-        // PageChoreographer instance, and cross-column collection means
-        // many instances can target the same element.  Multiple scroll
-        // animations on one element cause conflicts (card stuck visible,
-        // stagger mismatch).  First instance to claim an element wins.
-        var claimedTargets: HTMLElement[] = []
-        for (var ct = 0; ct < targets.length; ct++) {
-            var tgt = targets[ct]
-            if (!tgt.hasAttribute("data-choreo-owner")) {
-                tgt.setAttribute("data-choreo-owner", baseId)
-                claimedTargets.push(tgt)
-            }
-        }
-        targets = claimedTargets
-
         registerElements(targets, store)
 
         // Delayed re-scan: masonry/grid layouts restructure the DOM
@@ -1599,6 +1583,21 @@ export default function PageChoreographer(props: any) {
             var parentWidth = parent.offsetWidth
             var parentGP = parent.parentElement
 
+            // ── Early section ownership check ──
+            // In CMS layouts, multiple instances share the same section.
+            // Only the FIRST instance (pin owner) should create scroll
+            // infrastructure (wrapper, spacer, animations).  Follower
+            // instances bail out entirely — their items are already
+            // targeted by the owner via inclusive collection (no
+            // isMarkerBranch filtering).  This prevents followers from
+            // creating wrappers with overflow:hidden that clip content.
+            var earlySection = parentGP ? findSection(parentGP) : parentGP!
+            if (scrollPin && earlySection && earlySection.hasAttribute("data-choreo-pin-owner")) {
+                // Another instance already owns this section — bail out.
+                // That owner's animations cover all items including ours.
+                return
+            }
+
             // ── Create wrapper inside the section ──
             var wrapper = document.createElement("div")
 
@@ -1655,7 +1654,7 @@ export default function PageChoreographer(props: any) {
 
             // Find the actual section element (e.g. Hero) that has
             // the background — this may be above parentGP
-            var sectionEl = parentGP ? findSection(parentGP) : parentGP!
+            var sectionEl = earlySection
             scrollSectionEl = sectionEl
 
             // Check if the SECTION (Hero) expanded to fit the wrapper.
@@ -1664,18 +1663,15 @@ export default function PageChoreographer(props: any) {
             var neededHeight = parentHeight + scrollLength
             var sectionGrew = sectionEl.offsetHeight >= neededHeight * 0.98
 
-            // Deduplication: if another Page Choreographer instance already
-            // claimed this section for spacer-mode pinning, this instance
-            // should NOT create a second spacer or try to pin the section.
-            // Instead it joins the existing pin (wrapper mode, no section pin).
-            var sectionAlreadyClaimed = sectionEl.hasAttribute("data-choreo-pin-owner")
+            // Section is not yet claimed — this instance is the owner
+            var sectionAlreadyClaimed = false
 
 
             // ── Determine pin mode ──
             // When scrollPin is enabled: spacer + sticky pinning on the section.
             // When disabled: section scrolls naturally, animation scrubs based on position.
-            var isFollower = scrollPin && sectionAlreadyClaimed
-            var isOwner = scrollPin && !isFollower
+            var isFollower = false
+            var isOwner = scrollPin
 
             // No fixed height on wrapper — let content size it naturally.
             // This prevents gaps when responsive content changes height.
@@ -2170,17 +2166,6 @@ export default function PageChoreographer(props: any) {
                 scrollWrapper.parentElement.removeChild(scrollWrapper)
             }
             scrollPinEl = null
-            // Release element claims so other instances can re-claim
-            // on re-render (e.g. resize, prop change)
-            if (typeof targets !== "undefined") {
-                for (var rc = 0; rc < targets.length; rc++) {
-                    try {
-                        if (targets[rc].getAttribute("data-choreo-owner") === baseId) {
-                            targets[rc].removeAttribute("data-choreo-owner")
-                        }
-                    } catch (e) {}
-                }
-            }
             unregisterAll(getStore())
         }
     }, [
