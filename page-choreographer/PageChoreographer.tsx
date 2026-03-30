@@ -1029,7 +1029,9 @@ function collectTargets(
     if (scanMode === "siblings" || scanMode === "cmsItems" || scanMode === "cmsNested") {
         var walkNode: HTMLElement | null = marker.parentElement
         var maxWalk = 15
+        var walkDepth = 0
         while (walkNode && maxWalk > 0) {
+            walkDepth++
             var wChildren: HTMLElement[] = []
             for (var wc = 0; wc < walkNode.children.length; wc++) {
                 var wChild = walkNode.children[wc] as HTMLElement
@@ -1096,7 +1098,9 @@ function collectTargets(
                 // its own Page Choreographer instance, finding just the
                 // column siblings is enough — all instances together cover
                 // every item. Only use this if no strict match was found.
-                if (!detected && wChildren.length >= 2 && !cmsAncestor) {
+                // Require depth ≥ 2 to skip the card's own content level
+                // (Image, Title, etc.) and only match at the column level.
+                if (!detected && wChildren.length >= 2 && !cmsAncestor && walkDepth >= 2) {
                     // Require children to at least share the same tag
                     var fallbackTag = wChildren[0].tagName
                     var sameTag = true
