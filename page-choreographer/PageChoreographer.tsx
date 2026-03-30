@@ -1028,12 +1028,23 @@ function collectTargets(
     if (scanMode === "siblings" || scanMode === "cmsItems" || scanMode === "cmsNested") {
         var walkNode: HTMLElement | null = marker.parentElement
         var maxWalk = 15
+        var walkDepth = 0
         while (walkNode && maxWalk > 0) {
             var wChildren: HTMLElement[] = []
             for (var wc = 0; wc < walkNode.children.length; wc++) {
                 var wChild = walkNode.children[wc] as HTMLElement
                 if (!isMarkerBranch(wChild, marker)) wChildren.push(wChild)
             }
+            // Debug: log each ancestor level
+            var childNames = wChildren.slice(0, 5).map(function(c) {
+                return c.tagName + "[" + (c.getAttribute("data-framer-name") || "?") + "] ch=" + c.children.length
+            })
+            console.log("[choreo] walk depth=" + walkDepth,
+                "node=" + walkNode.tagName + "[" + (walkNode.getAttribute("data-framer-name") || "?") + "]",
+                "nonMarkerChildren=" + wChildren.length,
+                "children:", childNames.join(", "))
+            walkDepth++
+
             if (wChildren.length >= 2) {
                 // Strategy 1: direct children share data-framer-name
                 var directName = wChildren[0].getAttribute("data-framer-name")
@@ -1082,6 +1093,7 @@ function collectTargets(
             var cmsChild = cmsAncestor.children[cj] as HTMLElement
             if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
         }
+        console.log("[choreo] CMS detected:", cmsAncestor.tagName + "[" + (cmsAncestor.getAttribute("data-framer-name") || "?") + "]", "targets:", result.length)
     } else {
         // No CMS collection found — fall back to direct siblings
         for (var k = 0; k < parent.children.length; k++) {
@@ -1089,6 +1101,7 @@ function collectTargets(
             if (isMarkerBranch(el, marker)) continue
             result.push(el)
         }
+        console.log("[choreo] Fallback siblings, parent:", parent.tagName + "[" + (parent.getAttribute("data-framer-name") || "?") + "]", "targets:", result.length)
     }
     // Filter out elements whose layer name matches any excluded name.
     // User types comma-separated layer names like "Load More, Footer".
