@@ -2234,6 +2234,8 @@ export default function PageChoreographer(props: any) {
             // Clips the wrapper to viewport bounds so the mask reveal
             // aligns with the viewport edge as the element scrolls in.
             var vpClipPad = maskViewportPadding || 0
+            var animFullyRevealed = false
+
             var updateViewportClip = function () {
                 if (!maskViewportClip || !wrapper) return
                 var wRect = wrapper.getBoundingClientRect()
@@ -2245,11 +2247,16 @@ export default function PageChoreographer(props: any) {
                 var overflowBottom = Math.max(0, wRect.bottom - vpH)
                 var overflowLeft = Math.max(0, -wRect.left)
                 // Padding-based clips (inset from viewport edge into the element)
-                // Only apply padding on sides where the element reaches/extends to the viewport edge
-                var padTop = (wRect.top <= vpClipPad) ? Math.max(0, vpClipPad - wRect.top) : 0
-                var padRight = (wRect.right >= vpW - vpClipPad) ? Math.max(0, vpClipPad - (vpW - wRect.right)) : 0
-                var padBottom = (wRect.bottom >= vpH - vpClipPad) ? Math.max(0, vpClipPad - (vpH - wRect.bottom)) : 0
-                var padLeft = (wRect.left <= vpClipPad) ? Math.max(0, vpClipPad - wRect.left) : 0
+                // Only apply while animation is in progress — once fully
+                // revealed the padding clip would fight the element's
+                // designed padding, causing a visual jump.
+                var padTop = 0, padRight = 0, padBottom = 0, padLeft = 0
+                if (!animFullyRevealed) {
+                    padTop = (wRect.top <= vpClipPad) ? Math.max(0, vpClipPad - wRect.top) : 0
+                    padRight = (wRect.right >= vpW - vpClipPad) ? Math.max(0, vpClipPad - (vpW - wRect.right)) : 0
+                    padBottom = (wRect.bottom >= vpH - vpClipPad) ? Math.max(0, vpClipPad - (vpH - wRect.bottom)) : 0
+                    padLeft = (wRect.left <= vpClipPad) ? Math.max(0, vpClipPad - wRect.left) : 0
+                }
                 // Use whichever is larger: overflow clip or padding clip
                 var clipTop = Math.round(Math.max(overflowTop, padTop))
                 var clipRight = Math.round(Math.max(overflowRight, padRight))
@@ -2289,13 +2296,8 @@ export default function PageChoreographer(props: any) {
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
-                    // Only apply viewport clip while animation is in progress —
-                    // once fully revealed, clear it so the mask doesn't continue
-                    if (clampedProgress >= 1) {
-                        if (wrapper) wrapper.style.removeProperty("clip-path")
-                    } else {
-                        updateViewportClip()
-                    }
+                    animFullyRevealed = clampedProgress >= 1
+                    updateViewportClip()
 
                     if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
                         scrollPinState.completed = true
@@ -2309,6 +2311,7 @@ export default function PageChoreographer(props: any) {
                         unbakeAndRecreateAnims()
                     }
                     scrollPinState.pinned = false
+                    animFullyRevealed = false
                     updateAnimProgress(0)
                     updateInteractivity(0)
                     updateViewportClip()
@@ -2321,12 +2324,11 @@ export default function PageChoreographer(props: any) {
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
+                        animFullyRevealed = true
                         updateAnimProgress(1)
                         releaseAnimatedElements(true)
-                        // Clear any viewport clip — animation is done,
-                        // mask should stay in its fully-revealed state
-                        if (wrapper) wrapper.style.removeProperty("clip-path")
                     }
+                    updateViewportClip()
                 }
             }
 
