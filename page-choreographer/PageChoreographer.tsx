@@ -1491,6 +1491,16 @@ export default function PageChoreographer(props: any) {
         var targets = collectTargets(parent, marker, scanMode, excludeSelector, splitText)
         registerElements(targets, store)
 
+        // ── Diagnostic logging ──
+        var markerName = marker.parentElement?.getAttribute("data-framer-name") ||
+            marker.parentElement?.parentElement?.getAttribute("data-framer-name") || "?"
+        console.log("[Choreo:" + markerName + "] parent=" +
+            (parent.getAttribute("data-framer-name") || parent.tagName) +
+            " targets=" + targets.length + " → [" +
+            targets.map(function (t) {
+                return t.getAttribute("data-framer-name") || t.tagName
+            }).join(", ") + "]")
+
         // Delayed re-scan: masonry/grid layouts restructure the DOM
         // after initial render.  If re-scan finds MORE targets, force
         // the entire useEffect to re-run (via state update) so the full
@@ -1629,8 +1639,11 @@ export default function PageChoreographer(props: any) {
             if (scrollPin && earlySection && earlySection.hasAttribute("data-choreo-pin-owner")) {
                 // Another instance already owns this section — bail out.
                 // That owner's animations cover all items including ours.
+                console.log("[Choreo:" + markerName + "] BAIL OUT — section already owned")
                 return
             }
+
+            console.log("[Choreo:" + markerName + "] scroll owner — setting up scroll with " + targets.length + " targets, scrollPin=" + scrollPin)
 
             // ── onScroll pre-hiding ──
             // Now that we know this instance owns the section (not bailing
