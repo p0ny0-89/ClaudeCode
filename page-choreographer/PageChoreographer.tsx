@@ -2134,8 +2134,10 @@ export default function PageChoreographer(props: any) {
 
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        // Clear the slide-away transform and z-index
+                        // Restore sticky positioning when scrolling back into pin zone
                         if (isOwner && sectionEl) {
+                            sectionEl.style.setProperty("position", "sticky", "important")
+                            sectionEl.style.setProperty("top", "0px", "important")
                             sectionEl.style.removeProperty("transform")
                             sectionEl.style.removeProperty("z-index")
                         }
@@ -2161,6 +2163,8 @@ export default function PageChoreographer(props: any) {
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
                         if (isOwner && sectionEl) {
+                            sectionEl.style.setProperty("position", "sticky", "important")
+                            sectionEl.style.setProperty("top", "0px", "important")
                             sectionEl.style.removeProperty("transform")
                             sectionEl.style.removeProperty("z-index")
                         }
@@ -2173,25 +2177,20 @@ export default function PageChoreographer(props: any) {
 
                 } else {
                     // ── AFTER PIN ──
-                    // Keep the section sticky but slide it away with a
-                    // negative translateY.  Transforms don't affect layout,
-                    // so no scroll-anchoring oscillation.
+                    // Pin phase is over.  Remove sticky so the section
+                    // returns to normal document flow and scrolls away
+                    // naturally.  The spacer provides enough scroll room
+                    // that the section is already above the viewport.
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
                         updateAnimProgress(1)
                         releaseAnimatedElements(true)
-                    }
-                    // Continuously update the slide-away offset.
-                    // Set z-index:-1 so the section slides BEHIND previous
-                    // siblings instead of overlaying on top of them.
-                    // position:sticky creates a stacking context that would
-                    // otherwise render above earlier siblings.
-                    if (isOwner && sectionEl) {
-                        var slideOffset = scrollY - pinEnd
-                        sectionEl.style.setProperty("transform",
-                            "translateY(-" + slideOffset + "px)", "important")
-                        sectionEl.style.setProperty("z-index", "-1", "important")
+                        // Drop out of sticky — no more overlap
+                        if (isOwner && sectionEl) {
+                            sectionEl.style.removeProperty("position")
+                            sectionEl.style.removeProperty("top")
+                        }
                     }
                     updateViewportClip()
                 }
