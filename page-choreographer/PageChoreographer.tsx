@@ -1631,6 +1631,9 @@ export default function PageChoreographer(props: any) {
             // findSection to return a page-level container (e.g. "main")
             // which pins the entire page instead of just the target section.
             var earlySection = findSection(parent)
+            console.log("[Choreo] findSection: parent=" + (parent.getAttribute("data-framer-name") || parent.tagName) +
+                " → section=" + (earlySection.getAttribute("data-framer-name") || earlySection.tagName) +
+                " sectionH=" + earlySection.offsetHeight + " vh=" + window.innerHeight)
             if (scrollPin && earlySection && earlySection.hasAttribute("data-choreo-pin-owner")) {
                 // Another instance already owns this section — bail out.
                 // That owner's animations cover all items including ours.
