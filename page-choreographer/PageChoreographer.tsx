@@ -1699,9 +1699,13 @@ export default function PageChoreographer(props: any) {
                 }
                 scrollSpacer = spacer
 
-                // Walk UP from section, set overflow:visible on ancestors
-                // with clip/hidden so position:sticky works
-                var overflowNode = sectionEl.parentElement
+                // Walk UP from section (INCLUDING the section itself),
+                // set overflow:visible on elements with clip/hidden so
+                // position:sticky works and animated items aren't clipped.
+                // Starting from sectionEl (not .parentElement) fixes CMS
+                // grid/masonry layouts where Framer sets overflow on the
+                // section — position:sticky creates a clipping context.
+                var overflowNode: HTMLElement | null = sectionEl
                 while (overflowNode && overflowNode !== document.documentElement) {
                     var ov = window.getComputedStyle(overflowNode).overflow
                     if (ov === "clip" || ov === "hidden") {
