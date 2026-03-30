@@ -1210,6 +1210,10 @@ export default function PageChoreographer(props: any) {
     var markerRef = React.useRef(null) as React.MutableRefObject<HTMLDivElement | null>
     var baseId = useStableGroupId()
     var registeredIds = React.useRef<string[]>([])
+    var initialTargetCount = React.useRef(0)
+    var rescanState = React.useState(0)
+    var rescanGeneration = rescanState[0]
+    var setRescanGeneration = rescanState[1]
 
     function unregisterAll(store: any) {
         if (!store) return
@@ -1300,19 +1304,21 @@ export default function PageChoreographer(props: any) {
         registerElements(targets, store)
 
         // Delayed re-scan: masonry/grid layouts restructure the DOM
-        // after initial render.  Re-collect targets after a short delay
-        // to catch the final layout.  Only update if we find MORE targets.
+        // after initial render.  If re-scan finds MORE targets, force
+        // the entire useEffect to re-run (via state update) so the full
+        // pipeline (pre-hiding, triggers, animations) is rebuilt.
+        initialTargetCount.current = targets.length
         var rescanTimer = setTimeout(function () {
             if (!marker || !marker.parentElement) return
             var p2 = findRealParent(marker)
             if (!p2) return
             var t2 = collectTargets(p2, marker, scanMode, excludeSelector, splitText)
-            if (t2.length > targets.length) {
-                unregisterAll(store)
-                registerElements(t2, store)
-                targets = t2
+            if (t2.length > initialTargetCount.current) {
+                // Force full useEffect re-run — cleanup runs first,
+                // then new setup with correct targets
+                setRescanGeneration(function (g: number) { return g + 1 })
             }
-        }, 300)
+        }, 400)
 
         // Pre-hide elements that will animate in (inView / onLoad) so they
         // don't flash visible before the animation starts. Only in preview —
@@ -2024,6 +2030,7 @@ export default function PageChoreographer(props: any) {
             unregisterAll(getStore())
         }
     }, [
+        rescanGeneration,
         baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength, scrollStart, scrollPin, scrollOnce,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
