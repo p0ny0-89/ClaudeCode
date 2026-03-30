@@ -1836,9 +1836,6 @@ export default function PageChoreographer(props: any) {
                 pinContainer.appendChild(spacer)
                 scrollSpacer = spacer
 
-                // Collapse the spacer's layout contribution so it
-                // doesn't create a visible gap between sections.
-                pinContainer.style.setProperty("margin-bottom", "-" + scrollLength + "px", "important")
 
                 // Walk UP from section (INCLUDING the section itself),
                 // fix any CSS property that creates a clipping context.
