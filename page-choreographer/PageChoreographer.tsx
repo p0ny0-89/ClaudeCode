@@ -1548,6 +1548,8 @@ export default function PageChoreographer(props: any) {
                     for (var k = 0; k < keys.length; k++) {
                         item.el.style.setProperty(keys[k], item.to[keys[k]])
                     }
+                    // Animations done — unblock hover
+                    item.el.style.removeProperty("pointer-events")
                 }
                 for (var ca = 0; ca < scrollAnims.length; ca++) {
                     try { scrollAnims[ca].cancel() } catch (e) {}
@@ -1567,6 +1569,7 @@ export default function PageChoreographer(props: any) {
                 releasedIndices = {}
                 scrollAnimsCreated = false
                 ensureScrollAnims()
+                blockAnimatedPointerEvents()
             }
 
             var updateAnimProgress = function (progress: number) {
@@ -1649,9 +1652,20 @@ export default function PageChoreographer(props: any) {
                                 // Element reverts to CSS state = final frame.
                                 releasedIndices[ai] = true
                                 try { anim.cancel() } catch (e) {}
+                                // Unblock pointer-events so hover effects work
+                                finalStyle.el.style.removeProperty("pointer-events")
                             }
                         }
                     } catch (e) {}
+                }
+            }
+
+            // Block pointer-events on all animated elements to prevent
+            // Framer hover effects from conflicting with active animations.
+            // Unblocked per-element when its animation is released (98%).
+            var blockAnimatedPointerEvents = function () {
+                for (var bp = 0; bp < scrollAnimFinalStyles.length; bp++) {
+                    scrollAnimFinalStyles[bp].el.style.setProperty("pointer-events", "none", "important")
                 }
             }
 
@@ -1672,12 +1686,14 @@ export default function PageChoreographer(props: any) {
                     releasedIndices = {}
                     scrollAnimsCreated = false
                     ensureScrollAnims()
+                    blockAnimatedPointerEvents()
                     updateAnimProgress(progress)
                 }
             }
 
             // Create animations eagerly so they're ready for scroll
             ensureScrollAnims()
+            blockAnimatedPointerEvents()
             updateAnimProgress(0)
 
             // ── Viewport clip helper ──
@@ -1893,6 +1909,10 @@ export default function PageChoreographer(props: any) {
             }
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
+            }
+            // Restore pointer-events on animated elements
+            for (var pe = 0; pe < scrollAnimFinalStyles.length; pe++) {
+                try { scrollAnimFinalStyles[pe].el.style.removeProperty("pointer-events") } catch (e) {}
             }
             // Restore overflow on ancestors
             for (var oc = 0; oc < scrollOverflowAncestors.length; oc++) {
