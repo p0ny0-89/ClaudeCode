@@ -997,7 +997,12 @@ function collectTargets(
     splitText?: boolean
 ): HTMLElement[] {
     var result: HTMLElement[] = []
-    if (scanMode === "cmsItems") {
+    if (scanMode === "cmsItems" || scanMode === "cmsNested") {
+        // Smart CMS mode: try downward search first, then fall back
+        // to upward search if not enough targets found.
+
+        // 1. Try DOWNWARD: find the node with the most children
+        //    (works when component is a sibling of CMS items)
         var listNode = findNodeWithMostChildren(parent, marker)
         if (listNode) {
             for (var j = 0; j < listNode.children.length; j++) {
@@ -1005,32 +1010,33 @@ function collectTargets(
                 if (!isMarkerBranch(child, marker)) result.push(child)
             }
         }
-    } else if (scanMode === "cmsNested") {
-        // Component is nested INSIDE a CMS item. Walk UP from parent
-        // to find the CMS collection list (ancestor with many children
-        // that look like repeated CMS items), then target those items.
-        var cmsListNode: HTMLElement | null = null
-        var walkUp = parent.parentElement
-        var walkDepth = 10
-        while (walkUp && walkDepth > 0) {
-            // Count non-marker children
-            var childCount = 0
-            for (var ci = 0; ci < walkUp.children.length; ci++) {
-                if (!isMarkerBranch(walkUp.children[ci] as HTMLElement, marker))
-                    childCount++
+
+        // 2. If downward only found 0-2 targets, try UPWARD:
+        //    walk up to find the CMS collection ancestor
+        //    (works when component is nested inside a CMS item)
+        if (result.length <= 2) {
+            var upResult: HTMLElement[] = []
+            var walkUp = parent.parentElement
+            var walkDepth = 10
+            while (walkUp && walkDepth > 0) {
+                var childCount = 0
+                for (var ci = 0; ci < walkUp.children.length; ci++) {
+                    if (!isMarkerBranch(walkUp.children[ci] as HTMLElement, marker))
+                        childCount++
+                }
+                if (childCount >= 3) {
+                    for (var cj = 0; cj < walkUp.children.length; cj++) {
+                        var cmsChild = walkUp.children[cj] as HTMLElement
+                        if (!isMarkerBranch(cmsChild, marker)) upResult.push(cmsChild)
+                    }
+                    break
+                }
+                walkUp = walkUp.parentElement
+                walkDepth--
             }
-            // A CMS collection typically has 3+ repeated items
-            if (childCount >= 3) {
-                cmsListNode = walkUp
-                break
-            }
-            walkUp = walkUp.parentElement
-            walkDepth--
-        }
-        if (cmsListNode) {
-            for (var cj = 0; cj < cmsListNode.children.length; cj++) {
-                var cmsChild = cmsListNode.children[cj] as HTMLElement
-                if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
+            // Use upward result if it found more targets
+            if (upResult.length > result.length) {
+                result = upResult
             }
         }
     } else {
@@ -2013,9 +2019,9 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Enum,
         title: "Scan Mode",
         defaultValue: "cmsItems",
-        options: ["siblings", "cmsItems", "cmsNested"],
-        optionTitles: ["Siblings", "CMS Items", "CMS Nested"],
-        description: "Siblings: direct children of parent. CMS Items: auto-find CMS list. CMS Nested: use when placed inside a CMS item to target all sibling items in the collection.",
+        options: ["siblings", "cmsItems"],
+        optionTitles: ["Siblings", "CMS Items"],
+        description: "Siblings: animates direct children of the parent stack. CMS Items: automatically finds and animates all items in a CMS collection — works whether placed alongside or inside a CMS item.",
     },
     excludeSelector: {
         type: ControlType.String,
