@@ -1911,8 +1911,10 @@ export default function PageChoreographer(props: any) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
             }
             // Restore pointer-events on animated elements
-            for (var pe = 0; pe < scrollAnimFinalStyles.length; pe++) {
-                try { scrollAnimFinalStyles[pe].el.style.removeProperty("pointer-events") } catch (e) {}
+            if (typeof scrollAnimFinalStyles !== "undefined") {
+                for (var pe = 0; pe < scrollAnimFinalStyles.length; pe++) {
+                    try { scrollAnimFinalStyles[pe].el.style.removeProperty("pointer-events") } catch (e) {}
+                }
             }
             // Restore overflow on ancestors
             for (var oc = 0; oc < scrollOverflowAncestors.length; oc++) {
