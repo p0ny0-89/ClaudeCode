@@ -1585,7 +1585,7 @@ export default function PageChoreographer(props: any) {
 
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
 
-        if (trigger === "onScroll" && parent && isPreview) {
+        if (trigger === "onScroll" && parent && isPreview && targets.length > 0) {
 
             // Defer setup to next frame so CMS/async content has laid out
             scrollSetupRaf = requestAnimationFrame(function () {
