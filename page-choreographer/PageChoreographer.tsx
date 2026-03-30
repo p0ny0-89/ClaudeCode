@@ -1581,22 +1581,8 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            var bakeAndCancelAnims = function () {
-                for (var bf = 0; bf < scrollAnimFinalStyles.length; bf++) {
-                    var item = scrollAnimFinalStyles[bf]
-                    var keys = Object.keys(item.to)
-                    for (var k = 0; k < keys.length; k++) {
-                        item.el.style.setProperty(keys[k], item.to[keys[k]])
-                    }
-                    // Animations done — unblock hover
-                    item.el.style.removeProperty("pointer-events")
-                }
-                for (var ca = 0; ca < scrollAnims.length; ca++) {
-                    try { scrollAnims[ca].cancel() } catch (e) {}
-                }
-                scrollAnims = []
-                releasedIndices = {}
-            }
+            // bakeAndCancelAnims removed — releaseAnimatedElements is used
+            // instead to avoid inline style conflicts with Framer hover.
 
             // Block pointer-events on all animated elements to prevent
             // Framer hover effects from conflicting with active animations.
@@ -1608,6 +1594,7 @@ export default function PageChoreographer(props: any) {
             }
 
             var unbakeAndRecreateAnims = function () {
+                // Remove any lingering inline styles from previous bake
                 for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
                     var item = scrollAnimFinalStyles[ub]
                     var keys = Object.keys(item.to)
@@ -1615,7 +1602,6 @@ export default function PageChoreographer(props: any) {
                         item.el.style.removeProperty(keys[k])
                     }
                 }
-                releasedIndices = {}
                 scrollAnimsCreated = false
                 ensureScrollAnims()
                 blockAnimatedPointerEvents()
@@ -1677,58 +1663,25 @@ export default function PageChoreographer(props: any) {
             // With no active animation AND no conflicting inline styles,
             // Framer's hover system (whileHover / inline style manipulation)
             // can freely control the element.
-            var releasedIndices: Record<number, boolean> = {}
-
+            // Pointer-events are blocked on animated elements during scroll.
+            // They're unblocked when animations are done (after-pin zone).
+            // No mid-scroll animation canceling — that causes visual jumps.
             var updateInteractivity = function (progress: number) {
-                for (var ai = 0; ai < scrollAnims.length; ai++) {
-                    try {
-                        var anim = scrollAnims[ai]
-                        var finalStyle = scrollAnimFinalStyles[ai]
-                        if (!anim || !finalStyle) continue
-
-                        var isReleased = releasedIndices[ai]
-
-                        if (!isReleased) {
-                            var at = anim.effect && anim.effect.getComputedTiming
-                                ? anim.effect.getComputedTiming() : null
-                            var aDelay = at ? (at.delay || 0) : 0
-                            var aDur = at ? (at.duration || 600) : 600
-                            var aTime = (anim.currentTime || 0) as number
-                            var elEnd = aDelay + (aDur as number)
-
-                            if (aTime >= elEnd * 0.98) {
-                                // Animation complete — cancel without baking.
-                                // Element reverts to CSS state = final frame.
-                                releasedIndices[ai] = true
-                                try { anim.cancel() } catch (e) {}
-                                // Unblock pointer-events so hover effects work
-                                finalStyle.el.style.removeProperty("pointer-events")
-                            }
-                        }
-                    } catch (e) {}
-                }
+                // no-op during scroll — pointer-events managed by
+                // blockAnimatedPointerEvents and releaseAnimatedElements
             }
 
-            // When scrolling back, we need to recreate all animations.
-            // This is handled by unbakeAndRecreateAnims which is already
-            // called when transitioning from afterPin back to pinned zone.
-            // For mid-animation scroll-back, detect and rebuild:
-            var checkScrollBack = function (progress: number) {
-                var anyReleased = false
-                for (var ri in releasedIndices) {
-                    if (releasedIndices[ri]) { anyReleased = true; break }
+            // Cancel all animations WITHOUT baking inline styles, and
+            // restore pointer-events. Elements revert to their natural
+            // CSS state (= animation final frame), freeing Framer hover.
+            var releaseAnimatedElements = function () {
+                for (var ra = 0; ra < scrollAnimFinalStyles.length; ra++) {
+                    scrollAnimFinalStyles[ra].el.style.removeProperty("pointer-events")
                 }
-                if (!anyReleased) return
-
-                // Check if progress has dropped enough to need re-animation
-                // If overall progress < 0.95, recreate all animations
-                if (progress < 0.95) {
-                    releasedIndices = {}
-                    scrollAnimsCreated = false
-                    ensureScrollAnims()
-                    blockAnimatedPointerEvents()
-                    updateAnimProgress(progress)
+                for (var rc = 0; rc < scrollAnims.length; rc++) {
+                    try { scrollAnims[rc].cancel() } catch (e) {}
                 }
+                scrollAnims = []
             }
 
             // Create animations eagerly so they're ready for scroll
@@ -1798,14 +1751,13 @@ export default function PageChoreographer(props: any) {
                     var progress = (scrollY - pinStart) / scrollLength
                     var clampedProgress = Math.max(0, Math.min(1, progress))
                     revealIfNeeded(clampedProgress)
-                    checkScrollBack(clampedProgress)
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
                     updateViewportClip()
 
                     if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
                         scrollPinState.completed = true
-                        bakeAndCancelAnims()
+                        releaseAnimatedElements()
                     }
 
                 } else if (scrollY < pinStart) {
@@ -1819,7 +1771,6 @@ export default function PageChoreographer(props: any) {
                         unbakeAndRecreateAnims()
                     }
                     scrollPinState.pinned = false
-                    checkScrollBack(0)
                     updateAnimProgress(0)
                     updateInteractivity(0)
                     updateViewportClip()
@@ -1838,8 +1789,7 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
                         updateAnimProgress(1)
-                        bakeAndCancelAnims()
-                        updateInteractivity(1)
+                        releaseAnimatedElements()
                     }
                     // Always update viewport clip while scrolling past pin end
                     // so clipping stays aligned as the section moves away
