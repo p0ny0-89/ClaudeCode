@@ -1575,57 +1575,11 @@ export default function PageChoreographer(props: any) {
                 return
             }
 
-            // ── Create wrapper inside the section ──
-            var wrapper = document.createElement("div")
-
-            if (parentGP) {
-                // Copy the parent's flex-child properties so wrapper
-                // occupies the same position/size in the section
-                var parentCS = window.getComputedStyle(parent)
-                wrapper.style.setProperty("align-self", parentCS.alignSelf)
-                wrapper.style.setProperty("justify-self", parentCS.justifySelf)
-                wrapper.style.setProperty("order", parentCS.order)
-                wrapper.style.setProperty("grid-column", parentCS.gridColumn)
-                wrapper.style.setProperty("grid-row", parentCS.gridRow)
-                // Preserve the parent's flex sizing (e.g. flex:1 for "fill")
-                // In flex layouts, flex-basis overrides width when != auto,
-                // so width:100% is safe as a baseline — flex handles sharing.
-                wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
-                wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
-                wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
-                wrapper.style.setProperty("width", "100%")
-
-                // Mirror the section's flex layout so the Stack inside
-                // the wrapper retains its flex-based sizing & centering
-                var gpCS = window.getComputedStyle(parentGP)
-                wrapper.style.setProperty("display", "flex")
-                wrapper.style.setProperty("flex-direction", gpCS.flexDirection)
-                wrapper.style.setProperty("align-items", gpCS.alignItems)
-                wrapper.style.setProperty("justify-content", gpCS.justifyContent)
-                wrapper.style.setProperty("gap", gpCS.gap)
-            }
-            // Copy parent's responsive height if set (e.g. "100vh", "50vh")
-            // so the wrapper doesn't collapse when the parent has viewport height.
-            // Use the inline style value (responsive unit) rather than computed (px).
-            var parentInlineHeight = parent.style.height
-            if (parentInlineHeight && /vh|vw|svh|dvh|lvh|%/.test(parentInlineHeight)) {
-                wrapper.style.setProperty("height", parentInlineHeight)
-            } else {
-                // Also check computed style for viewport-relative heights
-                // that might come from Framer's layout system
-                var parentComputedH = window.getComputedStyle(parent).height
-                var parentRect = parent.getBoundingClientRect()
-                var vpH = window.innerHeight
-                // If parent height is very close to viewport height, it's likely 100vh
-                if (Math.abs(parentRect.height - vpH) < 2) {
-                    wrapper.style.setProperty("height", "100vh")
-                }
-            }
-            wrapper.style.setProperty("position", "relative")
-            // Only clip overflow when all animated targets live inside
-            // the wrapper's parent.  In CMS masonry layouts, targets
-            // span multiple columns outside this wrapper — overflow:hidden
-            // would clip cards during enter/exit transforms.
+            // ── Check if targets span outside the parent ──
+            // In CMS grid/masonry layouts, targets are in multiple columns
+            // or grid cells — outside this instance's parent.  Creating a
+            // wrapper would disrupt the grid layout and cause clipping.
+            // In that case, skip wrapper creation and use parent directly.
             var allTargetsInside = true
             for (var oti = 0; oti < targets.length; oti++) {
                 if (!parent.contains(targets[oti])) {
@@ -1633,12 +1587,70 @@ export default function PageChoreographer(props: any) {
                     break
                 }
             }
-            wrapper.style.setProperty("overflow", allTargetsInside ? "hidden" : "visible")
 
-            // Insert wrapper into the section
-            parentGP!.insertBefore(wrapper, parent)
-            wrapper.appendChild(parent)
-            scrollWrapper = wrapper
+            var wrapper: HTMLElement
+
+            if (allTargetsInside) {
+                // ── Create wrapper inside the section ──
+                wrapper = document.createElement("div")
+
+                if (parentGP) {
+                    // Copy the parent's flex-child properties so wrapper
+                    // occupies the same position/size in the section
+                    var parentCS = window.getComputedStyle(parent)
+                    wrapper.style.setProperty("align-self", parentCS.alignSelf)
+                    wrapper.style.setProperty("justify-self", parentCS.justifySelf)
+                    wrapper.style.setProperty("order", parentCS.order)
+                    wrapper.style.setProperty("grid-column", parentCS.gridColumn)
+                    wrapper.style.setProperty("grid-row", parentCS.gridRow)
+                    // Preserve the parent's flex sizing (e.g. flex:1 for "fill")
+                    // In flex layouts, flex-basis overrides width when != auto,
+                    // so width:100% is safe as a baseline — flex handles sharing.
+                    wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
+                    wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
+                    wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
+                    wrapper.style.setProperty("width", "100%")
+
+                    // Mirror the section's flex layout so the Stack inside
+                    // the wrapper retains its flex-based sizing & centering
+                    var gpCS = window.getComputedStyle(parentGP)
+                    wrapper.style.setProperty("display", "flex")
+                    wrapper.style.setProperty("flex-direction", gpCS.flexDirection)
+                    wrapper.style.setProperty("align-items", gpCS.alignItems)
+                    wrapper.style.setProperty("justify-content", gpCS.justifyContent)
+                    wrapper.style.setProperty("gap", gpCS.gap)
+                }
+                // Copy parent's responsive height if set (e.g. "100vh", "50vh")
+                // so the wrapper doesn't collapse when the parent has viewport height.
+                // Use the inline style value (responsive unit) rather than computed (px).
+                var parentInlineHeight = parent.style.height
+                if (parentInlineHeight && /vh|vw|svh|dvh|lvh|%/.test(parentInlineHeight)) {
+                    wrapper.style.setProperty("height", parentInlineHeight)
+                } else {
+                    // Also check computed style for viewport-relative heights
+                    // that might come from Framer's layout system
+                    var parentComputedH = window.getComputedStyle(parent).height
+                    var parentRect = parent.getBoundingClientRect()
+                    var vpH = window.innerHeight
+                    // If parent height is very close to viewport height, it's likely 100vh
+                    if (Math.abs(parentRect.height - vpH) < 2) {
+                        wrapper.style.setProperty("height", "100vh")
+                    }
+                }
+                wrapper.style.setProperty("position", "relative")
+                wrapper.style.setProperty("overflow", "hidden")
+
+                // Insert wrapper into the section
+                parentGP!.insertBefore(wrapper, parent)
+                wrapper.appendChild(parent)
+                scrollWrapper = wrapper
+            } else {
+                // CMS/grid mode: no wrapper — use parent directly.
+                // This avoids disrupting the grid layout and prevents
+                // clipping on items outside this CMS item.
+                wrapper = parent
+                // scrollWrapper stays null — cleanup won't try to unwrap
+            }
 
             // Find the actual section element (e.g. Hero) that has
             // the background — this may be above parentGP
