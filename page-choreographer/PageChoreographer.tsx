@@ -2343,6 +2343,22 @@ export default function PageChoreographer(props: any) {
                 (markerRef as any).current = node
                 if (node) {
                     node.style.setProperty("position", "absolute", "important")
+                    // Framer wraps every component in a container div that
+                    // participates in Stack/flex layout.  Collapse it so the
+                    // marker takes zero space in Stacks and tickers.
+                    var framerWrapper = node.parentElement
+                    if (framerWrapper) {
+                        framerWrapper.style.setProperty("position", "absolute", "important")
+                        framerWrapper.style.setProperty("width", "0", "important")
+                        framerWrapper.style.setProperty("height", "0", "important")
+                        framerWrapper.style.setProperty("min-width", "0", "important")
+                        framerWrapper.style.setProperty("min-height", "0", "important")
+                        framerWrapper.style.setProperty("overflow", "hidden", "important")
+                        framerWrapper.style.setProperty("pointer-events", "none", "important")
+                        framerWrapper.style.setProperty("padding", "0", "important")
+                        framerWrapper.style.setProperty("margin", "0", "important")
+                        framerWrapper.style.setProperty("flex", "0 0 0px", "important")
+                    }
                 }
             }}
             data-choreo-marker="1"
