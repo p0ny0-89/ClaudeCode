@@ -1807,10 +1807,9 @@ export default function PageChoreographer(props: any) {
 
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        // Switching back from relative to sticky
+                        // Clear the slide-away transform
                         if (isOwner && sectionEl) {
-                            sectionEl.style.setProperty("position", "sticky", "important")
-                            sectionEl.style.setProperty("top", "0px", "important")
+                            sectionEl.style.removeProperty("transform")
                         }
                         unbakeAndRecreateAnims()
                     }
@@ -1834,8 +1833,7 @@ export default function PageChoreographer(props: any) {
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
                         if (isOwner && sectionEl) {
-                            sectionEl.style.setProperty("position", "sticky", "important")
-                            sectionEl.style.setProperty("top", "0px", "important")
+                            sectionEl.style.removeProperty("transform")
                         }
                         unbakeAndRecreateAnims()
                     }
@@ -1846,22 +1844,21 @@ export default function PageChoreographer(props: any) {
 
                 } else {
                     // ── AFTER PIN ──
-                    // Switch from sticky to relative so section scrolls away.
-                    // relative + top:scrollLength places the section at the
-                    // exact same viewport position as sticky had it, so the
-                    // transition is seamless.
+                    // Keep the section sticky but slide it away with a
+                    // negative translateY.  Transforms don't affect layout,
+                    // so no scroll-anchoring oscillation.
                     if (!scrollPinState.afterPin) {
-                        if (isOwner && sectionEl) {
-                            sectionEl.style.setProperty("position", "relative", "important")
-                            sectionEl.style.setProperty("top", totalPinLength + "px", "important")
-                        }
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
                         updateAnimProgress(1)
-                        releaseAnimatedElements(true) // bake: preserve visual state during sticky→relative
+                        releaseAnimatedElements(true)
                     }
-                    // Always update viewport clip while scrolling past pin end
-                    // so clipping stays aligned as the section moves away
+                    // Continuously update the slide-away offset
+                    if (isOwner && sectionEl) {
+                        var slideOffset = scrollY - pinEnd
+                        sectionEl.style.setProperty("transform",
+                            "translateY(-" + slideOffset + "px)", "important")
+                    }
                     updateViewportClip()
                 }
             }
@@ -1875,10 +1872,9 @@ export default function PageChoreographer(props: any) {
                 scrollResizeTimer = window.setTimeout(function () {
                     if (!wrapper || !parent) return
 
-                    // Temporarily reset to sticky for accurate measurement
+                    // Clear slide-away transform for accurate measurement
                     if (isOwner && sectionEl && scrollPinState.afterPin) {
-                        sectionEl.style.setProperty("position", "sticky", "important")
-                        sectionEl.style.setProperty("top", "0px", "important")
+                        sectionEl.style.removeProperty("transform")
                     }
 
                     // Re-measure all dimensions
@@ -1989,6 +1985,7 @@ export default function PageChoreographer(props: any) {
             if (scrollSectionEl) {
                 scrollSectionEl.style.removeProperty("position")
                 scrollSectionEl.style.removeProperty("top")
+                scrollSectionEl.style.removeProperty("transform")
                 scrollSectionEl.style.removeProperty("overflow-anchor")
                 if (scrollSectionEl.parentElement) {
                     scrollSectionEl.parentElement.style.removeProperty("overflow-anchor")
