@@ -1700,19 +1700,45 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer = spacer
 
                 // Walk UP from section (INCLUDING the section itself),
-                // set overflow:visible on elements with clip/hidden so
-                // position:sticky works and animated items aren't clipped.
-                // Starting from sectionEl (not .parentElement) fixes CMS
-                // grid/masonry layouts where Framer sets overflow on the
-                // section — position:sticky creates a clipping context.
+                // fix any CSS property that creates a clipping context.
+                // position:sticky + overflow:hidden/clip creates clipping.
+                // `contain: paint/strict/content` also clips descendants.
+                // Check overflow, overflow-x, overflow-y individually since
+                // Framer may set axes independently.
                 var overflowNode: HTMLElement | null = sectionEl
                 while (overflowNode && overflowNode !== document.documentElement) {
-                    var ov = window.getComputedStyle(overflowNode).overflow
-                    if (ov === "clip" || ov === "hidden") {
-                        scrollOverflowAncestors.push({ el: overflowNode, orig: ov })
+                    var ovCS = window.getComputedStyle(overflowNode)
+                    var ov = ovCS.overflow
+                    var ovX = ovCS.overflowX
+                    var ovY = ovCS.overflowY
+                    var ovContain = ovCS.contain || ""
+                    var needsFix = ov === "clip" || ov === "hidden" ||
+                        ovX === "clip" || ovX === "hidden" ||
+                        ovY === "clip" || ovY === "hidden" ||
+                        /paint|strict|content/.test(ovContain)
+                    if (needsFix) {
+                        scrollOverflowAncestors.push({
+                            el: overflowNode,
+                            orig: ov,
+                        })
                         overflowNode.style.setProperty("overflow", "visible", "important")
+                        // Also clear contain if it includes paint/strict/content
+                        if (/paint|strict|content/.test(ovContain)) {
+                            overflowNode.style.setProperty("contain", "none", "important")
+                        }
                     }
                     overflowNode = overflowNode.parentElement
+                }
+                // ── DEBUG: log clipping properties on section + first 3 ancestors ──
+                var _clipDbg: HTMLElement | null = sectionEl
+                for (var _cd = 0; _cd < 4 && _clipDbg; _cd++) {
+                    var _cs = window.getComputedStyle(_clipDbg)
+                    console.log("[choreo-clip]", _cd === 0 ? "section" : "ancestor-" + _cd,
+                        _clipDbg.tagName + "[" + (_clipDbg.getAttribute("data-framer-name") || "?") + "]",
+                        "overflow:", _cs.overflow, "ovX:", _cs.overflowX, "ovY:", _cs.overflowY,
+                        "contain:", _cs.contain, "clip-path:", _cs.clipPath,
+                        "height:", _cs.height, "maxHeight:", _cs.maxHeight)
+                    _clipDbg = _clipDbg.parentElement
                 }
 
                 // Apply sticky positioning — browser compositor handles this
