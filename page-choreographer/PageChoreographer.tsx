@@ -1017,6 +1017,90 @@ function elementMatchesNames(el: HTMLElement, names: string[]): boolean {
     return false
 }
 
+// Split text elements into individual words for per-word animation.
+// Walks into text containers and wraps each whitespace-delimited word
+// in an inline-block span so it can be animated independently.
+function splitTextWords(targets: HTMLElement[]): HTMLElement[] {
+    var result: HTMLElement[] = []
+    for (var i = 0; i < targets.length; i++) {
+        var el = targets[i]
+
+        // Collect all text-bearing leaf nodes inside the element
+        // (could be <p>, <span>, or the element itself)
+        var textLeaves: HTMLElement[] = []
+        var paragraphs = el.querySelectorAll("p, span, a, em, strong, b, i, u, h1, h2, h3, h4, h5, h6")
+        if (paragraphs.length > 0) {
+            for (var p = 0; p < paragraphs.length; p++) {
+                // Only take leaf-level text containers (no nested rich text wrappers)
+                if (paragraphs[p].children.length === 0 ||
+                    (paragraphs[p].children.length > 0 && paragraphs[p].querySelector("br") != null)) {
+                    textLeaves.push(paragraphs[p] as HTMLElement)
+                }
+            }
+        }
+        if (textLeaves.length === 0) textLeaves.push(el)
+
+        var wordCount = 0
+        for (var tl = 0; tl < textLeaves.length; tl++) {
+            var leaf = textLeaves[tl]
+            // Collect text content, split by whitespace, wrap each word
+            var nodes = leaf.childNodes
+            var fragments: Node[] = []
+            for (var cn = 0; cn < nodes.length; cn++) {
+                var nd = nodes[cn]
+                if (nd.nodeType === 3) { // Text node
+                    var text = nd.textContent || ""
+                    // Split preserving whitespace: match word or whitespace chunks
+                    var parts = text.match(/\S+|\s+/g) || []
+                    for (var wp = 0; wp < parts.length; wp++) {
+                        if (/^\s+$/.test(parts[wp])) {
+                            // Whitespace — keep as text node
+                            fragments.push(document.createTextNode(parts[wp]))
+                        } else {
+                            // Word — wrap in span
+                            var wordSpan = document.createElement("span")
+                            wordSpan.style.display = "inline-block"
+                            wordSpan.style.whiteSpace = "nowrap"
+                            wordSpan.setAttribute("data-choreo-word", "1")
+                            wordSpan.textContent = parts[wp]
+                            fragments.push(wordSpan)
+                            wordCount++
+                        }
+                    }
+                } else if (nd.nodeType === 1 && (nd as HTMLElement).tagName === "BR") {
+                    fragments.push(nd.cloneNode(true))
+                } else {
+                    // Inline element (em, strong, a, etc.) — wrap the whole thing
+                    var inlineSpan = document.createElement("span")
+                    inlineSpan.style.display = "inline-block"
+                    inlineSpan.setAttribute("data-choreo-word", "1")
+                    inlineSpan.appendChild(nd.cloneNode(true))
+                    fragments.push(inlineSpan)
+                    wordCount++
+                }
+            }
+            // Replace leaf contents with wrapped words
+            while (leaf.firstChild) leaf.removeChild(leaf.firstChild)
+            for (var fi = 0; fi < fragments.length; fi++) {
+                leaf.appendChild(fragments[fi])
+            }
+        }
+
+        // Now collect all word spans as individual targets
+        if (wordCount > 0) {
+            var wordSpans = el.querySelectorAll("[data-choreo-word]")
+            for (var ws = 0; ws < wordSpans.length; ws++) {
+                result.push(wordSpans[ws] as HTMLElement)
+            }
+            el.style.overflow = "visible"
+        } else {
+            // No words found — keep element as-is
+            result.push(el)
+        }
+    }
+    return result
+}
+
 // Split text elements into individual lines for per-line animation.
 // Framer rich text renders each line as <p> inside a container.
 // Plain text may use <br> tags — we wrap text runs between <br>s in spans.
@@ -1084,7 +1168,7 @@ function collectTargets(
     marker: HTMLElement,
     scanMode: string,
     excludeSelector?: string,
-    splitText?: boolean
+    splitText?: string
 ): HTMLElement[] {
     var result: HTMLElement[] = []
 
@@ -1319,9 +1403,11 @@ function collectTargets(
             })
         }
     }
-    // Expand text elements into individual lines
-    if (splitText) {
+    // Expand text elements into individual lines or words
+    if (splitText === "lines") {
         result = splitTextTargets(result)
+    } else if (splitText === "words") {
+        result = splitTextWords(result)
     }
     return result
 }
@@ -1342,7 +1428,7 @@ export default function PageChoreographer(props: any) {
     var {
         scanMode = "siblings",
         excludeSelector = "",
-        splitText = false,
+        splitText: splitTextRaw = "none",
         enterPreset = "fadeUp",
         exitPreset = "riseWave",
         enterEnabled = true,
@@ -1400,6 +1486,9 @@ export default function PageChoreographer(props: any) {
         exitPerspective = 1000,
         style,
     } = props
+
+    // Backward compat: old boolean splitText (true → "lines", false → "none")
+    var splitText = splitTextRaw === true ? "lines" : splitTextRaw === false ? "none" : splitTextRaw
 
     var markerRef = React.useRef(null) as React.MutableRefObject<HTMLDivElement | null>
     var baseId = useStableGroupId()
@@ -2429,10 +2518,12 @@ addPropertyControls(PageChoreographer, {
             "Layer names to skip (comma-separated). e.g. Load More, Button",
     },
     splitText: {
-        type: ControlType.Boolean,
+        type: ControlType.Enum,
         title: "Split Text",
-        defaultValue: false,
-        description: "Animate each line of text separately.",
+        defaultValue: "none",
+        options: ["none", "lines", "words"],
+        optionTitles: ["None", "Lines", "Words"],
+        description: "Split text into lines or words for individual animation.",
     },
     trigger: {
         type: ControlType.Enum,
