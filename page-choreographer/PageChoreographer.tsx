@@ -1440,6 +1440,7 @@ export default function PageChoreographer(props: any) {
         viewRepeat = false,
         scrollLength = 500,
         scrollStart = "bottom",
+        scrollStartOffset = 0,
         scrollPin = true,
         scrollOnce = false,
         sortPriority = 0,
@@ -2045,6 +2046,9 @@ export default function PageChoreographer(props: any) {
                 startOffset = -(vh / 2) + (measureRect.height / 2) // center-aligned
             }
             // "bottom" = 0 offset (element top at viewport top)
+            // Apply user offset: positive = start later (scroll further before trigger),
+            // negative = start earlier (trigger before reaching the preset point)
+            startOffset += (scrollStartOffset / 100) * vh
 
             var pinStart = Math.max(0, measureDocTop + startOffset)
             var totalPinLength = scrollLength
@@ -2374,6 +2378,7 @@ export default function PageChoreographer(props: any) {
                     } else if (scrollStart === "center") {
                         resizeOffset = -(resizeVh / 2) + (resizeRect.height / 2)
                     }
+                    resizeOffset += (scrollStartOffset / 100) * resizeVh
                     pinStart = Math.max(0, resizeRect.top + window.scrollY + resizeOffset)
                     pinEnd = pinStart + totalPinLength
 
@@ -2482,7 +2487,7 @@ export default function PageChoreographer(props: any) {
         }
     }, [
         rescanGeneration,
-        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength, scrollStart, scrollPin, scrollOnce,
+        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength, scrollStart, scrollStartOffset, scrollPin, scrollOnce,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
@@ -2588,6 +2593,17 @@ addPropertyControls(PageChoreographer, {
         optionTitles: ["Top", "Center", "Bottom"],
         optionIcons: ["align-top", "align-middle", "align-bottom"],
         description: "When the animation starts: Top = element enters viewport, Center = element at viewport center, Bottom = element reaches viewport top.",
+        hidden: function (props: any) { return props.trigger !== "onScroll" },
+    },
+    scrollStartOffset: {
+        type: ControlType.Number,
+        title: "Start Offset",
+        defaultValue: 0,
+        min: -100,
+        max: 100,
+        step: 5,
+        unit: "%",
+        description: "Shift the start point by a percentage of viewport height. Negative = start earlier, Positive = start later.",
         hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     scrollPin: {
