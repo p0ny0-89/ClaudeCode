@@ -1837,77 +1837,74 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer = spacer
 
 
-                // Walk UP from section (INCLUDING the section itself),
-                // fix any CSS property that creates a clipping context.
-                // position:sticky + overflow:hidden/clip creates clipping.
-                // `contain: paint/strict/content` also clips descendants.
-                // Check overflow, overflow-x, overflow-y individually since
-                // Framer may set axes independently.
-                var overflowNode: HTMLElement | null = sectionEl
-                while (overflowNode && overflowNode !== document.documentElement) {
-                    var ovCS = window.getComputedStyle(overflowNode)
-                    var ov = ovCS.overflow
-                    var ovX = ovCS.overflowX
-                    var ovY = ovCS.overflowY
-                    var ovContain = ovCS.contain || ""
-                    var needsFix = ov === "clip" || ov === "hidden" ||
-                        ovX === "clip" || ovX === "hidden" ||
-                        ovY === "clip" || ovY === "hidden" ||
-                        /paint|strict|content/.test(ovContain)
-                    if (needsFix) {
-                        scrollOverflowAncestors.push({
-                            el: overflowNode,
-                            orig: ov,
-                        })
-                        overflowNode.style.setProperty("overflow", "visible", "important")
-                        // Also clear contain if it includes paint/strict/content
-                        if (/paint|strict|content/.test(ovContain)) {
-                            overflowNode.style.setProperty("contain", "none", "important")
-                        }
-                    }
-                    overflowNode = overflowNode.parentElement
-                }
-                // Also walk DOWN from section to the targets, fixing any
-                // intermediate containers (grid container, column wrapper)
-                // that might have overflow:hidden/clip or contain:paint.
-                // Walk from each target up to the section.
-                for (var tfi = 0; tfi < targets.length; tfi++) {
-                    var tFixNode: HTMLElement | null = targets[tfi].parentElement
-                    while (tFixNode && tFixNode !== sectionEl && tFixNode !== document.documentElement) {
-                        var tfCS = window.getComputedStyle(tFixNode)
-                        var tfOv = tfCS.overflow
-                        var tfOvX = tfCS.overflowX
-                        var tfOvY = tfCS.overflowY
-                        var tfContain = tfCS.contain || ""
-                        var tfNeedsFix = tfOv === "clip" || tfOv === "hidden" ||
-                            tfOvX === "clip" || tfOvX === "hidden" ||
-                            tfOvY === "clip" || tfOvY === "hidden" ||
-                            /paint|strict|content/.test(tfContain)
-                        if (tfNeedsFix) {
-                            // Check if already tracked
-                            var alreadyTracked = false
-                            for (var at = 0; at < scrollOverflowAncestors.length; at++) {
-                                if (scrollOverflowAncestors[at].el === tFixNode) {
-                                    alreadyTracked = true
-                                    break
-                                }
-                            }
-                            if (!alreadyTracked) {
-                                scrollOverflowAncestors.push({ el: tFixNode, orig: tfOv })
-                                tFixNode.style.setProperty("overflow", "visible", "important")
-                                if (/paint|strict|content/.test(tfContain)) {
-                                    tFixNode.style.setProperty("contain", "none", "important")
-                                }
-                            }
-                        }
-                        tFixNode = tFixNode.parentElement
-                    }
-                }
-
                 // Apply sticky positioning — browser compositor handles this
                 // with zero jitter (no JS-per-frame transforms needed)
                 sectionEl.style.setProperty("position", "sticky", "important")
                 sectionEl.style.setProperty("top", "0px", "important")
+            }
+
+            // ── Bidirectional overflow walk ──
+            // Fix any ancestor/intermediate containers that clip animating
+            // elements. This runs for ALL onScroll setups (pinned AND
+            // non-pinned) because Framer containers often have
+            // overflow:hidden/clip or contain:paint that clips transforms.
+            var overflowRoot: HTMLElement | null = sectionEl || parent
+            // Walk UP from the section/parent to the document root
+            var overflowNode: HTMLElement | null = overflowRoot
+            while (overflowNode && overflowNode !== document.documentElement) {
+                var ovCS = window.getComputedStyle(overflowNode)
+                var ov = ovCS.overflow
+                var ovX = ovCS.overflowX
+                var ovY = ovCS.overflowY
+                var ovContain = ovCS.contain || ""
+                var needsFix = ov === "clip" || ov === "hidden" ||
+                    ovX === "clip" || ovX === "hidden" ||
+                    ovY === "clip" || ovY === "hidden" ||
+                    /paint|strict|content/.test(ovContain)
+                if (needsFix) {
+                    scrollOverflowAncestors.push({
+                        el: overflowNode,
+                        orig: ov,
+                    })
+                    overflowNode.style.setProperty("overflow", "visible", "important")
+                    if (/paint|strict|content/.test(ovContain)) {
+                        overflowNode.style.setProperty("contain", "none", "important")
+                    }
+                }
+                overflowNode = overflowNode.parentElement
+            }
+            // Walk from each target UP to the section/parent, fixing any
+            // intermediate containers (grid wrappers, column divs, etc.)
+            for (var tfi = 0; tfi < targets.length; tfi++) {
+                var tFixNode: HTMLElement | null = targets[tfi].parentElement
+                while (tFixNode && tFixNode !== overflowRoot && tFixNode !== document.documentElement) {
+                    var tfCS = window.getComputedStyle(tFixNode)
+                    var tfOv = tfCS.overflow
+                    var tfOvX = tfCS.overflowX
+                    var tfOvY = tfCS.overflowY
+                    var tfContain = tfCS.contain || ""
+                    var tfNeedsFix = tfOv === "clip" || tfOv === "hidden" ||
+                        tfOvX === "clip" || tfOvX === "hidden" ||
+                        tfOvY === "clip" || tfOvY === "hidden" ||
+                        /paint|strict|content/.test(tfContain)
+                    if (tfNeedsFix) {
+                        var alreadyTracked = false
+                        for (var at = 0; at < scrollOverflowAncestors.length; at++) {
+                            if (scrollOverflowAncestors[at].el === tFixNode) {
+                                alreadyTracked = true
+                                break
+                            }
+                        }
+                        if (!alreadyTracked) {
+                            scrollOverflowAncestors.push({ el: tFixNode, orig: tfOv })
+                            tFixNode.style.setProperty("overflow", "visible", "important")
+                            if (/paint|strict|content/.test(tfContain)) {
+                                tFixNode.style.setProperty("contain", "none", "important")
+                            }
+                        }
+                    }
+                    tFixNode = tFixNode.parentElement
+                }
             }
 
             var pinEl: HTMLElement = parent
