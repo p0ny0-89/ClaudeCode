@@ -1459,14 +1459,6 @@ export default function PageChoreographer(props: any) {
             var sectionEl = parentGP ? findSection(parentGP) : parentGP!
             scrollSectionEl = sectionEl
 
-            console.log("[Choreo] Setup:",
-                "sectionEl:", sectionEl.tagName, sectionEl.getAttribute("data-framer-name"),
-                "sectionParent:", sectionEl.parentElement?.tagName, sectionEl.parentElement?.children.length, "children",
-                "parentGP:", parentGP?.tagName,
-                "docHeight:", document.documentElement.scrollHeight,
-                "sectionHeight:", sectionEl.offsetHeight,
-                "parentHeight:", parentHeight)
-
             // Check if the SECTION (Hero) expanded to fit the wrapper.
             // Important: check sectionEl, not parentGP — parentGP (inner
             // Stack) may grow but the section (100vh) won't.
@@ -1557,15 +1549,6 @@ export default function PageChoreographer(props: any) {
             var totalPinLength = scrollLength
             var pinEnd = pinStart + totalPinLength
             var wrapRectLeft = pinEl.getBoundingClientRect().left
-
-            console.log("[Choreo] Pin range:",
-                "pinStart:", Math.round(pinStart),
-                "pinEnd:", Math.round(pinEnd),
-                "scrollLength:", scrollLength,
-                "measureDocTop:", Math.round(measureDocTop),
-                "startOffset:", Math.round(startOffset),
-                "docHeight:", document.documentElement.scrollHeight,
-                "maxScroll:", document.documentElement.scrollHeight - window.innerHeight)
 
             // ── Animation creation/destruction ──
             var reduced =
@@ -1783,22 +1766,10 @@ export default function PageChoreographer(props: any) {
             // Sticky handles the visual pinning (zero jitter). The scroll
             // handler only scrubs animation progress and manages the
             // sticky → relative transition at pinEnd.
-            var debugScrollZone = ""
             var handleScroll = function () {
                 if (!parent || !wrapper) return
 
                 var scrollY = window.scrollY
-                var newZone = scrollY < pinStart ? "BEFORE" : (scrollY > pinEnd ? "AFTER" : "PINNED")
-                if (newZone !== debugScrollZone) {
-                    console.log("[Choreo] Zone:", newZone,
-                        "scrollY:", Math.round(scrollY),
-                        "pinStart:", Math.round(pinStart),
-                        "pinEnd:", Math.round(pinEnd),
-                        "scrollLength:", scrollLength,
-                        "sectionEl:", sectionEl?.tagName, sectionEl?.getAttribute("data-framer-name"),
-                        "isOwner:", isOwner)
-                    debugScrollZone = newZone
-                }
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
                     // ── PINNED ZONE ──
