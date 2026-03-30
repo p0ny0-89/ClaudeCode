@@ -2134,13 +2134,6 @@ export default function PageChoreographer(props: any) {
 
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        // Restore sticky positioning when scrolling back into pin zone
-                        if (isOwner && sectionEl) {
-                            sectionEl.style.setProperty("position", "sticky", "important")
-                            sectionEl.style.setProperty("top", "0px", "important")
-                            sectionEl.style.removeProperty("transform")
-                            sectionEl.style.removeProperty("z-index")
-                        }
                         unbakeAndRecreateAnims()
                     }
 
@@ -2162,12 +2155,6 @@ export default function PageChoreographer(props: any) {
                     // ── BEFORE PIN ──
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        if (isOwner && sectionEl) {
-                            sectionEl.style.setProperty("position", "sticky", "important")
-                            sectionEl.style.setProperty("top", "0px", "important")
-                            sectionEl.style.removeProperty("transform")
-                            sectionEl.style.removeProperty("z-index")
-                        }
                         unbakeAndRecreateAnims()
                     }
                     scrollPinState.pinned = false
@@ -2177,20 +2164,14 @@ export default function PageChoreographer(props: any) {
 
                 } else {
                     // ── AFTER PIN ──
-                    // Pin phase is over.  Remove sticky so the section
-                    // returns to normal document flow and scrolls away
-                    // naturally.  The spacer provides enough scroll room
-                    // that the section is already above the viewport.
+                    // Sticky stays on — the browser naturally un-sticks
+                    // the section when its containing block scrolls past.
+                    // No manual position changes = no visual jump.
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
                         updateAnimProgress(1)
                         releaseAnimatedElements(true)
-                        // Drop out of sticky — no more overlap
-                        if (isOwner && sectionEl) {
-                            sectionEl.style.removeProperty("position")
-                            sectionEl.style.removeProperty("top")
-                        }
                     }
                     updateViewportClip()
                 }
