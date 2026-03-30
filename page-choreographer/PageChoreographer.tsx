@@ -1671,10 +1671,23 @@ export default function PageChoreographer(props: any) {
                 // blockAnimatedPointerEvents and releaseAnimatedElements
             }
 
-            // Cancel all animations WITHOUT baking inline styles, and
-            // restore pointer-events. Elements revert to their natural
-            // CSS state (= animation final frame), freeing Framer hover.
-            var releaseAnimatedElements = function () {
+            // Release animated elements — cancel animations and restore
+            // pointer-events.  When bake=true, persist each animation's
+            // final-frame values as inline styles BEFORE canceling so the
+            // visual state is preserved during the sticky→relative
+            // transition (prevents the "jump to top" flash).
+            // When bake=false, cancel without inline styles so Framer's
+            // hover system can freely control the element.
+            var releaseAnimatedElements = function (bake?: boolean) {
+                if (bake) {
+                    for (var bf = 0; bf < scrollAnimFinalStyles.length; bf++) {
+                        var item = scrollAnimFinalStyles[bf]
+                        var keys = Object.keys(item.to)
+                        for (var bk = 0; bk < keys.length; bk++) {
+                            item.el.style.setProperty(keys[bk], item.to[keys[bk]])
+                        }
+                    }
+                }
                 for (var ra = 0; ra < scrollAnimFinalStyles.length; ra++) {
                     scrollAnimFinalStyles[ra].el.style.removeProperty("pointer-events")
                 }
@@ -1789,7 +1802,7 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
                         updateAnimProgress(1)
-                        releaseAnimatedElements()
+                        releaseAnimatedElements(true) // bake: preserve visual state during sticky→relative
                     }
                     // Always update viewport clip while scrolling past pin end
                     // so clipping stays aligned as the section moves away
