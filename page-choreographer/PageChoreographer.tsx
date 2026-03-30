@@ -998,40 +998,57 @@ function collectTargets(
 ): HTMLElement[] {
     var result: HTMLElement[] = []
     if (scanMode === "cmsItems" || scanMode === "cmsNested") {
-        // Smart CMS mode: detect whether the component is placed
-        // alongside CMS items or nested inside one.
+        // Smart CMS mode: works for both sibling and nested placement.
         //
-        // Detection: if parent's parentElement has 3+ children,
-        // parent is likely a CMS item itself (nested placement).
-        // Otherwise, the CMS list is below parent (sibling placement).
-        var isNested = false
-        var parentParent = parent.parentElement
-        if (parentParent) {
-            var ppChildCount = 0
-            for (var pp = 0; pp < parentParent.children.length; pp++) {
-                if (!isMarkerBranch(parentParent.children[pp] as HTMLElement, marker))
-                    ppChildCount++
+        // Strategy: walk UP from marker through all ancestors, find
+        // the ancestor with the MOST children (the CMS collection).
+        // Then also try downward search. Use whichever finds more.
+
+        // 1. UPWARD: walk all ancestors from marker, find the one
+        //    with the most children (likely the CMS collection list)
+        var bestAncestor: HTMLElement | null = null
+        var bestCount = 0
+        var walkNode: HTMLElement | null = marker.parentElement
+        var maxWalk = 15
+        while (walkNode && maxWalk > 0) {
+            var wChildCount = 0
+            for (var wc = 0; wc < walkNode.children.length; wc++) {
+                if (!isMarkerBranch(walkNode.children[wc] as HTMLElement, marker))
+                    wChildCount++
             }
-            isNested = ppChildCount >= 3
+            if (wChildCount > bestCount && wChildCount >= 3) {
+                bestCount = wChildCount
+                bestAncestor = walkNode
+            }
+            walkNode = walkNode.parentElement
+            maxWalk--
         }
 
-        if (isNested && parentParent) {
-            // NESTED: parent is a CMS item — target its siblings
-            // in the collection (parentParent's children)
-            for (var cj = 0; cj < parentParent.children.length; cj++) {
-                var cmsChild = parentParent.children[cj] as HTMLElement
-                if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
-            }
-        } else {
-            // SIBLING: search downward for the CMS list
-            var listNode = findNodeWithMostChildren(parent, marker)
-            if (listNode) {
-                for (var j = 0; j < listNode.children.length; j++) {
-                    var child = listNode.children[j] as HTMLElement
-                    if (!isMarkerBranch(child, marker)) result.push(child)
-                }
+        var upResult: HTMLElement[] = []
+        if (bestAncestor) {
+            for (var cj = 0; cj < bestAncestor.children.length; cj++) {
+                var cmsChild = bestAncestor.children[cj] as HTMLElement
+                if (!isMarkerBranch(cmsChild, marker)) upResult.push(cmsChild)
             }
         }
+
+        // 2. DOWNWARD: search below parent for CMS list
+        var downResult: HTMLElement[] = []
+        var listNode = findNodeWithMostChildren(parent, marker)
+        if (listNode) {
+            for (var j = 0; j < listNode.children.length; j++) {
+                var child = listNode.children[j] as HTMLElement
+                if (!isMarkerBranch(child, marker)) downResult.push(child)
+            }
+        }
+
+        // Use whichever found more targets
+        result = upResult.length >= downResult.length ? upResult : downResult
+
+        console.log("[choreo] CMS scan: upward=" + upResult.length +
+            " downward=" + downResult.length +
+            " using=" + (upResult.length >= downResult.length ? "UP" : "DOWN") +
+            " bestAncestor=" + (bestAncestor ? (bestAncestor.getAttribute("data-framer-name") || bestAncestor.tagName + "[" + bestCount + "]") : "null"))
     } else {
         for (var k = 0; k < parent.children.length; k++) {
             var el = parent.children[k] as HTMLElement
