@@ -2386,7 +2386,9 @@ addPropertyControls(PageChoreographer, {
         step: 1,
         unit: "px",
         hidden: function (props: any) {
-            return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
+            var enterMatch = props.enterEnabled !== false && props.enterPreset === "maskReveal"
+            var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
+            return !enterMatch && !exitMatch
         },
     },
     maskShiftY: {
@@ -2398,7 +2400,9 @@ addPropertyControls(PageChoreographer, {
         step: 1,
         unit: "px",
         hidden: function (props: any) {
-            return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
+            var enterMatch = props.enterEnabled !== false && props.enterPreset === "maskReveal"
+            var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
+            return !enterMatch && !exitMatch
         },
     },
     maskStart: {
@@ -2453,7 +2457,9 @@ addPropertyControls(PageChoreographer, {
         max: 1,
         step: 0.05,
         hidden: function (props: any) {
-            return props.enterPreset !== "maskReveal" && props.exitPreset !== "maskOut"
+            var enterMatch = props.enterEnabled !== false && props.enterPreset === "maskReveal"
+            var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
+            return !enterMatch && !exitMatch
         },
     },
     blurAmount: {
