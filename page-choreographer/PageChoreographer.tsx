@@ -1170,7 +1170,13 @@ function collectTargets(
                 // a parent with 1 child means we're inside a card wrapper,
                 // not at a real collection level.
                 if (!detected && wChildren.length >= 2 && !cmsAncestor && walkDepth >= 2) {
-                    var s4ParentOk = walkNode.parentElement &&
+                    // Only allow Strategy 4 at or BELOW the parent level.
+                    // Walking above parent means grouping parent's siblings
+                    // as a collection — those are structural containers,
+                    // not CMS items.  parent.contains(walkNode) is true
+                    // when walkNode is parent itself or inside parent.
+                    var s4InScope = parent.contains(walkNode)
+                    var s4ParentOk = s4InScope && walkNode.parentElement &&
                         walkNode.parentElement.children.length >= 2
                     if (s4ParentOk) {
                         // Require children to at least share the same tag
@@ -1180,21 +1186,6 @@ function collectTargets(
                             if (wChildren[wf].tagName !== fallbackTag) {
                                 sameTag = false
                                 break
-                            }
-                        }
-                        // Guard: if most children contain other PC markers,
-                        // this is a structural match (containers that each
-                        // have their own PC instance), not a CMS collection.
-                        if (sameTag) {
-                            var markerChildren = 0
-                            for (var wm = 0; wm < wChildren.length; wm++) {
-                                if (wChildren[wm].querySelector("[data-choreo-marker]")) {
-                                    markerChildren++
-                                }
-                            }
-                            // If more than half contain markers, reject
-                            if (markerChildren > wChildren.length / 2) {
-                                sameTag = false
                             }
                         }
                         if (sameTag) {
@@ -1207,6 +1198,16 @@ function collectTargets(
             walkNode = walkNode.parentElement
             maxWalk--
         }
+    }
+
+    // ── Reject CMS ancestor above the parent level ──
+    // If the detected cmsAncestor is ABOVE parent in the DOM tree,
+    // it means we'd be grouping parent's siblings as a collection.
+    // Those are structural containers, not CMS items.  Drop the
+    // match and let the fallback (direct siblings) handle it.
+    if (cmsAncestor && !parent.contains(cmsAncestor)) {
+        cmsAncestor = null
+        cmsAncestorCount = 0
     }
 
     if (cmsAncestor) {
@@ -1253,7 +1254,7 @@ function collectTargets(
         var masonryGrid: HTMLElement | null = null
         var mWalk: HTMLElement | null = marker.parentElement
         var mMaxWalk = 15
-        while (mWalk && mMaxWalk > 0) {
+        while (mWalk && mMaxWalk > 0 && parent.contains(mWalk)) {
             if (mWalk.children.length >= 2) {
                 var mColTag = (mWalk.children[0] as HTMLElement).tagName
                 var mAllSame = true
