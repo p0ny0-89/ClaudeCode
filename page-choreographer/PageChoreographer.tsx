@@ -1016,55 +1016,52 @@ function collectTargets(
     splitText?: boolean
 ): HTMLElement[] {
     var result: HTMLElement[] = []
-    if (scanMode === "cmsItems" || scanMode === "cmsNested") {
-        // Smart CMS mode: works for both sibling and nested placement.
-        //
-        // Strategy: walk UP from marker through all ancestors, find
-        // the ancestor with the MOST children (the CMS collection).
-        // Then also try downward search. Use whichever finds more.
 
-        // 1. UPWARD: walk all ancestors from marker, find the one
-        //    with the most children (likely the CMS collection list)
-        var bestAncestor: HTMLElement | null = null
-        var bestCount = 0
+    // ── Auto CMS detection ──
+    // Walk up from the marker looking for a CMS collection pattern:
+    // an ancestor whose non-marker children all share the same
+    // data-framer-name (CMS items are clones with identical names).
+    // Works regardless of placement (inside CMS item or alongside).
+    var cmsAncestor: HTMLElement | null = null
+    if (scanMode === "siblings" || scanMode === "cmsItems" || scanMode === "cmsNested") {
         var walkNode: HTMLElement | null = marker.parentElement
         var maxWalk = 15
         while (walkNode && maxWalk > 0) {
-            var wChildCount = 0
+            var wChildren: HTMLElement[] = []
             for (var wc = 0; wc < walkNode.children.length; wc++) {
-                if (!isMarkerBranch(walkNode.children[wc] as HTMLElement, marker))
-                    wChildCount++
+                var wChild = walkNode.children[wc] as HTMLElement
+                if (!isMarkerBranch(wChild, marker)) wChildren.push(wChild)
             }
-            if (wChildCount > bestCount && wChildCount >= 1) {
-                bestCount = wChildCount
-                bestAncestor = walkNode
+            if (wChildren.length >= 2) {
+                // Check if all children share the same data-framer-name
+                var firstName = wChildren[0].getAttribute("data-framer-name")
+                if (firstName) {
+                    var allSame = true
+                    for (var wn = 1; wn < wChildren.length; wn++) {
+                        if (wChildren[wn].getAttribute("data-framer-name") !== firstName) {
+                            allSame = false
+                            break
+                        }
+                    }
+                    if (allSame) {
+                        cmsAncestor = walkNode
+                        break // Use the first (closest) CMS collection found
+                    }
+                }
             }
             walkNode = walkNode.parentElement
             maxWalk--
         }
+    }
 
-        var upResult: HTMLElement[] = []
-        if (bestAncestor) {
-            for (var cj = 0; cj < bestAncestor.children.length; cj++) {
-                var cmsChild = bestAncestor.children[cj] as HTMLElement
-                if (!isMarkerBranch(cmsChild, marker)) upResult.push(cmsChild)
-            }
+    if (cmsAncestor) {
+        // CMS collection detected — use its children as targets
+        for (var cj = 0; cj < cmsAncestor.children.length; cj++) {
+            var cmsChild = cmsAncestor.children[cj] as HTMLElement
+            if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
         }
-
-        // 2. DOWNWARD: search below parent for CMS list
-        var downResult: HTMLElement[] = []
-        var listNode = findNodeWithMostChildren(parent, marker)
-        if (listNode) {
-            for (var j = 0; j < listNode.children.length; j++) {
-                var child = listNode.children[j] as HTMLElement
-                if (!isMarkerBranch(child, marker)) downResult.push(child)
-            }
-        }
-
-        // Use whichever found more targets
-        result = upResult.length >= downResult.length ? upResult : downResult
-
     } else {
+        // No CMS collection found — fall back to direct siblings
         for (var k = 0; k < parent.children.length; k++) {
             var el = parent.children[k] as HTMLElement
             if (isMarkerBranch(el, marker)) continue
@@ -1107,7 +1104,7 @@ function useStableGroupId() {
 
 export default function PageChoreographer(props: any) {
     var {
-        scanMode = "cmsItems",
+        scanMode = "siblings",
         excludeSelector = "",
         splitText = false,
         enterPreset = "fadeUp",
@@ -1312,17 +1309,13 @@ export default function PageChoreographer(props: any) {
         }
 
         // MutationObserver for dynamic CMS content
-        var observeTarget = parent
-        if (scanMode === "cmsItems") {
-            for (var i = 0; i < parent.children.length; i++) {
-                var ch = parent.children[i] as HTMLElement
-                if (isMarkerBranch(ch, marker)) continue
-                if (ch.children.length > 1) {
-                    observeTarget = ch
-                    break
-                }
-            }
+        // Observe a few levels up to catch CMS collection changes
+        var observeTarget: HTMLElement = parent
+        var obsWalk: HTMLElement | null = parent
+        for (var obsUp = 0; obsUp < 4 && obsWalk; obsUp++) {
+            if (obsWalk.parentElement) obsWalk = obsWalk.parentElement
         }
+        if (obsWalk) observeTarget = obsWalk
 
         var mutObs: MutationObserver | null = null
         try {
@@ -1336,7 +1329,7 @@ export default function PageChoreographer(props: any) {
                     var t = collectTargets(p, marker, scanMode, excludeSelector, splitText)
                     registerElements(t, s)
                 })
-                mutObs.observe(observeTarget, { childList: true })
+                mutObs.observe(observeTarget, { childList: true, subtree: true })
             }
         } catch (e) {}
 
@@ -2015,10 +2008,10 @@ addPropertyControls(PageChoreographer, {
     scanMode: {
         type: ControlType.Enum,
         title: "Scan Mode",
-        defaultValue: "cmsItems",
-        options: ["siblings", "cmsItems"],
-        optionTitles: ["Siblings", "CMS Items"],
-        description: "Siblings: animates direct children of the parent stack. CMS Items: automatically finds and animates all items in a CMS collection — works whether placed alongside or inside a CMS item.",
+        defaultValue: "siblings",
+        options: ["siblings", "children"],
+        optionTitles: ["Auto", "Children"],
+        description: "Auto: detects siblings and CMS collections automatically. Children: animates direct children of a specific element.",
     },
     excludeSelector: {
         type: ControlType.String,
