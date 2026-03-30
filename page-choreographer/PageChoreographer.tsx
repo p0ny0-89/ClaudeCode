@@ -1626,7 +1626,11 @@ export default function PageChoreographer(props: any) {
             // targeted by the owner via inclusive collection (no
             // isMarkerBranch filtering).  This prevents followers from
             // creating wrappers with overflow:hidden that clip content.
-            var earlySection = parentGP ? findSection(parentGP) : parentGP!
+            // Start section detection from `parent` (the PC's container),
+            // not `parentGP`.  Starting one level too high causes
+            // findSection to return a page-level container (e.g. "main")
+            // which pins the entire page instead of just the target section.
+            var earlySection = findSection(parent)
             if (scrollPin && earlySection && earlySection.hasAttribute("data-choreo-pin-owner")) {
                 // Another instance already owns this section — bail out.
                 // That owner's animations cover all items including ours.
