@@ -1193,13 +1193,18 @@ function collectTargets(
                 var mColTag = (mWalk.children[0] as HTMLElement).tagName
                 var mAllSame = true
                 var mTotalItems = 0
+                var mMaxColItems = 0
                 for (var mg = 0; mg < mWalk.children.length; mg++) {
                     var mCol = mWalk.children[mg] as HTMLElement
                     if (mCol.tagName !== mColTag) { mAllSame = false; break }
                     mTotalItems += mCol.children.length
+                    if (mCol.children.length > mMaxColItems) mMaxColItems = mCol.children.length
                 }
-                // Columns must share same tag and collectively have ≥3 items
-                if (mAllSame && mTotalItems >= 3) {
+                // Columns must share same tag, collectively have ≥3 items,
+                // and at least one column must have ≥2 children (to
+                // distinguish real masonry columns from card-internal
+                // wrappers which typically have 1 child each).
+                if (mAllSame && mTotalItems >= 3 && mMaxColItems >= 2) {
                     masonryGrid = mWalk
                     break
                 }
