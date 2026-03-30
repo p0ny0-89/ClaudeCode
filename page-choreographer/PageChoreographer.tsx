@@ -1017,35 +1017,28 @@ function collectTargets(
 ): HTMLElement[] {
     var result: HTMLElement[] = []
 
-    // ── Auto CMS detection ──
-    // Walk up from the marker looking for a CMS collection pattern:
-    // an ancestor whose non-marker children all share the same
-    // data-framer-name (CMS items are clones with identical names).
-    // Also handles grid/masonry layouts where items are wrapped in
-    // positioning divs — checks one level deeper if direct children
-    // don't have matching names.
+    // ── Auto CMS / collection detection ──
+    // Walk up from the marker looking for a collection pattern:
+    //  1. Children share the same data-framer-name (named CMS items)
+    //  2. Children's first named descendant shares the same name (grid wrappers)
+    //  3. Children are structurally identical: same tag + same child count
+    //     (handles masonry/grid where no data-framer-name is set)
+    // Picks the ancestor with the MOST homogeneous children.
     var cmsAncestor: HTMLElement | null = null
+    var cmsAncestorCount = 0
     if (scanMode === "siblings" || scanMode === "cmsItems" || scanMode === "cmsNested") {
         var walkNode: HTMLElement | null = marker.parentElement
         var maxWalk = 15
-        var walkDepth = 0
         while (walkNode && maxWalk > 0) {
             var wChildren: HTMLElement[] = []
             for (var wc = 0; wc < walkNode.children.length; wc++) {
                 var wChild = walkNode.children[wc] as HTMLElement
                 if (!isMarkerBranch(wChild, marker)) wChildren.push(wChild)
             }
-            // Debug: log each ancestor level
-            var childNames = wChildren.slice(0, 5).map(function(c) {
-                return c.tagName + "[" + (c.getAttribute("data-framer-name") || "?") + "] ch=" + c.children.length
-            })
-            console.log("[choreo] walk depth=" + walkDepth,
-                "node=" + walkNode.tagName + "[" + (walkNode.getAttribute("data-framer-name") || "?") + "]",
-                "nonMarkerChildren=" + wChildren.length,
-                "children:", childNames.join(", "))
-            walkDepth++
 
             if (wChildren.length >= 2) {
+                var detected = false
+
                 // Strategy 1: direct children share data-framer-name
                 var directName = wChildren[0].getAttribute("data-framer-name")
                 if (directName) {
@@ -1056,30 +1049,44 @@ function collectTargets(
                             break
                         }
                     }
-                    if (allDirect) {
-                        cmsAncestor = walkNode
-                        break
-                    }
+                    if (allDirect) detected = true
                 }
 
-                // Strategy 2: children are wrapper divs (grid/masonry)
-                // whose first named descendant shares the same name.
-                // e.g. [grid-cell] → [CMS Item "Card"], [grid-cell] → [CMS Item "Card"]
-                if (!directName || !cmsAncestor) {
+                // Strategy 2: wrapper children's first named descendant matches
+                if (!detected) {
                     var innerName: string | null = null
                     var allInner = true
                     for (var wi = 0; wi < wChildren.length; wi++) {
-                        // Find the first descendant with data-framer-name
                         var named = wChildren[wi].querySelector("[data-framer-name]") as HTMLElement | null
                         var nm = named ? named.getAttribute("data-framer-name") : null
                         if (!nm) { allInner = false; break }
                         if (innerName === null) innerName = nm
                         else if (nm !== innerName) { allInner = false; break }
                     }
-                    if (allInner && innerName && wChildren.length >= 2) {
-                        cmsAncestor = walkNode
-                        break
+                    if (allInner && innerName) detected = true
+                }
+
+                // Strategy 3: structural homogeneity — all children are
+                // the same tag with the same number of children.
+                // Catches masonry/grid CMS where items have no names.
+                if (!detected) {
+                    var firstTag = wChildren[0].tagName
+                    var firstCh = wChildren[0].children.length
+                    var allStruct = firstCh > 0 // require at least 1 grandchild
+                    for (var ws = 1; ws < wChildren.length; ws++) {
+                        if (wChildren[ws].tagName !== firstTag ||
+                            wChildren[ws].children.length !== firstCh) {
+                            allStruct = false
+                            break
+                        }
                     }
+                    if (allStruct) detected = true
+                }
+
+                // Prefer the ancestor with the most children (collection level)
+                if (detected && wChildren.length > cmsAncestorCount) {
+                    cmsAncestor = walkNode
+                    cmsAncestorCount = wChildren.length
                 }
             }
             walkNode = walkNode.parentElement
@@ -1088,7 +1095,7 @@ function collectTargets(
     }
 
     if (cmsAncestor) {
-        // CMS collection detected — use its children as targets
+        // Collection detected — use its children as targets
         for (var cj = 0; cj < cmsAncestor.children.length; cj++) {
             var cmsChild = cmsAncestor.children[cj] as HTMLElement
             if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
@@ -1291,6 +1298,21 @@ export default function PageChoreographer(props: any) {
 
         var targets = collectTargets(parent, marker, scanMode, excludeSelector, splitText)
         registerElements(targets, store)
+
+        // Delayed re-scan: masonry/grid layouts restructure the DOM
+        // after initial render.  Re-collect targets after a short delay
+        // to catch the final layout.  Only update if we find MORE targets.
+        var rescanTimer = setTimeout(function () {
+            if (!marker || !marker.parentElement) return
+            var p2 = findRealParent(marker)
+            if (!p2) return
+            var t2 = collectTargets(p2, marker, scanMode, excludeSelector, splitText)
+            if (t2.length > targets.length) {
+                unregisterAll(store)
+                registerElements(t2, store)
+                targets = t2
+            }
+        }, 300)
 
         // Pre-hide elements that will animate in (inView / onLoad) so they
         // don't flash visible before the animation starts. Only in preview —
@@ -1928,6 +1950,7 @@ export default function PageChoreographer(props: any) {
         }
 
         return function () {
+            clearTimeout(rescanTimer)
             // For onScroll, keep visibility:hidden — the scroll handler
             // removes it when progress > 0. Removing it here would cause
             // a flash between cleanup and re-render. For other triggers,
