@@ -1100,19 +1100,26 @@ function collectTargets(
                 // every item. Only use this if no strict match was found.
                 // Require depth ≥ 2 to skip the card's own content level
                 // (Image, Title, etc.) and only match at the column level.
+                // Also require that this node's parent has ≥2 children —
+                // a parent with 1 child means we're inside a card wrapper,
+                // not at a real collection level.
                 if (!detected && wChildren.length >= 2 && !cmsAncestor && walkDepth >= 2) {
-                    // Require children to at least share the same tag
-                    var fallbackTag = wChildren[0].tagName
-                    var sameTag = true
-                    for (var wf = 1; wf < wChildren.length; wf++) {
-                        if (wChildren[wf].tagName !== fallbackTag) {
-                            sameTag = false
-                            break
+                    var s4ParentOk = walkNode.parentElement &&
+                        walkNode.parentElement.children.length >= 2
+                    if (s4ParentOk) {
+                        // Require children to at least share the same tag
+                        var fallbackTag = wChildren[0].tagName
+                        var sameTag = true
+                        for (var wf = 1; wf < wChildren.length; wf++) {
+                            if (wChildren[wf].tagName !== fallbackTag) {
+                                sameTag = false
+                                break
+                            }
                         }
-                    }
-                    if (sameTag) {
-                        cmsAncestor = walkNode
-                        cmsAncestorCount = wChildren.length
+                        if (sameTag) {
+                            cmsAncestor = walkNode
+                            cmsAncestorCount = wChildren.length
+                        }
                     }
                 }
             }
