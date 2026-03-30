@@ -1558,6 +1558,15 @@ export default function PageChoreographer(props: any) {
                 releasedIndices = {}
             }
 
+            // Block pointer-events on all animated elements to prevent
+            // Framer hover effects from conflicting with active animations.
+            // Unblocked per-element when its animation is released (98%).
+            var blockAnimatedPointerEvents = function () {
+                for (var bp = 0; bp < scrollAnimFinalStyles.length; bp++) {
+                    scrollAnimFinalStyles[bp].el.style.setProperty("pointer-events", "none", "important")
+                }
+            }
+
             var unbakeAndRecreateAnims = function () {
                 for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
                     var item = scrollAnimFinalStyles[ub]
@@ -1657,15 +1666,6 @@ export default function PageChoreographer(props: any) {
                             }
                         }
                     } catch (e) {}
-                }
-            }
-
-            // Block pointer-events on all animated elements to prevent
-            // Framer hover effects from conflicting with active animations.
-            // Unblocked per-element when its animation is released (98%).
-            var blockAnimatedPointerEvents = function () {
-                for (var bp = 0; bp < scrollAnimFinalStyles.length; bp++) {
-                    scrollAnimFinalStyles[bp].el.style.setProperty("pointer-events", "none", "important")
                 }
             }
 
