@@ -1088,6 +1088,29 @@ function collectTargets(
                     cmsAncestor = walkNode
                     cmsAncestorCount = wChildren.length
                 }
+
+                // Strategy 4: relaxed "most children" fallback.
+                // In masonry layouts, items are split into columns. Each
+                // column has ≥2 items that aren't structurally identical
+                // (e.g. different child counts). Since each CMS item has
+                // its own Page Choreographer instance, finding just the
+                // column siblings is enough — all instances together cover
+                // every item. Only use this if no strict match was found.
+                if (!detected && wChildren.length >= 2 && !cmsAncestor) {
+                    // Require children to at least share the same tag
+                    var fallbackTag = wChildren[0].tagName
+                    var sameTag = true
+                    for (var wf = 1; wf < wChildren.length; wf++) {
+                        if (wChildren[wf].tagName !== fallbackTag) {
+                            sameTag = false
+                            break
+                        }
+                    }
+                    if (sameTag) {
+                        cmsAncestor = walkNode
+                        cmsAncestorCount = wChildren.length
+                    }
+                }
             }
             walkNode = walkNode.parentElement
             maxWalk--
@@ -1100,7 +1123,6 @@ function collectTargets(
             var cmsChild = cmsAncestor.children[cj] as HTMLElement
             if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
         }
-        console.log("[choreo] CMS detected:", cmsAncestor.tagName + "[" + (cmsAncestor.getAttribute("data-framer-name") || "?") + "]", "targets:", result.length)
     } else {
         // No CMS collection found — fall back to direct siblings
         for (var k = 0; k < parent.children.length; k++) {
@@ -1108,7 +1130,6 @@ function collectTargets(
             if (isMarkerBranch(el, marker)) continue
             result.push(el)
         }
-        console.log("[choreo] Fallback siblings, parent:", parent.tagName + "[" + (parent.getAttribute("data-framer-name") || "?") + "]", "targets:", result.length)
     }
     // Filter out elements whose layer name matches any excluded name.
     // User types comma-separated layer names like "Load More, Footer".
