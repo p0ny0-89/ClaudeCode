@@ -528,7 +528,6 @@ export default function CmsMotionAmbient(props: Props) {
         slideDuration,
         ambientEnabled,
         ambientIntensity,
-        hasOverlay,
         muteVideo,
         borderMode,
         borderWidth,
@@ -620,11 +619,7 @@ export default function CmsMotionAmbient(props: Props) {
         )
 
         // ── 4. Glow opacity interpolation (lags behind overlay) ──
-        // When slides exist, glow tracks overlay visibility.
-        // When no slides (bg-only), glow is always on at ambientIntensity.
-        const glowTarget = cfg.current.hasOverlay
-            ? overlayOpTarget.current * cfg.current.ambientIntensity
-            : cfg.current.ambientIntensity
+        const glowTarget = overlayOpTarget.current * cfg.current.ambientIntensity
         glowOpCurrent.current = lerp(
             glowOpCurrent.current,
             cfg.current.ambientEnabled ? glowTarget : 0,
@@ -823,14 +818,6 @@ export default function CmsMotionAmbient(props: Props) {
         tiltTarget.current = { rx: 0, ry: 0, s: 1 }
         startLoop()
     }, [tilt, startLoop])
-
-    // ── Bg-only ambient — kick loop so glow fades in ──────
-
-    useEffect(() => {
-        if (ambientEnabled && !hasOverlay && bgSrc && !isCanvas) {
-            startLoop()
-        }
-    }, [ambientEnabled, hasOverlay, bgSrc, isCanvas, startLoop])
 
     // ── Autoplay — IntersectionObserver ─────────────────
 
