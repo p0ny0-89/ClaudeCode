@@ -1819,6 +1819,14 @@ export default function PageChoreographer(props: any) {
                 // Create spacer INSIDE the pin container for scroll room.
                 // This bounds the sticky: browser un-sticks when the pin
                 // container's bottom scrolls past the section.
+                //
+                // IMPORTANT: The spacer adds internal height for sticky
+                // behavior, but a negative margin on the pin container
+                // collapses that extra height from the PAGE layout.
+                // This decouples animation speed (scrollLength) from
+                // layout gap — the design's spacing/padding is preserved
+                // while scrollLength controls how fast the animation
+                // scrubs during the pin.
                 var spacer = document.createElement("div")
                 spacer.style.setProperty("height", scrollLength + "px")
                 spacer.style.setProperty("width", "100%")
@@ -1827,6 +1835,10 @@ export default function PageChoreographer(props: any) {
                 spacer.setAttribute("data-choreo-spacer", baseId)
                 pinContainer.appendChild(spacer)
                 scrollSpacer = spacer
+
+                // Collapse the spacer's layout contribution so it
+                // doesn't create a visible gap between sections.
+                pinContainer.style.setProperty("margin-bottom", "-" + scrollLength + "px", "important")
 
                 // Walk UP from section (INCLUDING the section itself),
                 // fix any CSS property that creates a clipping context.
