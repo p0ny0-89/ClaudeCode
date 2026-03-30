@@ -1422,6 +1422,23 @@ export default function PageChoreographer(props: any) {
         unregisterAll(store)
 
         var targets = collectTargets(parent, marker, scanMode, excludeSelector, splitText)
+
+        // Claim mechanism: prevent multiple instances from animating
+        // the same element.  In CMS layouts each item has its own
+        // PageChoreographer instance, and cross-column collection means
+        // many instances can target the same element.  Multiple scroll
+        // animations on one element cause conflicts (card stuck visible,
+        // stagger mismatch).  First instance to claim an element wins.
+        var claimedTargets: HTMLElement[] = []
+        for (var ct = 0; ct < targets.length; ct++) {
+            var tgt = targets[ct]
+            if (!tgt.hasAttribute("data-choreo-owner")) {
+                tgt.setAttribute("data-choreo-owner", baseId)
+                claimedTargets.push(tgt)
+            }
+        }
+        targets = claimedTargets
+
         registerElements(targets, store)
 
         // Delayed re-scan: masonry/grid layouts restructure the DOM
@@ -2148,6 +2165,17 @@ export default function PageChoreographer(props: any) {
                 scrollWrapper.parentElement.removeChild(scrollWrapper)
             }
             scrollPinEl = null
+            // Release element claims so other instances can re-claim
+            // on re-render (e.g. resize, prop change)
+            if (typeof targets !== "undefined") {
+                for (var rc = 0; rc < targets.length; rc++) {
+                    try {
+                        if (targets[rc].getAttribute("data-choreo-owner") === baseId) {
+                            targets[rc].removeAttribute("data-choreo-owner")
+                        }
+                    } catch (e) {}
+                }
+            }
             unregisterAll(getStore())
         }
     }, [
