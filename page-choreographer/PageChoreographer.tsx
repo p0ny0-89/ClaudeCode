@@ -1636,9 +1636,6 @@ export default function PageChoreographer(props: any) {
             // findSection to return a page-level container (e.g. "main")
             // which pins the entire page instead of just the target section.
             var earlySection = findSection(parent)
-            console.log("[Choreo] findSection: parent=" + (parent.getAttribute("data-framer-name") || parent.tagName) +
-                " → section=" + (earlySection.getAttribute("data-framer-name") || earlySection.tagName) +
-                " sectionH=" + earlySection.offsetHeight + " vh=" + window.innerHeight)
             if (scrollPin && earlySection && earlySection.hasAttribute("data-choreo-pin-owner")) {
                 // Another instance already owns this section — bail out.
                 // That owner's animations cover all items including ours.
@@ -2137,9 +2134,10 @@ export default function PageChoreographer(props: any) {
 
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
-                        // Clear the slide-away transform
+                        // Clear the slide-away transform and z-index
                         if (isOwner && sectionEl) {
                             sectionEl.style.removeProperty("transform")
+                            sectionEl.style.removeProperty("z-index")
                         }
                         unbakeAndRecreateAnims()
                     }
@@ -2164,6 +2162,7 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.afterPin = false
                         if (isOwner && sectionEl) {
                             sectionEl.style.removeProperty("transform")
+                            sectionEl.style.removeProperty("z-index")
                         }
                         unbakeAndRecreateAnims()
                     }
@@ -2183,11 +2182,16 @@ export default function PageChoreographer(props: any) {
                         updateAnimProgress(1)
                         releaseAnimatedElements(true)
                     }
-                    // Continuously update the slide-away offset
+                    // Continuously update the slide-away offset.
+                    // Set z-index:-1 so the section slides BEHIND previous
+                    // siblings instead of overlaying on top of them.
+                    // position:sticky creates a stacking context that would
+                    // otherwise render above earlier siblings.
                     if (isOwner && sectionEl) {
                         var slideOffset = scrollY - pinEnd
                         sectionEl.style.setProperty("transform",
                             "translateY(-" + slideOffset + "px)", "important")
+                        sectionEl.style.setProperty("z-index", "-1", "important")
                     }
                     updateViewportClip()
                 }
@@ -2317,6 +2321,7 @@ export default function PageChoreographer(props: any) {
                 scrollSectionEl.style.removeProperty("position")
                 scrollSectionEl.style.removeProperty("top")
                 scrollSectionEl.style.removeProperty("transform")
+                scrollSectionEl.style.removeProperty("z-index")
                 scrollSectionEl.style.removeProperty("overflow-anchor")
                 if (scrollSectionEl.parentElement) {
                     scrollSectionEl.parentElement.style.removeProperty("overflow-anchor")
