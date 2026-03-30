@@ -1045,10 +1045,6 @@ function collectTargets(
         // Use whichever found more targets
         result = upResult.length >= downResult.length ? upResult : downResult
 
-        console.log("[choreo] CMS scan: upward=" + upResult.length +
-            " downward=" + downResult.length +
-            " using=" + (upResult.length >= downResult.length ? "UP" : "DOWN") +
-            " bestAncestor=" + (bestAncestor ? (bestAncestor.getAttribute("data-framer-name") || bestAncestor.tagName + "[" + bestCount + "]") : "null"))
     } else {
         for (var k = 0; k < parent.children.length; k++) {
             var el = parent.children[k] as HTMLElement
