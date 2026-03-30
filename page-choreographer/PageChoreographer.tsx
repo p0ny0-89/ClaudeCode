@@ -1495,49 +1495,21 @@ export default function PageChoreographer(props: any) {
         // on canvas elements should stay visible for editing.
         // Uses visibility:hidden which doesn't interfere with WAAPI animations
         // and is cleanly removed when the animation starts.
+        //
+        // IMPORTANT: For onScroll trigger, pre-hiding is deferred to the
+        // scroll setup rAF (after the section ownership check).  This
+        // prevents follower instances from hiding targets they'll never
+        // reveal (because they bail out when another instance owns the
+        // section).
         var preHiddenEls: HTMLElement[] = []
         var preHideStyleTag: HTMLStyleElement | null = null
-        if ((trigger === "inView" || trigger === "onLoad" || trigger === "onScroll") && enterEnabled &&
+        if ((trigger === "inView" || trigger === "onLoad") && enterEnabled &&
             RenderTarget.current() !== RenderTarget.canvas) {
-
-            // For onScroll, use a <style> tag + data attribute for
-            // bulletproof hiding that survives React re-renders and
-            // Framer's style management
-            if (trigger === "onScroll") {
-                var styleTag = document.createElement("style")
-                styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
-                document.head.appendChild(styleTag)
-                preHideStyleTag = styleTag
-            }
-
-            // Compute initial clip-path for maskPreview mode
-            var previewClip = ""
-            var hasMaskPreset = enterPreset === "maskReveal" || (enterPreset === "scaleIn" && enterMaskDirection && enterMaskDirection !== "none")
-            if (maskPreview && hasMaskPreset && trigger === "onScroll") {
-                var ms = Math.max(0, Math.min(100, 100 - (maskStart || 0)))
-                switch (enterMaskDirection) {
-                    case "left":  default: previewClip = "inset(0 " + ms + "% 0 0)"; break
-                    case "right":      previewClip = "inset(0 0 0 " + ms + "%)"; break
-                    case "up":         previewClip = "inset(0 0 " + ms + "% 0)"; break
-                    case "down":       previewClip = "inset(" + ms + "% 0 0 0)"; break
-                    case "topLeft":    previewClip = "inset(0 " + ms + "% " + ms + "% 0)"; break
-                    case "topRight":   previewClip = "inset(0 0 " + ms + "% " + ms + "%)"; break
-                    case "bottomLeft": previewClip = "inset(" + ms + "% " + ms + "% 0 0)"; break
-                    case "bottomRight":previewClip = "inset(" + ms + "% 0 0 " + ms + "%)"; break
-                }
-            }
 
             for (var phi = 0; phi < targets.length; phi++) {
                 var phEl = targets[phi]
                 if (!phEl) continue
-                if (maskPreview && previewClip && trigger === "onScroll") {
-                    // Show element with initial mask instead of hiding
-                    phEl.style.setProperty("clip-path", previewClip)
-                } else if (trigger === "onScroll") {
-                    phEl.setAttribute("data-choreo-hide", "1")
-                } else {
-                    phEl.style.setProperty("visibility", "hidden")
-                }
+                phEl.style.setProperty("visibility", "hidden")
                 preHiddenEls.push(phEl)
             }
         }
@@ -1640,6 +1612,45 @@ export default function PageChoreographer(props: any) {
                 // Another instance already owns this section — bail out.
                 // That owner's animations cover all items including ours.
                 return
+            }
+
+            // ── onScroll pre-hiding ──
+            // Now that we know this instance owns the section (not bailing
+            // out), pre-hide targets so they don't flash before the scroll
+            // animation starts.
+            if (enterEnabled) {
+                var styleTag = document.createElement("style")
+                styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
+                document.head.appendChild(styleTag)
+                preHideStyleTag = styleTag
+
+                // Compute initial clip-path for maskPreview mode
+                var previewClip = ""
+                var hasMaskPreset = enterPreset === "maskReveal" || (enterPreset === "scaleIn" && enterMaskDirection && enterMaskDirection !== "none")
+                if (maskPreview && hasMaskPreset) {
+                    var ms = Math.max(0, Math.min(100, 100 - (maskStart || 0)))
+                    switch (enterMaskDirection) {
+                        case "left":  default: previewClip = "inset(0 " + ms + "% 0 0)"; break
+                        case "right":      previewClip = "inset(0 0 0 " + ms + "%)"; break
+                        case "up":         previewClip = "inset(0 0 " + ms + "% 0)"; break
+                        case "down":       previewClip = "inset(" + ms + "% 0 0 0)"; break
+                        case "topLeft":    previewClip = "inset(0 " + ms + "% " + ms + "% 0)"; break
+                        case "topRight":   previewClip = "inset(0 0 " + ms + "% " + ms + "%)"; break
+                        case "bottomLeft": previewClip = "inset(" + ms + "% " + ms + "% 0 0)"; break
+                        case "bottomRight":previewClip = "inset(" + ms + "% 0 0 " + ms + "%)"; break
+                    }
+                }
+
+                for (var phi = 0; phi < targets.length; phi++) {
+                    var phEl = targets[phi]
+                    if (!phEl) continue
+                    if (maskPreview && previewClip) {
+                        phEl.style.setProperty("clip-path", previewClip)
+                    } else {
+                        phEl.setAttribute("data-choreo-hide", "1")
+                    }
+                    preHiddenEls.push(phEl)
+                }
             }
 
             // ── Check if targets span outside the parent ──
