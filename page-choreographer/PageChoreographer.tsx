@@ -1789,20 +1789,43 @@ export default function PageChoreographer(props: any) {
                 // parent so the sticky↔relative transition doesn't cause
                 // the browser to adjust scrollY (which creates oscillation).
                 sectionEl.style.setProperty("overflow-anchor", "none")
+
+                // ── Pin container ──
+                // Wrap the section + spacer in a container div so that the
+                // section's sticky containing block matches the pin duration.
+                // Without this, sticky stays active until the section's
+                // original parent scrolls past (which can be the entire page).
+                var pinContainer = document.createElement("div")
+                pinContainer.setAttribute("data-choreo-pin-container", baseId)
+                pinContainer.style.setProperty("overflow-anchor", "none")
+                // Copy the section's flex/grid properties so the container
+                // occupies the same layout slot
                 if (sectionEl.parentElement) {
-                    sectionEl.parentElement.style.setProperty("overflow-anchor", "none")
+                    var secCS = window.getComputedStyle(sectionEl)
+                    pinContainer.style.setProperty("align-self", secCS.alignSelf)
+                    pinContainer.style.setProperty("justify-self", secCS.justifySelf)
+                    pinContainer.style.setProperty("order", secCS.order)
+                    pinContainer.style.setProperty("grid-column", secCS.gridColumn)
+                    pinContainer.style.setProperty("grid-row", secCS.gridRow)
+                    pinContainer.style.setProperty("flex-grow", secCS.flexGrow)
+                    pinContainer.style.setProperty("flex-shrink", secCS.flexShrink)
+                    pinContainer.style.setProperty("flex-basis", secCS.flexBasis)
+                    pinContainer.style.setProperty("width", "100%")
+                    // Insert container in place of section, then move section inside
+                    sectionEl.parentElement.insertBefore(pinContainer, sectionEl)
+                    pinContainer.appendChild(sectionEl)
                 }
 
-                // Create spacer AFTER the section for external scroll room
+                // Create spacer INSIDE the pin container for scroll room.
+                // This bounds the sticky: browser un-sticks when the pin
+                // container's bottom scrolls past the section.
                 var spacer = document.createElement("div")
                 spacer.style.setProperty("height", scrollLength + "px")
                 spacer.style.setProperty("width", "100%")
                 spacer.style.setProperty("pointer-events", "none")
                 spacer.style.setProperty("flex-shrink", "0")
                 spacer.setAttribute("data-choreo-spacer", baseId)
-                if (sectionEl.parentElement) {
-                    sectionEl.parentElement.insertBefore(spacer, sectionEl.nextSibling)
-                }
+                pinContainer.appendChild(spacer)
                 scrollSpacer = spacer
 
                 // Walk UP from section (INCLUDING the section itself),
@@ -2303,7 +2326,15 @@ export default function PageChoreographer(props: any) {
                 scrollSectionEl.style.removeProperty("transform")
                 scrollSectionEl.style.removeProperty("z-index")
                 scrollSectionEl.style.removeProperty("overflow-anchor")
-                if (scrollSectionEl.parentElement) {
+                // Unwrap from pin container — move section back to its
+                // original position and remove the container
+                var pinCtr = scrollSectionEl.parentElement
+                if (pinCtr && pinCtr.hasAttribute("data-choreo-pin-container")) {
+                    if (pinCtr.parentElement) {
+                        pinCtr.parentElement.insertBefore(scrollSectionEl, pinCtr)
+                        pinCtr.parentElement.removeChild(pinCtr)
+                    }
+                } else if (scrollSectionEl.parentElement) {
                     scrollSectionEl.parentElement.style.removeProperty("overflow-anchor")
                 }
                 if (scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
