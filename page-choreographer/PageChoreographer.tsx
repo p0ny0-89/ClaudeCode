@@ -998,45 +998,38 @@ function collectTargets(
 ): HTMLElement[] {
     var result: HTMLElement[] = []
     if (scanMode === "cmsItems" || scanMode === "cmsNested") {
-        // Smart CMS mode: try downward search first, then fall back
-        // to upward search if not enough targets found.
-
-        // 1. Try DOWNWARD: find the node with the most children
-        //    (works when component is a sibling of CMS items)
-        var listNode = findNodeWithMostChildren(parent, marker)
-        if (listNode) {
-            for (var j = 0; j < listNode.children.length; j++) {
-                var child = listNode.children[j] as HTMLElement
-                if (!isMarkerBranch(child, marker)) result.push(child)
+        // Smart CMS mode: detect whether the component is placed
+        // alongside CMS items or nested inside one.
+        //
+        // Detection: if parent's parentElement has 3+ children,
+        // parent is likely a CMS item itself (nested placement).
+        // Otherwise, the CMS list is below parent (sibling placement).
+        var isNested = false
+        var parentParent = parent.parentElement
+        if (parentParent) {
+            var ppChildCount = 0
+            for (var pp = 0; pp < parentParent.children.length; pp++) {
+                if (!isMarkerBranch(parentParent.children[pp] as HTMLElement, marker))
+                    ppChildCount++
             }
+            isNested = ppChildCount >= 3
         }
 
-        // 2. If downward only found 0-2 targets, try UPWARD:
-        //    walk up to find the CMS collection ancestor
-        //    (works when component is nested inside a CMS item)
-        if (result.length <= 2) {
-            var upResult: HTMLElement[] = []
-            var walkUp = parent.parentElement
-            var walkDepth = 10
-            while (walkUp && walkDepth > 0) {
-                var childCount = 0
-                for (var ci = 0; ci < walkUp.children.length; ci++) {
-                    if (!isMarkerBranch(walkUp.children[ci] as HTMLElement, marker))
-                        childCount++
-                }
-                if (childCount >= 3) {
-                    for (var cj = 0; cj < walkUp.children.length; cj++) {
-                        var cmsChild = walkUp.children[cj] as HTMLElement
-                        if (!isMarkerBranch(cmsChild, marker)) upResult.push(cmsChild)
-                    }
-                    break
-                }
-                walkUp = walkUp.parentElement
-                walkDepth--
+        if (isNested && parentParent) {
+            // NESTED: parent is a CMS item — target its siblings
+            // in the collection (parentParent's children)
+            for (var cj = 0; cj < parentParent.children.length; cj++) {
+                var cmsChild = parentParent.children[cj] as HTMLElement
+                if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
             }
-            // Use upward result if it found more targets
-            if (upResult.length > result.length) {
-                result = upResult
+        } else {
+            // SIBLING: search downward for the CMS list
+            var listNode = findNodeWithMostChildren(parent, marker)
+            if (listNode) {
+                for (var j = 0; j < listNode.children.length; j++) {
+                    var child = listNode.children[j] as HTMLElement
+                    if (!isMarkerBranch(child, marker)) result.push(child)
+                }
             }
         }
     } else {
