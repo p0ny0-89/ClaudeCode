@@ -1121,6 +1121,22 @@ function collectTargets(
         }
     }
 
+    // ── DEBUG: log the walk results ──
+    var _dbgMarkerPath = ""
+    var _dbgNode: HTMLElement | null = marker
+    for (var _d = 0; _d < 6 && _dbgNode; _d++) {
+        var _n = _dbgNode.getAttribute("data-framer-name") || _dbgNode.tagName.toLowerCase()
+        _dbgMarkerPath = _n + (_dbgMarkerPath ? " > " + _dbgMarkerPath : "")
+        _dbgNode = _dbgNode.parentElement
+    }
+    console.log("[choreo] ── Instance ──", _dbgMarkerPath)
+    if (cmsAncestor) {
+        var _aName = cmsAncestor.getAttribute("data-framer-name") || cmsAncestor.tagName
+        console.log("[choreo]   CMS ancestor:", _aName, "children:", cmsAncestor.children.length)
+    } else {
+        console.log("[choreo]   No CMS ancestor found")
+    }
+
     if (cmsAncestor) {
         // Check if the CMS ancestor is a masonry column — i.e., its parent
         // has multiple same-tag children. In masonry layouts, Framer splits
@@ -1139,6 +1155,8 @@ function collectTargets(
             }
             isMasonryColumn = allColsSameTag
         }
+
+        console.log("[choreo]   Masonry column?", isMasonryColumn, colParent ? "parent-children:" + colParent.children.length : "no-parent")
 
         if (isMasonryColumn) {
             // Masonry: collect items from ALL sibling columns
@@ -1184,6 +1202,7 @@ function collectTargets(
         }
 
         if (masonryGrid) {
+            console.log("[choreo]   Masonry grid fallback found, columns:", masonryGrid.children.length)
             // Collect items from all columns
             for (var gc = 0; gc < masonryGrid.children.length; gc++) {
                 var gCol = masonryGrid.children[gc] as HTMLElement
@@ -1193,6 +1212,7 @@ function collectTargets(
                 }
             }
         } else {
+            console.log("[choreo]   Final fallback: direct siblings of", parent.tagName)
             // Final fallback — direct siblings
             for (var k = 0; k < parent.children.length; k++) {
                 var el = parent.children[k] as HTMLElement
@@ -1201,6 +1221,9 @@ function collectTargets(
             }
         }
     }
+    console.log("[choreo]   Targets found:", result.length, result.map(function(t) {
+        return t.getAttribute("data-framer-name") || t.tagName + "[" + t.children.length + "ch]"
+    }).join(", "))
     // Filter out elements whose layer name matches any excluded name.
     // User types comma-separated layer names like "Load More, Footer".
     // Checks data-framer-name, data-framer-component, aria-label, and
