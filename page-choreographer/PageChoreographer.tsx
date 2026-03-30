@@ -96,18 +96,40 @@ function buildEnterKeyframes(t: TargetEntry) {
                 bottomRight: "bottom right",
             }
             var origin = originMap[sd] || "center center"
-            return {
-                from: {
-                    opacity: String(so),
-                    transform: "scale(" + sf + ")",
-                    transformOrigin: origin,
-                },
-                to: {
-                    opacity: "1",
-                    transform: "scale(1)",
-                    transformOrigin: origin,
-                },
+            var scaleFrom: any = {
+                opacity: String(so),
+                transform: "scale(" + sf + ")",
+                transformOrigin: origin,
             }
+            var scaleTo: any = {
+                opacity: "1",
+                transform: "scale(1)",
+                transformOrigin: origin,
+            }
+            // Optional mask: pair a clip-path reveal with the scale
+            var sMaskDir = t.enterMaskDirection || "none"
+            if (sMaskDir !== "none") {
+                var sm = Math.max(0, Math.min(100, 100 - (t.maskStart || 0)))
+                var sMask = "inset(0 " + sm + "% 0 0)" // default: left
+                switch (sMaskDir) {
+                    case "right":      sMask = "inset(0 0 0 " + sm + "%)"; break
+                    case "up":         sMask = "inset(0 0 " + sm + "% 0)"; break
+                    case "down":       sMask = "inset(" + sm + "% 0 0 0)"; break
+                    case "topLeft":    sMask = "inset(0 " + sm + "% " + sm + "% 0)"; break
+                    case "topRight":   sMask = "inset(0 0 " + sm + "% " + sm + "%)"; break
+                    case "bottomLeft": sMask = "inset(" + sm + "% " + sm + "% 0 0)"; break
+                    case "bottomRight":sMask = "inset(" + sm + "% 0 0 " + sm + "%)"; break
+                }
+                scaleFrom.clipPath = sMask
+                scaleTo.clipPath = "inset(0 0 0 0)"
+            }
+            // Mask shift: offset the content behind the mask for an
+            // asymmetric reveal.  Combines with the scale transform.
+            if (t.maskShiftX !== 0 || t.maskShiftY !== 0) {
+                scaleFrom.transform = "scale(" + sf + ") translateX(" + t.maskShiftX + "px) translateY(" + t.maskShiftY + "px)"
+                scaleTo.transform = "scale(1) translateX(0px) translateY(0px)"
+            }
+            return { from: scaleFrom, to: scaleTo }
         }
         case "blurIn":
             return {
@@ -237,11 +259,55 @@ function buildExitKeyframes(t: TargetEntry) {
             }
             return { from: exitFrom, to: exitTo }
         }
-        case "scaleOut":
-            return {
-                from: { opacity: "1", transform: "scale(1)" },
-                to: { opacity: "0", transform: "scale(" + t.scaleFrom + ")" },
+        case "scaleOut": {
+            var soSf = t.scaleFrom
+            var soSo = t.scaleOpacity != null ? t.scaleOpacity : 0
+            var soSd = t.enterScaleDirection || "center"
+            var soOriginMap: Record<string, string> = {
+                center: "center center",
+                left: "left center",
+                right: "right center",
+                up: "top center",
+                down: "bottom center",
+                topLeft: "top left",
+                topRight: "top right",
+                bottomLeft: "bottom left",
+                bottomRight: "bottom right",
             }
+            var soOrigin = soOriginMap[soSd] || "center center"
+            var soFrom: any = {
+                opacity: "1",
+                transform: "scale(1)",
+                transformOrigin: soOrigin,
+            }
+            var soTo: any = {
+                opacity: String(soSo),
+                transform: "scale(" + soSf + ")",
+                transformOrigin: soOrigin,
+            }
+            // Optional mask: reverse of scaleIn mask
+            var soMaskDir = t.enterMaskDirection || "none"
+            if (soMaskDir !== "none") {
+                var soM = Math.max(0, Math.min(100, 100 - (t.maskStart || 0)))
+                var soMask = "inset(0 " + soM + "% 0 0)"
+                switch (soMaskDir) {
+                    case "right":      soMask = "inset(0 0 0 " + soM + "%)"; break
+                    case "up":         soMask = "inset(0 0 " + soM + "% 0)"; break
+                    case "down":       soMask = "inset(" + soM + "% 0 0 0)"; break
+                    case "topLeft":    soMask = "inset(0 " + soM + "% " + soM + "% 0)"; break
+                    case "topRight":   soMask = "inset(0 0 " + soM + "% " + soM + "%)"; break
+                    case "bottomLeft": soMask = "inset(" + soM + "% " + soM + "% 0 0)"; break
+                    case "bottomRight":soMask = "inset(" + soM + "% 0 0 " + soM + "%)"; break
+                }
+                soFrom.clipPath = "inset(0 0 0 0)"
+                soTo.clipPath = soMask
+            }
+            if (t.maskShiftX !== 0 || t.maskShiftY !== 0) {
+                soFrom.transform = "scale(1) translateX(0px) translateY(0px)"
+                soTo.transform = "scale(" + soSf + ") translateX(" + (-t.maskShiftX) + "px) translateY(" + (-t.maskShiftY) + "px)"
+            }
+            return { from: soFrom, to: soTo }
+        }
         case "riseWave":
         default:
             return {
@@ -1446,7 +1512,8 @@ export default function PageChoreographer(props: any) {
 
             // Compute initial clip-path for maskPreview mode
             var previewClip = ""
-            if (maskPreview && enterPreset === "maskReveal" && trigger === "onScroll") {
+            var hasMaskPreset = enterPreset === "maskReveal" || (enterPreset === "scaleIn" && enterMaskDirection && enterMaskDirection !== "none")
+            if (maskPreview && hasMaskPreset && trigger === "onScroll") {
                 var ms = Math.max(0, Math.min(100, 100 - (maskStart || 0)))
                 switch (enterMaskDirection) {
                     case "left":  default: previewClip = "inset(0 " + ms + "% 0 0)"; break
@@ -2368,12 +2435,13 @@ addPropertyControls(PageChoreographer, {
     },
     enterMaskDirection: {
         type: ControlType.Enum,
-        title: "↳ Direction",
+        title: "↳ Mask Direction",
         defaultValue: "left",
-        options: ["left", "right", "up", "down", "topLeft", "topRight", "bottomLeft", "bottomRight"],
-        optionTitles: ["Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top", "↘ Top-Left", "↙ Top-Right", "↗ Bottom-Left", "↖ Bottom-Right"],
+        options: ["none", "left", "right", "up", "down", "topLeft", "topRight", "bottomLeft", "bottomRight"],
+        optionTitles: ["None", "Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top", "↘ Top-Left", "↙ Top-Right", "↗ Bottom-Left", "↖ Bottom-Right"],
         hidden: function (props: any) {
-            return props.enterEnabled === false || props.enterPreset !== "maskReveal"
+            if (props.enterEnabled === false) return true
+            return props.enterPreset !== "maskReveal" && props.enterPreset !== "scaleIn"
         },
     },
     enterOpacity: {
@@ -2692,7 +2760,7 @@ addPropertyControls(PageChoreographer, {
         step: 1,
         unit: "px",
         hidden: function (props: any) {
-            var enterMatch = props.enterEnabled !== false && props.enterPreset === "maskReveal"
+            var enterMatch = props.enterEnabled !== false && (props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none"))
             var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
             return !enterMatch && !exitMatch
         },
@@ -2706,7 +2774,7 @@ addPropertyControls(PageChoreographer, {
         step: 1,
         unit: "px",
         hidden: function (props: any) {
-            var enterMatch = props.enterEnabled !== false && props.enterPreset === "maskReveal"
+            var enterMatch = props.enterEnabled !== false && (props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none"))
             var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
             return !enterMatch && !exitMatch
         },
@@ -2721,7 +2789,9 @@ addPropertyControls(PageChoreographer, {
         unit: "%",
         description: "How much of the element is visible before the mask animation begins. 0% = fully masked, 50% = half visible.",
         hidden: function (props: any) {
-            return props.enterPreset !== "maskReveal"
+            if (props.enterPreset === "maskReveal") return false
+            if (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none") return false
+            return true
         },
     },
     maskPreview: {
@@ -2730,7 +2800,8 @@ addPropertyControls(PageChoreographer, {
         defaultValue: false,
         description: "When enabled, shows the element at its Mask Start percentage on mount instead of hiding it until the scroll animation begins.",
         hidden: function (props: any) {
-            return props.enterPreset !== "maskReveal" || (props.maskStart || 0) <= 0 || props.trigger !== "onScroll"
+            var hasMask = props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none")
+            return !hasMask || (props.maskStart || 0) <= 0 || props.trigger !== "onScroll"
         },
     },
     maskViewportClip: {
@@ -2739,7 +2810,8 @@ addPropertyControls(PageChoreographer, {
         defaultValue: false,
         description: "Clips the reveal to the viewport edge so the mask never extends past the screen boundary. Use Viewport Padding to add consistent inset from the edges.",
         hidden: function (props: any) {
-            return props.enterPreset !== "maskReveal" || props.trigger !== "onScroll"
+            var hasMask = props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none")
+            return !hasMask || props.trigger !== "onScroll"
         },
     },
     maskViewportPadding: {
@@ -2752,7 +2824,8 @@ addPropertyControls(PageChoreographer, {
         unit: "px",
         description: "Inset padding from the viewport edges. The mask reveal will stay this many pixels away from the screen boundary.",
         hidden: function (props: any) {
-            return props.enterPreset !== "maskReveal" || props.trigger !== "onScroll" || !props.maskViewportClip
+            var hasMask = props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none")
+            return !hasMask || props.trigger !== "onScroll" || !props.maskViewportClip
         },
     },
     maskOpacity: {
@@ -2763,7 +2836,7 @@ addPropertyControls(PageChoreographer, {
         max: 1,
         step: 0.05,
         hidden: function (props: any) {
-            var enterMatch = props.enterEnabled !== false && props.enterPreset === "maskReveal"
+            var enterMatch = props.enterEnabled !== false && (props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none"))
             var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
             return !enterMatch && !exitMatch
         },
