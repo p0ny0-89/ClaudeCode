@@ -1492,6 +1492,14 @@ export default function PageChoreographer(props: any) {
             if (isOwner && sectionEl) {
                 sectionEl.setAttribute("data-choreo-pin-owner", baseId)
 
+                // Disable browser scroll anchoring on the section and its
+                // parent so the sticky↔relative transition doesn't cause
+                // the browser to adjust scrollY (which creates oscillation).
+                sectionEl.style.setProperty("overflow-anchor", "none")
+                if (sectionEl.parentElement) {
+                    sectionEl.parentElement.style.setProperty("overflow-anchor", "none")
+                }
+
                 // Create spacer AFTER the section for external scroll room
                 var spacer = document.createElement("div")
                 spacer.style.setProperty("height", scrollLength + "px")
@@ -1981,6 +1989,10 @@ export default function PageChoreographer(props: any) {
             if (scrollSectionEl) {
                 scrollSectionEl.style.removeProperty("position")
                 scrollSectionEl.style.removeProperty("top")
+                scrollSectionEl.style.removeProperty("overflow-anchor")
+                if (scrollSectionEl.parentElement) {
+                    scrollSectionEl.parentElement.style.removeProperty("overflow-anchor")
+                }
                 if (scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                     scrollSectionEl.removeAttribute("data-choreo-pin-owner")
                 }
