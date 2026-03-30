@@ -852,18 +852,37 @@ function findRealParent(marker: HTMLElement): HTMLElement | null {
     return node
 }
 
-// Walk up from an element to find the section-level ancestor
-// (a child of the page root, which has many siblings like
-// Hero, Projects, Footer, etc.)
+// Walk up from an element to find the section-level ancestor.
+// Strategy:
+//  1. Prefer an ancestor with data-framer-name (explicit Framer section)
+//  2. Fall back to the "child of a parent with ≥3 siblings" heuristic
+//  3. Reject candidates taller than 2× viewport (likely the page container)
+//  4. Final fallback: return the starting element
 function findSection(el: HTMLElement): HTMLElement {
+    var vh = window.innerHeight
     var node = el
+    var heuristicCandidate: HTMLElement | null = null
+
     while (node.parentElement) {
+        // Framer sections have data-framer-name — best signal
+        if (node.getAttribute("data-framer-name") != null) {
+            return node
+        }
+
         var siblingCount = node.parentElement.children.length
-        // Page root has many direct children (the sections)
-        if (siblingCount >= 3) return node
+        if (siblingCount >= 3 && !heuristicCandidate) {
+            // Only accept if the candidate isn't the entire page
+            // (page containers are usually taller than 2× viewport)
+            if (node.offsetHeight < vh * 2) {
+                heuristicCandidate = node
+            }
+            // Keep walking — a data-framer-name ancestor is better
+        }
+
         node = node.parentElement
     }
-    return el // fallback to original element
+
+    return heuristicCandidate || el
 }
 
 function isMarkerBranch(el: HTMLElement, marker: HTMLElement): boolean {
