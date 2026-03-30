@@ -1182,6 +1182,21 @@ function collectTargets(
                                 break
                             }
                         }
+                        // Guard: if most children contain other PC markers,
+                        // this is a structural match (containers that each
+                        // have their own PC instance), not a CMS collection.
+                        if (sameTag) {
+                            var markerChildren = 0
+                            for (var wm = 0; wm < wChildren.length; wm++) {
+                                if (wChildren[wm].querySelector("[data-choreo-marker]")) {
+                                    markerChildren++
+                                }
+                            }
+                            // If more than half contain markers, reject
+                            if (markerChildren > wChildren.length / 2) {
+                                sameTag = false
+                            }
+                        }
                         if (sameTag) {
                             cmsAncestor = walkNode
                             cmsAncestorCount = wChildren.length
@@ -1272,10 +1287,13 @@ function collectTargets(
                 }
             }
         } else {
-            // Final fallback — direct siblings
+            // Final fallback — direct siblings.
+            // Skip siblings that contain OTHER PC markers — those are
+            // structural containers with their own instances, not targets.
             for (var k = 0; k < parent.children.length; k++) {
                 var el = parent.children[k] as HTMLElement
                 if (isMarkerBranch(el, marker)) continue
+                if (el.querySelector("[data-choreo-marker]")) continue
                 result.push(el)
             }
         }
@@ -2326,6 +2344,7 @@ export default function PageChoreographer(props: any) {
                     node.style.setProperty("position", "absolute", "important")
                 }
             }}
+            data-choreo-marker="1"
             style={{
                 width: 0,
                 height: 0,
