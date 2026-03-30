@@ -1021,7 +1021,9 @@ function collectTargets(
     // Walk up from the marker looking for a CMS collection pattern:
     // an ancestor whose non-marker children all share the same
     // data-framer-name (CMS items are clones with identical names).
-    // Works regardless of placement (inside CMS item or alongside).
+    // Also handles grid/masonry layouts where items are wrapped in
+    // positioning divs — checks one level deeper if direct children
+    // don't have matching names.
     var cmsAncestor: HTMLElement | null = null
     if (scanMode === "siblings" || scanMode === "cmsItems" || scanMode === "cmsNested") {
         var walkNode: HTMLElement | null = marker.parentElement
@@ -1033,19 +1035,39 @@ function collectTargets(
                 if (!isMarkerBranch(wChild, marker)) wChildren.push(wChild)
             }
             if (wChildren.length >= 2) {
-                // Check if all children share the same data-framer-name
-                var firstName = wChildren[0].getAttribute("data-framer-name")
-                if (firstName) {
-                    var allSame = true
+                // Strategy 1: direct children share data-framer-name
+                var directName = wChildren[0].getAttribute("data-framer-name")
+                if (directName) {
+                    var allDirect = true
                     for (var wn = 1; wn < wChildren.length; wn++) {
-                        if (wChildren[wn].getAttribute("data-framer-name") !== firstName) {
-                            allSame = false
+                        if (wChildren[wn].getAttribute("data-framer-name") !== directName) {
+                            allDirect = false
                             break
                         }
                     }
-                    if (allSame) {
+                    if (allDirect) {
                         cmsAncestor = walkNode
-                        break // Use the first (closest) CMS collection found
+                        break
+                    }
+                }
+
+                // Strategy 2: children are wrapper divs (grid/masonry)
+                // whose first named descendant shares the same name.
+                // e.g. [grid-cell] → [CMS Item "Card"], [grid-cell] → [CMS Item "Card"]
+                if (!directName || !cmsAncestor) {
+                    var innerName: string | null = null
+                    var allInner = true
+                    for (var wi = 0; wi < wChildren.length; wi++) {
+                        // Find the first descendant with data-framer-name
+                        var named = wChildren[wi].querySelector("[data-framer-name]") as HTMLElement | null
+                        var nm = named ? named.getAttribute("data-framer-name") : null
+                        if (!nm) { allInner = false; break }
+                        if (innerName === null) innerName = nm
+                        else if (nm !== innerName) { allInner = false; break }
+                    }
+                    if (allInner && innerName && wChildren.length >= 2) {
+                        cmsAncestor = walkNode
+                        break
                     }
                 }
             }
