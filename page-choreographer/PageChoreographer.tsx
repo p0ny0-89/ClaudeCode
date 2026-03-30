@@ -901,7 +901,7 @@ function findNodeWithMostChildren(
             if (!isMarkerBranch(node.children[i] as HTMLElement, marker))
                 contentCount++
         }
-        if (contentCount >= 2 && contentCount > bestCount) {
+        if (contentCount >= 1 && contentCount > bestCount) {
             bestCount = contentCount
             best = node
         }
@@ -1035,7 +1035,7 @@ function collectTargets(
                 if (!isMarkerBranch(walkNode.children[wc] as HTMLElement, marker))
                     wChildCount++
             }
-            if (wChildCount > bestCount && wChildCount >= 3) {
+            if (wChildCount > bestCount && wChildCount >= 1) {
                 bestCount = wChildCount
                 bestAncestor = walkNode
             }
