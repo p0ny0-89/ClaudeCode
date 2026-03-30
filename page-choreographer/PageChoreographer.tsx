@@ -2289,7 +2289,13 @@ export default function PageChoreographer(props: any) {
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
-                    updateViewportClip()
+                    // Only apply viewport clip while animation is in progress —
+                    // once fully revealed, clear it so the mask doesn't continue
+                    if (clampedProgress >= 1) {
+                        if (wrapper) wrapper.style.removeProperty("clip-path")
+                    } else {
+                        updateViewportClip()
+                    }
 
                     if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
                         scrollPinState.completed = true
@@ -2317,8 +2323,10 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.pinned = false
                         updateAnimProgress(1)
                         releaseAnimatedElements(true)
+                        // Clear any viewport clip — animation is done,
+                        // mask should stay in its fully-revealed state
+                        if (wrapper) wrapper.style.removeProperty("clip-path")
                     }
-                    updateViewportClip()
                 }
             }
 
