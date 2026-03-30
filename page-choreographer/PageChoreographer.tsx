@@ -1122,17 +1122,83 @@ function collectTargets(
     }
 
     if (cmsAncestor) {
-        // Collection detected — use its children as targets
-        for (var cj = 0; cj < cmsAncestor.children.length; cj++) {
-            var cmsChild = cmsAncestor.children[cj] as HTMLElement
-            if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
+        // Check if the CMS ancestor is a masonry column — i.e., its parent
+        // has multiple same-tag children. In masonry layouts, Framer splits
+        // items into column wrappers. We need to collect from ALL columns
+        // so every item is targeted regardless of column distribution.
+        var colParent = cmsAncestor.parentElement
+        var isMasonryColumn = false
+        if (colParent && colParent.children.length >= 2) {
+            var myTag = cmsAncestor.tagName
+            var allColsSameTag = true
+            for (var cs = 0; cs < colParent.children.length; cs++) {
+                if ((colParent.children[cs] as HTMLElement).tagName !== myTag) {
+                    allColsSameTag = false
+                    break
+                }
+            }
+            isMasonryColumn = allColsSameTag
+        }
+
+        if (isMasonryColumn) {
+            // Masonry: collect items from ALL sibling columns
+            for (var mc = 0; mc < colParent!.children.length; mc++) {
+                var column = colParent!.children[mc] as HTMLElement
+                for (var mi = 0; mi < column.children.length; mi++) {
+                    var mItem = column.children[mi] as HTMLElement
+                    if (!isMarkerBranch(mItem, marker)) result.push(mItem)
+                }
+            }
+        } else {
+            // Single collection — use its children as targets
+            for (var cj = 0; cj < cmsAncestor.children.length; cj++) {
+                var cmsChild = cmsAncestor.children[cj] as HTMLElement
+                if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
+            }
         }
     } else {
-        // No CMS collection found — fall back to direct siblings
-        for (var k = 0; k < parent.children.length; k++) {
-            var el = parent.children[k] as HTMLElement
-            if (isMarkerBranch(el, marker)) continue
-            result.push(el)
+        // No CMS collection found — try masonry grid detection:
+        // walk up looking for a grid container whose children are columns
+        // (same-tag siblings each containing multiple same-tag items).
+        var masonryGrid: HTMLElement | null = null
+        var mWalk: HTMLElement | null = marker.parentElement
+        var mMaxWalk = 15
+        while (mWalk && mMaxWalk > 0) {
+            if (mWalk.children.length >= 2) {
+                var mColTag = (mWalk.children[0] as HTMLElement).tagName
+                var mAllSame = true
+                var mTotalItems = 0
+                for (var mg = 0; mg < mWalk.children.length; mg++) {
+                    var mCol = mWalk.children[mg] as HTMLElement
+                    if (mCol.tagName !== mColTag) { mAllSame = false; break }
+                    mTotalItems += mCol.children.length
+                }
+                // Columns must share same tag and collectively have ≥3 items
+                if (mAllSame && mTotalItems >= 3) {
+                    masonryGrid = mWalk
+                    break
+                }
+            }
+            mWalk = mWalk.parentElement
+            mMaxWalk--
+        }
+
+        if (masonryGrid) {
+            // Collect items from all columns
+            for (var gc = 0; gc < masonryGrid.children.length; gc++) {
+                var gCol = masonryGrid.children[gc] as HTMLElement
+                for (var gi = 0; gi < gCol.children.length; gi++) {
+                    var gItem = gCol.children[gi] as HTMLElement
+                    if (!isMarkerBranch(gItem, marker)) result.push(gItem)
+                }
+            }
+        } else {
+            // Final fallback — direct siblings
+            for (var k = 0; k < parent.children.length; k++) {
+                var el = parent.children[k] as HTMLElement
+                if (isMarkerBranch(el, marker)) continue
+                result.push(el)
+            }
         }
     }
     // Filter out elements whose layer name matches any excluded name.
