@@ -1645,7 +1645,18 @@ export default function PageChoreographer(props: any) {
                 }
             }
             wrapper.style.setProperty("position", "relative")
-            wrapper.style.setProperty("overflow", "hidden")
+            // Only clip overflow when all animated targets live inside
+            // the wrapper's parent.  In CMS masonry layouts, targets
+            // span multiple columns outside this wrapper — overflow:hidden
+            // would clip cards during enter/exit transforms.
+            var allTargetsInside = true
+            for (var oti = 0; oti < targets.length; oti++) {
+                if (!parent.contains(targets[oti])) {
+                    allTargetsInside = false
+                    break
+                }
+            }
+            wrapper.style.setProperty("overflow", allTargetsInside ? "hidden" : "visible")
 
             // Insert wrapper into the section
             parentGP!.insertBefore(wrapper, parent)
