@@ -1005,6 +1005,34 @@ function collectTargets(
                 if (!isMarkerBranch(child, marker)) result.push(child)
             }
         }
+    } else if (scanMode === "cmsNested") {
+        // Component is nested INSIDE a CMS item. Walk UP from parent
+        // to find the CMS collection list (ancestor with many children
+        // that look like repeated CMS items), then target those items.
+        var cmsListNode: HTMLElement | null = null
+        var walkUp = parent.parentElement
+        var walkDepth = 10
+        while (walkUp && walkDepth > 0) {
+            // Count non-marker children
+            var childCount = 0
+            for (var ci = 0; ci < walkUp.children.length; ci++) {
+                if (!isMarkerBranch(walkUp.children[ci] as HTMLElement, marker))
+                    childCount++
+            }
+            // A CMS collection typically has 3+ repeated items
+            if (childCount >= 3) {
+                cmsListNode = walkUp
+                break
+            }
+            walkUp = walkUp.parentElement
+            walkDepth--
+        }
+        if (cmsListNode) {
+            for (var cj = 0; cj < cmsListNode.children.length; cj++) {
+                var cmsChild = cmsListNode.children[cj] as HTMLElement
+                if (!isMarkerBranch(cmsChild, marker)) result.push(cmsChild)
+            }
+        }
     } else {
         for (var k = 0; k < parent.children.length; k++) {
             var el = parent.children[k] as HTMLElement
@@ -1985,8 +2013,9 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Enum,
         title: "Scan Mode",
         defaultValue: "cmsItems",
-        options: ["siblings", "cmsItems"],
-        optionTitles: ["Siblings", "CMS Items"],
+        options: ["siblings", "cmsItems", "cmsNested"],
+        optionTitles: ["Siblings", "CMS Items", "CMS Nested"],
+        description: "Siblings: direct children of parent. CMS Items: auto-find CMS list. CMS Nested: use when placed inside a CMS item to target all sibling items in the collection.",
     },
     excludeSelector: {
         type: ControlType.String,
