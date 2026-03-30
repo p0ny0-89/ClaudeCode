@@ -1216,7 +1216,11 @@ export default function PageChoreographer(props: any) {
             // Framer's style management
             if (trigger === "onScroll") {
                 var styleTag = document.createElement("style")
-                styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
+                // Only block pointer-events via the style tag — visual hiding
+                // is handled by inline from-state styles on each element.
+                // This allows Framer's appear effects to animate over the
+                // inline styles while keeping elements non-interactive.
+                styleTag.textContent = "[data-choreo-hide] { pointer-events: none !important; }"
                 document.head.appendChild(styleTag)
                 preHideStyleTag = styleTag
             }
@@ -1237,6 +1241,62 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
+            // Compute inline from-state styles for onScroll pre-hide.
+            // Using inline styles instead of visibility:hidden allows
+            // Framer's native appear effects to still play (they animate
+            // over inline styles), while keeping the element in the
+            // correct initial visual state for our scroll animation.
+            var preHideFromStyles: Record<string, string> = {}
+            if (trigger === "onScroll") {
+                var d = distance
+                switch (enterPreset) {
+                    case "fadeUp": default:
+                        preHideFromStyles = { opacity: "0", transform: "translateY(" + d + "px)" }; break
+                    case "fadeDown":
+                        preHideFromStyles = { opacity: "0", transform: "translateY(" + -d + "px)" }; break
+                    case "fadeLeft":
+                        preHideFromStyles = { opacity: "0", transform: "translateX(" + d + "px)" }; break
+                    case "fadeRight":
+                        preHideFromStyles = { opacity: "0", transform: "translateX(" + -d + "px)" }; break
+                    case "scaleIn": {
+                        var phSo = scaleOpacity != null ? scaleOpacity : 0
+                        var phSd = enterScaleDirection || "center"
+                        var phOriginMap: Record<string, string> = {
+                            center: "center center", left: "left center", right: "right center",
+                            up: "top center", down: "bottom center",
+                            topLeft: "top left", topRight: "top right",
+                            bottomLeft: "bottom left", bottomRight: "bottom right",
+                        }
+                        preHideFromStyles = {
+                            opacity: String(phSo),
+                            transform: "scale(" + scaleFrom + ")",
+                            transformOrigin: phOriginMap[phSd] || "center center",
+                        }; break
+                    }
+                    case "blurIn":
+                        preHideFromStyles = { opacity: "0", filter: "blur(" + blurAmount + "px)" }; break
+                    case "maskReveal": {
+                        var phMs = Math.max(0, Math.min(100, 100 - (maskStart || 0)))
+                        var phMFrom = "inset(0 " + phMs + "% 0 0)"
+                        switch (enterMaskDirection) {
+                            case "right":      phMFrom = "inset(0 0 0 " + phMs + "%)"; break
+                            case "up":         phMFrom = "inset(0 0 " + phMs + "% 0)"; break
+                            case "down":       phMFrom = "inset(" + phMs + "% 0 0 0)"; break
+                            case "topLeft":    phMFrom = "inset(0 " + phMs + "% " + phMs + "% 0)"; break
+                            case "topRight":   phMFrom = "inset(0 0 " + phMs + "% " + phMs + "%)"; break
+                            case "bottomLeft": phMFrom = "inset(" + phMs + "% " + phMs + "% 0 0)"; break
+                            case "bottomRight":phMFrom = "inset(" + phMs + "% 0 0 " + phMs + "%)"; break
+                        }
+                        preHideFromStyles = {
+                            opacity: String(maskOpacity),
+                            clipPath: phMFrom,
+                        }; break
+                    }
+                    case "custom":
+                        preHideFromStyles = { opacity: String(enterOpacity) }; break
+                }
+            }
+
             for (var phi = 0; phi < targets.length; phi++) {
                 var phEl = targets[phi]
                 if (!phEl) continue
@@ -1244,6 +1304,13 @@ export default function PageChoreographer(props: any) {
                     // Show element with initial mask instead of hiding
                     phEl.style.setProperty("clip-path", previewClip)
                 } else if (trigger === "onScroll") {
+                    // Apply from-state as inline styles instead of visibility:hidden.
+                    // This keeps the element in the correct initial state while
+                    // allowing Framer's appear effects to animate over it.
+                    var phKeys = Object.keys(preHideFromStyles)
+                    for (var pk = 0; pk < phKeys.length; pk++) {
+                        phEl.style.setProperty(phKeys[pk], preHideFromStyles[phKeys[pk]])
+                    }
                     phEl.setAttribute("data-choreo-hide", "1")
                 } else {
                     phEl.style.setProperty("visibility", "hidden")
@@ -1608,8 +1675,11 @@ export default function PageChoreographer(props: any) {
                     preHiddenEls[ph].style.removeProperty("visibility")
                     preHiddenEls[ph].style.removeProperty("opacity")
                     preHiddenEls[ph].style.removeProperty("pointer-events")
-                    // Remove inline clip-path so the animation takes over
+                    // Remove all inline from-state styles so the animation takes over
                     preHiddenEls[ph].style.removeProperty("clip-path")
+                    preHiddenEls[ph].style.removeProperty("transform")
+                    preHiddenEls[ph].style.removeProperty("transform-origin")
+                    preHiddenEls[ph].style.removeProperty("filter")
                 }
                 // Remove the style tag — no longer needed
                 if (preHideStyleTag && preHideStyleTag.parentNode) {
