@@ -1025,16 +1025,25 @@ function splitTextWords(targets: HTMLElement[]): HTMLElement[] {
     for (var i = 0; i < targets.length; i++) {
         var el = targets[i]
 
+        // Already split? Just collect existing word spans (avoids infinite re-split)
+        var existing = el.querySelectorAll("[data-choreo-word]")
+        if (existing.length > 0) {
+            for (var ex = 0; ex < existing.length; ex++) {
+                result.push(existing[ex] as HTMLElement)
+            }
+            continue
+        }
+
         // Collect all text-bearing leaf nodes inside the element
-        // (could be <p>, <span>, or the element itself)
         var textLeaves: HTMLElement[] = []
         var paragraphs = el.querySelectorAll("p, span, a, em, strong, b, i, u, h1, h2, h3, h4, h5, h6")
         if (paragraphs.length > 0) {
             for (var p = 0; p < paragraphs.length; p++) {
-                // Only take leaf-level text containers (no nested rich text wrappers)
-                if (paragraphs[p].children.length === 0 ||
-                    (paragraphs[p].children.length > 0 && paragraphs[p].querySelector("br") != null)) {
-                    textLeaves.push(paragraphs[p] as HTMLElement)
+                var pEl = paragraphs[p] as HTMLElement
+                // Only take leaf-level text containers
+                if (pEl.children.length === 0 ||
+                    (pEl.children.length > 0 && pEl.querySelector("br") != null)) {
+                    textLeaves.push(pEl)
                 }
             }
         }
@@ -1043,21 +1052,17 @@ function splitTextWords(targets: HTMLElement[]): HTMLElement[] {
         var wordCount = 0
         for (var tl = 0; tl < textLeaves.length; tl++) {
             var leaf = textLeaves[tl]
-            // Collect text content, split by whitespace, wrap each word
             var nodes = leaf.childNodes
             var fragments: Node[] = []
             for (var cn = 0; cn < nodes.length; cn++) {
                 var nd = nodes[cn]
                 if (nd.nodeType === 3) { // Text node
                     var text = nd.textContent || ""
-                    // Split preserving whitespace: match word or whitespace chunks
                     var parts = text.match(/\S+|\s+/g) || []
                     for (var wp = 0; wp < parts.length; wp++) {
                         if (/^\s+$/.test(parts[wp])) {
-                            // Whitespace — keep as text node
                             fragments.push(document.createTextNode(parts[wp]))
                         } else {
-                            // Word — wrap in span
                             var wordSpan = document.createElement("span")
                             wordSpan.style.display = "inline-block"
                             wordSpan.style.whiteSpace = "nowrap"
@@ -1070,7 +1075,6 @@ function splitTextWords(targets: HTMLElement[]): HTMLElement[] {
                 } else if (nd.nodeType === 1 && (nd as HTMLElement).tagName === "BR") {
                     fragments.push(nd.cloneNode(true))
                 } else {
-                    // Inline element (em, strong, a, etc.) — wrap the whole thing
                     var inlineSpan = document.createElement("span")
                     inlineSpan.style.display = "inline-block"
                     inlineSpan.setAttribute("data-choreo-word", "1")
@@ -1079,14 +1083,12 @@ function splitTextWords(targets: HTMLElement[]): HTMLElement[] {
                     wordCount++
                 }
             }
-            // Replace leaf contents with wrapped words
             while (leaf.firstChild) leaf.removeChild(leaf.firstChild)
             for (var fi = 0; fi < fragments.length; fi++) {
                 leaf.appendChild(fragments[fi])
             }
         }
 
-        // Now collect all word spans as individual targets
         if (wordCount > 0) {
             var wordSpans = el.querySelectorAll("[data-choreo-word]")
             for (var ws = 0; ws < wordSpans.length; ws++) {
@@ -1094,7 +1096,6 @@ function splitTextWords(targets: HTMLElement[]): HTMLElement[] {
             }
             el.style.overflow = "visible"
         } else {
-            // No words found — keep element as-is
             result.push(el)
         }
     }
@@ -1637,15 +1638,41 @@ export default function PageChoreographer(props: any) {
         if (obsWalk) observeTarget = obsWalk
 
         var mutObs: MutationObserver | null = null
+        var mutSuppressed = false // suppress during our own DOM mutations (e.g. word split)
         try {
             if (typeof MutationObserver !== "undefined") {
-                mutObs = new MutationObserver(function () {
+                mutObs = new MutationObserver(function (mutations) {
+                    if (mutSuppressed) return
+                    // Ignore mutations that only added/removed choreo-word spans
+                    var dominated = true
+                    for (var mi = 0; mi < mutations.length; mi++) {
+                        var m = mutations[mi]
+                        for (var ai = 0; ai < m.addedNodes.length; ai++) {
+                            var an = m.addedNodes[ai] as HTMLElement
+                            if (an.nodeType === 1 && an.getAttribute && an.getAttribute("data-choreo-word")) continue
+                            if (an.nodeType === 3) continue // text nodes from split
+                            dominated = false
+                            break
+                        }
+                        if (!dominated) break
+                        for (var ri = 0; ri < m.removedNodes.length; ri++) {
+                            var rn = m.removedNodes[ri]
+                            if (rn.nodeType === 3) continue // text nodes we removed
+                            dominated = false
+                            break
+                        }
+                        if (!dominated) break
+                    }
+                    if (dominated && mutations.length > 0) return
+
                     var s = getStore()
                     if (!s || !marker) return
                     var p = findRealParent(marker)
                     if (!p) return
                     unregisterAll(s)
+                    mutSuppressed = true
                     var t = collectTargets(p, marker, scanMode, excludeSelector, splitText)
+                    mutSuppressed = false
                     registerElements(t, s)
                 })
                 mutObs.observe(observeTarget, { childList: true, subtree: true })
