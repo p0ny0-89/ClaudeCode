@@ -1527,15 +1527,9 @@ export default function PageChoreographer(props: any) {
                             duration: dur,
                             delay: itemDelay * 1000,
                             easing: easingToCss(target.easing),
-                            fill: "forwards",
+                            fill: "both",
                         })
                         scrollAnim.pause()
-                        // Set currentTime to -1 (before active period) so the
-                        // animation doesn't apply any styles at mount. This
-                        // allows Framer's native appear effects to play freely.
-                        // fill:"forwards" only applies styles during/after the
-                        // active period, not before it.
-                        scrollAnim.currentTime = -1
                         scrollAnims.push(scrollAnim)
                     } catch (e) {}
                 }
@@ -1585,14 +1579,7 @@ export default function PageChoreographer(props: any) {
                         var animDelay = timing ? (timing.delay || 0) : 0
                         var animDur = timing ? (timing.duration || 600) : 600
                         var time = progress * timelineDuration
-                        // Keep animation before active period when progress is 0
-                        // so fill:"forwards" doesn't apply any styles. This lets
-                        // Framer's native appear/hover effects work at mount.
-                        if (progress <= 0) {
-                            anim.currentTime = -1
-                        } else {
-                            anim.currentTime = Math.max(0, Math.min(time, animDelay + (animDur as number)))
-                        }
+                        anim.currentTime = Math.max(0, Math.min(time, animDelay + (animDur as number)))
                     } catch (e) {}
                 }
             }
