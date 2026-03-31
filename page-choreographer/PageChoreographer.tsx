@@ -2093,6 +2093,48 @@ export default function PageChoreographer(props: any) {
             console.log("[PC:" + baseId + "] isOwner:", isOwner, "isFollower:", isFollower, "pinPriority:", pinPriority, "scrollPin:", scrollPin)
             console.log("[PC:" + baseId + "] pinSectionEl:", pinSectionEl ? (pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.tagName) + " " + pinSectionEl.offsetWidth + "x" + pinSectionEl.offsetHeight : "null", "hasPinOwner:", pinSectionEl ? pinSectionEl.hasAttribute("data-choreo-pin-owner") : false)
 
+            // ── Clean up stale pin containers ──
+            // When a PC re-renders (prop change), only THAT PC's cleanup
+            // runs.  Pin containers from previous render cycles of OTHER
+            // PCs (different baseIds) persist and nest, breaking sticky
+            // positioning.  Walk up from pinSectionEl and unwrap any
+            // stale pin containers — but ONLY when this PC is the owner.
+            // Followers must never touch pin containers.  Also skip the
+            // immediate parent because it may be a valid container that
+            // the pin-creation code below will reuse.
+            if (isOwner && pinSectionEl) {
+                var immediateParent = pinSectionEl.parentElement
+                var staleNode: HTMLElement | null = immediateParent ? immediateParent.parentElement : null
+                while (staleNode && staleNode !== document.documentElement) {
+                    var nextUp: HTMLElement | null = staleNode.parentElement
+                    if (staleNode.hasAttribute("data-choreo-pin-container")) {
+                        // Unwrap: move children back, remove container
+                        var staleOwner = staleNode.getAttribute("data-choreo-pin-container")
+                        // Remove spacer first
+                        var staleSpacer = staleNode.querySelector("[data-choreo-spacer]") as HTMLElement
+                        if (staleSpacer) staleSpacer.parentElement!.removeChild(staleSpacer)
+                        // Remove pin-owner attribute from the section
+                        var stalePinOwner = staleNode.querySelector("[data-choreo-pin-owner]") as HTMLElement
+                        if (stalePinOwner) {
+                            stalePinOwner.removeAttribute("data-choreo-pin-owner")
+                            stalePinOwner.removeAttribute("data-choreo-pin-priority")
+                            stalePinOwner.style.removeProperty("position")
+                            stalePinOwner.style.removeProperty("top")
+                            stalePinOwner.style.removeProperty("overflow-anchor")
+                        }
+                        // Unwrap: move all children out, remove container
+                        if (staleNode.parentElement) {
+                            while (staleNode.firstChild) {
+                                staleNode.parentElement.insertBefore(staleNode.firstChild, staleNode)
+                            }
+                            staleNode.parentElement.removeChild(staleNode)
+                        }
+                        console.log("[PC:" + baseId + "] cleaned stale pin-ctr from:", staleOwner)
+                    }
+                    staleNode = nextUp
+                }
+            }
+
             if (isOwner && pinSectionEl) {
                 pinSectionEl.setAttribute("data-choreo-pin-owner", baseId)
                 if (pinPriority) {
@@ -2103,8 +2145,6 @@ export default function PageChoreographer(props: any) {
                 pinSectionEl.style.setProperty("overflow-anchor", "none")
 
                 // ── Pin container ──
-                // Check if a pin container already exists (takeover case:
-                // a non-priority PC created one, now we're replacing it).
                 var existingPinCtr = pinSectionEl.parentElement
                 var pinContainer: HTMLElement
                 if (existingPinCtr && existingPinCtr.hasAttribute("data-choreo-pin-container")) {
@@ -2772,6 +2812,7 @@ export default function PageChoreographer(props: any) {
                 }
                 if (scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                     scrollSectionEl.removeAttribute("data-choreo-pin-owner")
+                    scrollSectionEl.removeAttribute("data-choreo-pin-priority")
                 }
             }
             if (scrollWrapper && scrollWrapper.parentElement && parent) {
