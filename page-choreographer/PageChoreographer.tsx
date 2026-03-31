@@ -2126,7 +2126,6 @@ export default function PageChoreographer(props: any) {
                             stalePinOwner.style.removeProperty("position")
                             stalePinOwner.style.removeProperty("top")
                             stalePinOwner.style.removeProperty("overflow-anchor")
-                            stalePinOwner.style.removeProperty("background-color")
                             stalePinOwner.style.removeProperty("z-index")
                         }
                         // Unwrap: move all children out, remove container
@@ -2214,21 +2213,27 @@ export default function PageChoreographer(props: any) {
                 pinSectionEl.style.setProperty("top", "0px", "important")
                 pinSectionEl.style.setProperty("z-index", "1", "important")
 
-                // Inherit background from the nearest ancestor that has
-                // one.  Without this, the sticky element has a transparent
-                // background and the parent's bg scrolls away, exposing
-                // the spacer / next section behind the pinned content.
-                var pinSectionBg = window.getComputedStyle(pinSectionEl).backgroundColor
-                if (!pinSectionBg || pinSectionBg === "rgba(0, 0, 0, 0)" || pinSectionBg === "transparent") {
-                    var bgAncestor: HTMLElement | null = pinContainer.parentElement
-                    while (bgAncestor && bgAncestor !== document.documentElement) {
-                        var ancestorBg = window.getComputedStyle(bgAncestor).backgroundColor
-                        if (ancestorBg && ancestorBg !== "rgba(0, 0, 0, 0)" && ancestorBg !== "transparent") {
-                            pinSectionEl.style.setProperty("background-color", ancestorBg)
-                            console.log("[PC:" + baseId + "] inherited bg:", ancestorBg, "from:", bgAncestor.getAttribute("data-framer-name") || bgAncestor.tagName)
-                            break
-                        }
-                        bgAncestor = bgAncestor.parentElement
+                // Inherit background onto the PIN CONTAINER so it covers
+                // the full scroll area (section + spacer).  Without this,
+                // the parent's bg scrolls away exposing the spacer gap.
+                // Check both the pin section itself and its ancestors.
+                // Framer may use background-color or the background shorthand.
+                var bgFound = false
+                var bgCheckEls: HTMLElement[] = [pinSectionEl]
+                var bgWalk: HTMLElement | null = pinContainer.parentElement
+                while (bgWalk && bgWalk !== document.documentElement) {
+                    bgCheckEls.push(bgWalk)
+                    bgWalk = bgWalk.parentElement
+                }
+                for (var bci = 0; bci < bgCheckEls.length; bci++) {
+                    var bgCS = window.getComputedStyle(bgCheckEls[bci])
+                    var bgColor = bgCS.backgroundColor
+                    var hasBgColor = bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent"
+                    if (hasBgColor) {
+                        pinContainer.style.setProperty("background-color", bgColor)
+                        console.log("[PC:" + baseId + "] pin-ctr inherited bg:", bgColor, "from:", bgCheckEls[bci].getAttribute("data-framer-name") || bgCheckEls[bci].tagName)
+                        bgFound = true
+                        break
                     }
                 }
                 console.log("[PC:" + baseId + "] pin container created:", pinContainer.offsetWidth + "x" + pinContainer.offsetHeight, "pinSection:", pinSectionEl.offsetWidth + "x" + pinSectionEl.offsetHeight, pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.tagName, "priority:", pinPriority)
@@ -2838,7 +2843,6 @@ export default function PageChoreographer(props: any) {
                 scrollSectionEl.style.removeProperty("transform")
                 scrollSectionEl.style.removeProperty("z-index")
                 scrollSectionEl.style.removeProperty("overflow-anchor")
-                scrollSectionEl.style.removeProperty("background-color")
                 // Unwrap from pin container — move section back to its
                 // original position and remove the container
                 var pinCtr = scrollSectionEl.parentElement
