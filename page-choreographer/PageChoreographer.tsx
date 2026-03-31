@@ -1968,7 +1968,15 @@ export default function PageChoreographer(props: any) {
                     wrapper.style.setProperty("height", "100%")
                 }
                 wrapper.style.setProperty("position", "relative")
-                wrapper.style.setProperty("overflow", "hidden")
+                // Respect the parent's overflow — only force hidden when
+                // mask viewport clip needs it.  If the user set overflow
+                // to visible in Framer, the wrapper should not clip.
+                var parentOverflow = window.getComputedStyle(parent).overflow
+                if (maskViewportClip || parentOverflow === "hidden" || parentOverflow === "clip") {
+                    wrapper.style.setProperty("overflow", "hidden")
+                } else {
+                    wrapper.style.setProperty("overflow", parentOverflow)
+                }
                 wrapper.setAttribute("data-choreo-wrapper", baseId)
 
                 // Insert wrapper into the section
@@ -2657,6 +2665,9 @@ export default function PageChoreographer(props: any) {
                         animDone = true
                         updateAnimProgress(1)
                         releaseAnimatedElements(true)
+                        if (scrollOnce) {
+                            scrollPinState.completed = true
+                        }
                     }
                     updateViewportClip()
                 }
