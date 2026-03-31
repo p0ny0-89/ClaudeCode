@@ -2657,6 +2657,23 @@ export default function PageChoreographer(props: any) {
                     var clampedProgress = Math.max(0, Math.min(1, progress))
 
                     revealIfNeeded(clampedProgress)
+                    // Re-hide when progress returns to 0 on reverse
+                    // scroll.  This matches the initial-load state where
+                    // elements are hidden until progress > 0.  Prevents
+                    // partially-visible elements leaking through
+                    // overflow:visible containers.
+                    if (clampedProgress <= 0 && visibilityRevealed && preHiddenEls.length > 0) {
+                        visibilityRevealed = false
+                        if (!preHideStyleTag) {
+                            var rehideTag2 = document.createElement("style")
+                            rehideTag2.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
+                            document.head.appendChild(rehideTag2)
+                            preHideStyleTag = rehideTag2
+                        }
+                        for (var rh2 = 0; rh2 < preHiddenEls.length; rh2++) {
+                            preHiddenEls[rh2].setAttribute("data-choreo-hide", "1")
+                        }
+                    }
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
                     animDone = clampedProgress >= 1
@@ -2680,6 +2697,24 @@ export default function PageChoreographer(props: any) {
                     updateAnimProgress(0)
                     updateInteractivity(0)
                     updateViewportClip()
+                    // Re-hide elements so they match the initial-load
+                    // state.  Without this, elements at progress=0
+                    // are at their animation start keyframe (partially
+                    // visible), and with overflow:visible they can
+                    // leak out of the section on reverse scroll.
+                    if (visibilityRevealed && preHiddenEls.length > 0) {
+                        visibilityRevealed = false
+                        // Re-add the hide style tag if it was removed
+                        if (!preHideStyleTag) {
+                            var rehideTag = document.createElement("style")
+                            rehideTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
+                            document.head.appendChild(rehideTag)
+                            preHideStyleTag = rehideTag
+                        }
+                        for (var rh = 0; rh < preHiddenEls.length; rh++) {
+                            preHiddenEls[rh].setAttribute("data-choreo-hide", "1")
+                        }
+                    }
 
                 } else {
                     // ── AFTER PIN ──
