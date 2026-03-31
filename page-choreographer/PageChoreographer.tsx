@@ -2238,7 +2238,7 @@ export default function PageChoreographer(props: any) {
             // Clips the wrapper to viewport bounds so the mask reveal
             // aligns with the viewport edge as the element scrolls in.
             var vpClipPad = maskViewportPadding || 0
-            var animFullyRevealed = false
+            var animProgress = 0 // 0→1 tracks how far the animation has progressed
 
             var updateViewportClip = function () {
                 if (!maskViewportClip || !wrapper) return
@@ -2251,15 +2251,17 @@ export default function PageChoreographer(props: any) {
                 var overflowBottom = Math.max(0, wRect.bottom - vpH)
                 var overflowLeft = Math.max(0, -wRect.left)
                 // Padding-based clips (inset from viewport edge into the element)
-                // Only apply while animation is in progress — once fully
-                // revealed the padding clip would fight the element's
-                // designed padding, causing a visual jump.
+                // Scale down with animation progress so the padding clip
+                // smoothly fades out as the reveal completes — avoids the
+                // hard snap between "viewport-clipped padding" and the
+                // element's designed padding.
+                var padScale = Math.max(0, 1 - animProgress)
                 var padTop = 0, padRight = 0, padBottom = 0, padLeft = 0
-                if (!animFullyRevealed) {
-                    padTop = (wRect.top <= vpClipPad) ? Math.max(0, vpClipPad - wRect.top) : 0
-                    padRight = (wRect.right >= vpW - vpClipPad) ? Math.max(0, vpClipPad - (vpW - wRect.right)) : 0
-                    padBottom = (wRect.bottom >= vpH - vpClipPad) ? Math.max(0, vpClipPad - (vpH - wRect.bottom)) : 0
-                    padLeft = (wRect.left <= vpClipPad) ? Math.max(0, vpClipPad - wRect.left) : 0
+                if (padScale > 0) {
+                    padTop = ((wRect.top <= vpClipPad) ? Math.max(0, vpClipPad - wRect.top) : 0) * padScale
+                    padRight = ((wRect.right >= vpW - vpClipPad) ? Math.max(0, vpClipPad - (vpW - wRect.right)) : 0) * padScale
+                    padBottom = ((wRect.bottom >= vpH - vpClipPad) ? Math.max(0, vpClipPad - (vpH - wRect.bottom)) : 0) * padScale
+                    padLeft = ((wRect.left <= vpClipPad) ? Math.max(0, vpClipPad - wRect.left) : 0) * padScale
                 }
                 // Use whichever is larger: overflow clip or padding clip
                 var clipTop = Math.round(Math.max(overflowTop, padTop))
@@ -2300,7 +2302,7 @@ export default function PageChoreographer(props: any) {
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
-                    animFullyRevealed = clampedProgress >= 1
+                    animProgress = clampedProgress
                     updateViewportClip()
 
                     if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
@@ -2315,7 +2317,7 @@ export default function PageChoreographer(props: any) {
                         unbakeAndRecreateAnims()
                     }
                     scrollPinState.pinned = false
-                    animFullyRevealed = false
+                    animProgress = 0
                     updateAnimProgress(0)
                     updateInteractivity(0)
                     updateViewportClip()
@@ -2328,7 +2330,7 @@ export default function PageChoreographer(props: any) {
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
-                        animFullyRevealed = true
+                        animProgress = 1
                         updateAnimProgress(1)
                         releaseAnimatedElements(true)
                     }
