@@ -1416,6 +1416,10 @@ function collectTargets(
 // ─── Component ───────────────────────────────────────────────────────────────
 
 var groupCounter = 0
+// Global flag: suppresses ALL MutationObservers across PC instances
+// during structural DOM changes (pin container, wrapper creation).
+// Prevents cross-instance infinite re-render loops.
+var choreoMutGlobalSuppress = false
 function useStableGroupId() {
     var ref = React.useRef("")
     if (ref.current === "") {
@@ -1643,22 +1647,36 @@ export default function PageChoreographer(props: any) {
         try {
             if (typeof MutationObserver !== "undefined") {
                 mutObs = new MutationObserver(function (mutations) {
-                    if (mutSuppressed) return
-                    // Ignore mutations that only added/removed choreo-word spans
+                    if (mutSuppressed || choreoMutGlobalSuppress) return
+                    // Ignore mutations caused by Page Choreographer's own
+                    // structural DOM changes (pin containers, spacers,
+                    // wrappers, word splits). These would otherwise trigger
+                    // infinite re-render loops between multiple PC instances.
                     var dominated = true
                     for (var mi = 0; mi < mutations.length; mi++) {
                         var m = mutations[mi]
                         for (var ai = 0; ai < m.addedNodes.length; ai++) {
                             var an = m.addedNodes[ai] as HTMLElement
-                            if (an.nodeType === 1 && an.getAttribute && an.getAttribute("data-choreo-word")) continue
-                            if (an.nodeType === 3) continue // text nodes from split
+                            if (an.nodeType === 3) continue // text nodes
+                            if (an.nodeType === 1 && an.getAttribute) {
+                                // Skip our own structural elements
+                                if (an.getAttribute("data-choreo-word")) continue
+                                if (an.getAttribute("data-choreo-pin-container")) continue
+                                if (an.getAttribute("data-choreo-spacer")) continue
+                                if (an.getAttribute("data-choreo-marker")) continue
+                            }
                             dominated = false
                             break
                         }
                         if (!dominated) break
                         for (var ri = 0; ri < m.removedNodes.length; ri++) {
-                            var rn = m.removedNodes[ri]
-                            if (rn.nodeType === 3) continue // text nodes we removed
+                            var rn = m.removedNodes[ri] as HTMLElement
+                            if (rn.nodeType === 3) continue // text nodes
+                            if (rn.nodeType === 1 && rn.getAttribute) {
+                                if (rn.getAttribute("data-choreo-pin-container")) continue
+                                if (rn.getAttribute("data-choreo-spacer")) continue
+                                if (rn.getAttribute("data-choreo-marker")) continue
+                            }
                             dominated = false
                             break
                         }
@@ -1723,6 +1741,7 @@ export default function PageChoreographer(props: any) {
         var scrollSetupRaf = 0
         var scrollResizeTimer = 0
         var scrollPinState = { pinned: false, afterPin: false, completed: false, origStyles: "" }
+        var isFollower = false
 
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
 
@@ -1813,6 +1832,11 @@ export default function PageChoreographer(props: any) {
 
             var wrapper: HTMLElement
 
+            // Suppress all MutationObservers during structural DOM changes
+            // (wrapper creation, pin container, spacer) to prevent cross-instance
+            // infinite re-render loops.
+            choreoMutGlobalSuppress = true
+
             if (allTargetsInside) {
                 // ── Create wrapper inside the section ──
                 wrapper = document.createElement("div")
@@ -1892,7 +1916,7 @@ export default function PageChoreographer(props: any) {
             // Follow-pin: if another PC instance already pinned this section,
             // piggyback on its pin — no duplicate spacer/sticky, just scrub
             // our animation within the existing pin's scroll range.
-            var isFollower = false
+            isFollower = false
             var isOwner = scrollPin
             var ownerScrollLength = scrollLength
 
@@ -1984,6 +2008,9 @@ export default function PageChoreographer(props: any) {
                 sectionEl.style.setProperty("position", "sticky", "important")
                 sectionEl.style.setProperty("top", "0px", "important")
             }
+
+            // Structural DOM changes complete — re-enable MutationObservers
+            choreoMutGlobalSuppress = false
 
             // ── Bidirectional overflow walk ──
             // Fix any ancestor/intermediate containers that clip animating
