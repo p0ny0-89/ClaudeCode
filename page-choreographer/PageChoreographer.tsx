@@ -1946,13 +1946,15 @@ export default function PageChoreographer(props: any) {
             var earlySection = findSection(parent)
             var earlyPinSection = findPinSection(parent)
             console.log("[PC:" + baseId + "] earlyPinSection:", earlyPinSection.getAttribute("data-framer-name") || earlyPinSection.tagName, earlyPinSection.offsetWidth + "x" + earlyPinSection.offsetHeight)
-            if (scrollPin && earlyPinSection && earlyPinSection.hasAttribute("data-choreo-pin-owner")) {
+            if (scrollPin && earlyPinSection && earlyPinSection.hasAttribute("data-choreo-pin-owner") && !pinPriority) {
                 // Another instance already owns this section's pin.
                 // Bail out ONLY if it's a CMS case (owner's marker is
                 // inside the same parent — they target the same elements).
                 // If the markers are in DIFFERENT parents, this is a
                 // multi-PC setup (e.g. image + text) — don't bail,
                 // fall through to follow-pin logic instead.
+                // NOTE: pinPriority PCs skip this check entirely — they
+                // MUST continue to take over the pin, never bail out.
                 var otherMarkers = parent.querySelectorAll("[data-choreo-marker]")
                 var isCmsDuplicate = false
                 for (var om = 0; om < otherMarkers.length; om++) {
