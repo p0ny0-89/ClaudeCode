@@ -2126,7 +2126,6 @@ export default function PageChoreographer(props: any) {
                             stalePinOwner.style.removeProperty("position")
                             stalePinOwner.style.removeProperty("top")
                             stalePinOwner.style.removeProperty("overflow-anchor")
-                            stalePinOwner.style.removeProperty("z-index")
                         }
                         // Unwrap: move all children out, remove container
                         if (staleNode.parentElement) {
@@ -2207,11 +2206,11 @@ export default function PageChoreographer(props: any) {
                 }
 
                 // Apply sticky positioning on the pin section.
-                // z-index keeps the pinned section above the spacer and
-                // any subsequent sections that scroll up from below.
+                // Do NOT force z-index — the user controls stacking
+                // order via Framer's z-index property.  Sticky elements
+                // naturally paint above their siblings (the spacer).
                 pinSectionEl.style.setProperty("position", "sticky", "important")
                 pinSectionEl.style.setProperty("top", "0px", "important")
-                pinSectionEl.style.setProperty("z-index", "1", "important")
 
                 // Inherit background onto the PIN CONTAINER so it covers
                 // the full scroll area (section + spacer).  Without this,
