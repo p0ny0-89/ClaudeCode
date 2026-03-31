@@ -2149,6 +2149,12 @@ export default function PageChoreographer(props: any) {
                 // Disable browser scroll anchoring
                 pinSectionEl.style.setProperty("overflow-anchor", "none")
 
+                // Total spacer height must accommodate the animation offset
+                // so the pin stays active until the animation finishes.
+                // E.g. scrollLength=1000 + 30% offset = 1300px total pin.
+                var ownerAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
+                var totalSpacerHeight = scrollLength + ownerAnimOffset
+
                 // ── Pin container ──
                 var existingPinCtr = pinSectionEl.parentElement
                 var pinContainer: HTMLElement
@@ -2159,10 +2165,10 @@ export default function PageChoreographer(props: any) {
                     if (pinPriority) {
                         pinContainer.setAttribute("data-choreo-pin-priority", "true")
                     }
-                    // Update spacer to our scroll length
+                    // Update spacer to our total pin duration
                     var existingSpacer = pinContainer.querySelector("[data-choreo-spacer]") as HTMLElement
                     if (existingSpacer) {
-                        existingSpacer.style.setProperty("height", scrollLength + "px")
+                        existingSpacer.style.setProperty("height", totalSpacerHeight + "px")
                         existingSpacer.setAttribute("data-choreo-spacer", baseId)
                         scrollSpacer = existingSpacer
                     }
@@ -2190,7 +2196,7 @@ export default function PageChoreographer(props: any) {
                     }
 
                     var spacer = document.createElement("div")
-                    spacer.style.setProperty("height", scrollLength + "px")
+                    spacer.style.setProperty("height", totalSpacerHeight + "px")
                     spacer.style.setProperty("width", "100%")
                     spacer.style.setProperty("pointer-events", "none")
                     spacer.style.setProperty("flex-shrink", "0")
@@ -2288,6 +2294,9 @@ export default function PageChoreographer(props: any) {
             // scrollStartOffset, allowing staggered reveals within a
             // shared pin duration.
             var pinScrollLength = isFollower ? ownerScrollLength : scrollLength
+            // Total pin duration includes the owner's animation offset
+            // so the pin stays active until the animation finishes.
+            var pinAnimOffset = isFollower ? 0 : Math.max(0, (scrollStartOffset / 100) * scrollLength)
             var measureEl = ((scrollPin || isFollower) && pinSectionEl) ? pinSectionEl : wrapper
             var measureRect = measureEl.getBoundingClientRect()
             var measureDocTop = measureRect.top + window.scrollY
@@ -2302,7 +2311,7 @@ export default function PageChoreographer(props: any) {
             }
 
             var pinStart = Math.max(0, measureDocTop + startOffset)
-            var totalPinLength = pinScrollLength
+            var totalPinLength = pinScrollLength + pinAnimOffset
             var pinEnd = pinStart + totalPinLength
 
             // Each PC's animation offset within the pin range.
@@ -2687,8 +2696,10 @@ export default function PageChoreographer(props: any) {
                     pinElHeight = parentHeight
 
                     // Update spacer height (owner only — followers don't have spacers)
+                    // Include animation offset so pin lasts until animation finishes
                     if (scrollSpacer && !isFollower) {
-                        scrollSpacer.style.setProperty("height", scrollLength + "px")
+                        var resizeAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
+                        scrollSpacer.style.setProperty("height", (scrollLength + resizeAnimOffset) + "px")
                     }
 
                     // Followers: re-read owner's spacer in case it resized
@@ -2703,8 +2714,8 @@ export default function PageChoreographer(props: any) {
                         }
                     }
 
-                    // Recalculate pin range
-                    totalPinLength = pinScrollLength
+                    // Recalculate pin range (include owner's anim offset)
+                    totalPinLength = pinScrollLength + (isFollower ? 0 : Math.max(0, (scrollStartOffset / 100) * scrollLength))
                     var resizeMeasureEl = ((scrollPin || isFollower) && pinSectionEl) ? pinSectionEl : wrapper
                     var resizeRect = resizeMeasureEl.getBoundingClientRect()
                     var resizeVh = window.innerHeight
