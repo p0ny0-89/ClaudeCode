@@ -3753,6 +3753,7 @@ addPropertyControls(PageChoreographer, {
         max: 10,
         step: 1,
         description: "Controls animation order across groups. Lower numbers animate first.",
+        hidden: function (props: any) { return props.trigger === "onScroll" },
     },
     priorityGap: {
         type: ControlType.Number,
@@ -3763,6 +3764,7 @@ addPropertyControls(PageChoreographer, {
         step: 0.05,
         unit: "s",
         description: "Pause between priority groups. Negative values create overlap.",
+        hidden: function (props: any) { return props.trigger === "onScroll" },
     },
     delayOffset: {
         type: ControlType.Number,
