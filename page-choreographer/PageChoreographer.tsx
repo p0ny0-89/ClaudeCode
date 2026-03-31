@@ -2199,13 +2199,18 @@ export default function PageChoreographer(props: any) {
                         pinContainer.style.setProperty("flex-grow", secCS.flexGrow)
                         pinContainer.style.setProperty("flex-shrink", secCS.flexShrink)
                         pinContainer.style.setProperty("flex-basis", secCS.flexBasis)
-                        // Use the section's declared width, not the computed
-                        // pixel value, so "fill" (100%) sections stay fluid.
+                        // Preserve the section's width mode:
+                        // - Framer "fill" sections stretch via the parent's
+                        //   align-items:stretch default. The section's inline
+                        //   style.width is either "" (empty) or "100%".
+                        // - Framer "fixed" sections have an explicit pixel
+                        //   value like "500px" in their inline style.
+                        // Only use the computed pixel width for truly fixed
+                        // sections; everything else should fill (100%).
                         var secInlineW = pinSectionEl.style.width
-                        var secIsFill = secInlineW === "100%" ||
-                            secCS.flexGrow !== "0" ||
-                            secCS.alignSelf === "stretch"
-                        pinContainer.style.setProperty("width", secIsFill ? "100%" : secCS.width)
+                        var isFixedWidth = secInlineW && /^\d/.test(secInlineW) && secInlineW !== "100%"
+                        pinContainer.style.setProperty("width", isFixedWidth ? secInlineW : "100%")
+                        console.log("[PC:" + baseId + "] pin-ctr width:", isFixedWidth ? secInlineW : "100%", "secInlineW:", JSON.stringify(secInlineW), "secComputedW:", secCS.width, "alignSelf:", secCS.alignSelf)
                         pinSectionEl.parentElement.insertBefore(pinContainer, pinSectionEl)
                         pinContainer.appendChild(pinSectionEl)
                     }
