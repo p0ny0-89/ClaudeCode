@@ -2126,6 +2126,8 @@ export default function PageChoreographer(props: any) {
                             stalePinOwner.style.removeProperty("position")
                             stalePinOwner.style.removeProperty("top")
                             stalePinOwner.style.removeProperty("overflow-anchor")
+                            stalePinOwner.style.removeProperty("background-color")
+                            stalePinOwner.style.removeProperty("z-index")
                         }
                         // Unwrap: move all children out, remove container
                         if (staleNode.parentElement) {
@@ -2205,9 +2207,30 @@ export default function PageChoreographer(props: any) {
                     scrollSpacer = spacer
                 }
 
-                // Apply sticky positioning on the pin section
+                // Apply sticky positioning on the pin section.
+                // z-index keeps the pinned section above the spacer and
+                // any subsequent sections that scroll up from below.
                 pinSectionEl.style.setProperty("position", "sticky", "important")
                 pinSectionEl.style.setProperty("top", "0px", "important")
+                pinSectionEl.style.setProperty("z-index", "1", "important")
+
+                // Inherit background from the nearest ancestor that has
+                // one.  Without this, the sticky element has a transparent
+                // background and the parent's bg scrolls away, exposing
+                // the spacer / next section behind the pinned content.
+                var pinSectionBg = window.getComputedStyle(pinSectionEl).backgroundColor
+                if (!pinSectionBg || pinSectionBg === "rgba(0, 0, 0, 0)" || pinSectionBg === "transparent") {
+                    var bgAncestor: HTMLElement | null = pinContainer.parentElement
+                    while (bgAncestor && bgAncestor !== document.documentElement) {
+                        var ancestorBg = window.getComputedStyle(bgAncestor).backgroundColor
+                        if (ancestorBg && ancestorBg !== "rgba(0, 0, 0, 0)" && ancestorBg !== "transparent") {
+                            pinSectionEl.style.setProperty("background-color", ancestorBg)
+                            console.log("[PC:" + baseId + "] inherited bg:", ancestorBg, "from:", bgAncestor.getAttribute("data-framer-name") || bgAncestor.tagName)
+                            break
+                        }
+                        bgAncestor = bgAncestor.parentElement
+                    }
+                }
                 console.log("[PC:" + baseId + "] pin container created:", pinContainer.offsetWidth + "x" + pinContainer.offsetHeight, "pinSection:", pinSectionEl.offsetWidth + "x" + pinSectionEl.offsetHeight, pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.tagName, "priority:", pinPriority)
             }
 
@@ -2815,6 +2838,7 @@ export default function PageChoreographer(props: any) {
                 scrollSectionEl.style.removeProperty("transform")
                 scrollSectionEl.style.removeProperty("z-index")
                 scrollSectionEl.style.removeProperty("overflow-anchor")
+                scrollSectionEl.style.removeProperty("background-color")
                 // Unwrap from pin container — move section back to its
                 // original position and remove the container
                 var pinCtr = scrollSectionEl.parentElement
