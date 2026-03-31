@@ -1734,6 +1734,9 @@ export default function PageChoreographer(props: any) {
         var scrollHandler: (() => void) | null = null
         var scrollResizeHandler: (() => void) | null = null
         var scrollWrapper: HTMLElement | null = null
+        var parentOrigWidth = ""
+        var parentOrigHeight = ""
+        var parentOrigFlexShrink = ""
         var scrollSectionEl: HTMLElement | null = null
         var scrollSpacer: HTMLElement | null = null
         var scrollOverflowAncestors: Array<{ el: HTMLElement; orig: string }> = []
@@ -1919,7 +1922,22 @@ export default function PageChoreographer(props: any) {
 
                 // Insert wrapper into the section
                 parentGP!.insertBefore(wrapper, parent)
+                // Save parent's original inline styles so we can restore on cleanup
+                parentOrigWidth = parent.style.width
+                parentOrigHeight = parent.style.height
+                parentOrigFlexShrink = parent.style.flexShrink
+                // Capture the parent's computed size BEFORE moving it,
+                // since its current size comes from the flex/grid context
+                // of parentGP.  Once moved into the wrapper, that context
+                // is lost and the parent can collapse to min-content.
+                var parentPreMoveH = parent.offsetHeight
                 wrapper.appendChild(parent)
+                // Ensure the parent fills the wrapper — it may have relied
+                // on its old flex context for sizing (especially in nested
+                // layouts with an intermediate frame/DIV).
+                parent.style.setProperty("width", "100%")
+                parent.style.setProperty("height", parentPreMoveH + "px")
+                parent.style.setProperty("flex-shrink", "0")
                 scrollWrapper = wrapper
                 console.log("[PC:" + baseId + "] wrapper created:", wrapper.offsetWidth + "x" + wrapper.offsetHeight, "h=" + wrapper.style.height)
             } else {
@@ -2629,6 +2647,11 @@ export default function PageChoreographer(props: any) {
                 }
             }
             if (scrollWrapper && scrollWrapper.parentElement && parent) {
+                // Restore parent's original inline styles that we overrode
+                // during wrapper creation (width/height/flex-shrink)
+                if (parentOrigWidth) { parent.style.setProperty("width", parentOrigWidth) } else { parent.style.removeProperty("width") }
+                if (parentOrigHeight) { parent.style.setProperty("height", parentOrigHeight) } else { parent.style.removeProperty("height") }
+                if (parentOrigFlexShrink) { parent.style.setProperty("flex-shrink", parentOrigFlexShrink) } else { parent.style.removeProperty("flex-shrink") }
                 scrollWrapper.parentElement.insertBefore(parent, scrollWrapper)
                 scrollWrapper.parentElement.removeChild(scrollWrapper)
             }
