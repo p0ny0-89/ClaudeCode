@@ -1956,7 +1956,18 @@ export default function PageChoreographer(props: any) {
                 parent.style.setProperty("height", parentPreMoveH + "px")
                 parent.style.setProperty("flex-shrink", "0")
                 scrollWrapper = wrapper
-                console.log("[PC:" + baseId + "] wrapper created:", wrapper.offsetWidth + "x" + wrapper.offsetHeight, "h=" + wrapper.style.height)
+                console.log("[PC:" + baseId + "] wrapper created:", wrapper.offsetWidth + "x" + wrapper.offsetHeight, "w=" + wrapper.style.width, "h=" + wrapper.style.height)
+                console.log("[PC:" + baseId + "] parent after wrap:", parent.offsetWidth + "x" + parent.offsetHeight, "w=" + parent.style.width, "h=" + parent.style.height)
+                console.log("[PC:" + baseId + "] parentGP after wrap:", parentGP!.offsetWidth + "x" + parentGP!.offsetHeight, parentGP!.getAttribute("data-framer-name") || parentGP!.tagName)
+                // Log the full ancestry chain for debugging layout issues
+                var chainNode: HTMLElement | null = wrapper
+                var chain = ""
+                while (chainNode && chainNode !== document.documentElement) {
+                    var cn = chainNode.getAttribute("data-framer-name") || chainNode.getAttribute("data-choreo-pin-container") ? "pin-ctr" : chainNode.tagName
+                    chain += cn + "(" + chainNode.offsetWidth + "x" + chainNode.offsetHeight + ") > "
+                    chainNode = chainNode.parentElement
+                }
+                console.log("[PC:" + baseId + "] ancestry:", chain)
             } else {
                 // CMS/grid mode: no wrapper — use parent directly.
                 // This avoids disrupting the grid layout and prevents
@@ -2094,6 +2105,7 @@ export default function PageChoreographer(props: any) {
                 // with zero jitter (no JS-per-frame transforms needed)
                 sectionEl.style.setProperty("position", "sticky", "important")
                 sectionEl.style.setProperty("top", "0px", "important")
+                console.log("[PC:" + baseId + "] pin container created:", pinContainer.offsetWidth + "x" + pinContainer.offsetHeight, "section:", sectionEl.offsetWidth + "x" + sectionEl.offsetHeight, sectionEl.getAttribute("data-framer-name") || sectionEl.tagName)
             }
 
             // Structural DOM changes complete — re-enable MutationObservers
