@@ -2600,6 +2600,12 @@ export default function PageChoreographer(props: any) {
 
                 var scrollY = window.scrollY
 
+                // scrollOnce: once the animation is done, freeze
+                // everything — don't recreate, unbake, or reverse.
+                if (scrollPinState.completed) {
+                    return
+                }
+
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
                     // ── PINNED ZONE ──
                     // Sticky keeps the section in place — just scrub animations
@@ -2615,20 +2621,17 @@ export default function PageChoreographer(props: any) {
                     var progress = (scrollY - animStart) / animLength
                     var clampedProgress = Math.max(0, Math.min(1, progress))
 
-                    // If scrollOnce completed, lock at progress=1
-                    if (scrollPinState.completed) {
-                        clampedProgress = 1
-                    }
-
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
                     animDone = clampedProgress >= 1
                     updateViewportClip()
 
-                    if (scrollOnce && clampedProgress >= 1 && !scrollPinState.completed) {
+                    if (scrollOnce && clampedProgress >= 1) {
                         scrollPinState.completed = true
-                        releaseAnimatedElements()
+                        // Bake final styles so they persist after
+                        // animations are cancelled
+                        releaseAnimatedElements(true)
                     }
 
                 } else if (scrollY < pinStart) {
@@ -2638,12 +2641,9 @@ export default function PageChoreographer(props: any) {
                         unbakeAndRecreateAnims()
                     }
                     scrollPinState.pinned = false
-                    // If scrollOnce completed, keep at progress=1 — don't reverse
-                    if (!scrollPinState.completed) {
-                        animDone = false
-                        updateAnimProgress(0)
-                        updateInteractivity(0)
-                    }
+                    animDone = false
+                    updateAnimProgress(0)
+                    updateInteractivity(0)
                     updateViewportClip()
 
                 } else {
