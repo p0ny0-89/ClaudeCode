@@ -2264,11 +2264,10 @@ export default function PageChoreographer(props: any) {
                 var overflowRight = Math.max(0, wRect.right - vpW)
                 var overflowBottom = Math.max(0, wRect.bottom - vpH)
                 var overflowLeft = Math.max(0, -wRect.left)
-                // Padding-based clips (inset from viewport edge into the element)
-                var padTop = (wRect.top <= vpClipPad) ? Math.max(0, vpClipPad - wRect.top) : 0
-                var padRight = (wRect.right >= vpW - vpClipPad) ? Math.max(0, vpClipPad - (vpW - wRect.right)) : 0
+                // Padding-based clip — bottom only, so the mask reveal
+                // doesn't get cut off abruptly at the viewport bottom edge
+                var padTop = 0, padRight = 0, padLeft = 0
                 var padBottom = (wRect.bottom >= vpH - vpClipPad) ? Math.max(0, vpClipPad - (vpH - wRect.bottom)) : 0
-                var padLeft = (wRect.left <= vpClipPad) ? Math.max(0, vpClipPad - wRect.left) : 0
                 // Use whichever is larger: overflow clip or padding clip
                 var clipTop = Math.round(Math.max(overflowTop, padTop))
                 var clipRight = Math.round(Math.max(overflowRight, padRight))
