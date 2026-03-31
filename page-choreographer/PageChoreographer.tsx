@@ -1782,8 +1782,6 @@ export default function PageChoreographer(props: any) {
         var parentOrigFlexShrink = ""
         var scrollSectionEl: HTMLElement | null = null
         var scrollSpacer: HTMLElement | null = null
-        var scrollBgAncestor: HTMLElement | null = null
-        var scrollBgAncestorOrigMinHeight = ""
         var scrollOverflowAncestors: Array<{ el: HTMLElement; orig: string }> = []
         var scrollPinEl: HTMLElement | null = null
         var scrollSetupRaf = 0
@@ -2215,48 +2213,24 @@ export default function PageChoreographer(props: any) {
                 pinSectionEl.style.setProperty("top", "0px", "important")
 
                 // ── Background fix for pinned sections ──
-                // The section's background is often on a parent frame
-                // with a fixed height (e.g. 100vh).  When the pin
-                // container + spacer make it taller, the parent's bg
-                // only covers its original height and scrolls away.
-                //
-                // Fix: find the nearest ancestor with a bg, then:
-                // 1. Copy it onto pinSectionEl (sticky — stays visible)
-                // 2. Copy it onto pinContainer (covers spacer area)
-                // 3. Stretch the bg ancestor to fit the pin container
-                var bgFound = false
-                var bgAncestorEl: HTMLElement | null = null
-                var bgCheckEls: HTMLElement[] = [pinSectionEl]
-                var bgWalk: HTMLElement | null = pinContainer.parentElement
-                while (bgWalk && bgWalk !== document.documentElement) {
-                    bgCheckEls.push(bgWalk)
-                    bgWalk = bgWalk.parentElement
-                }
-                for (var bci = 0; bci < bgCheckEls.length; bci++) {
-                    var bgCS = window.getComputedStyle(bgCheckEls[bci])
-                    var bgColor = bgCS.backgroundColor
-                    var hasBgColor = bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent"
-                    if (hasBgColor) {
-                        // Copy bg to both sticky element and pin container
-                        pinSectionEl.style.setProperty("background-color", bgColor)
-                        pinContainer.style.setProperty("background-color", bgColor)
-                        bgAncestorEl = bgCheckEls[bci]
-                        console.log("[PC:" + baseId + "] inherited bg:", bgColor, "from:", bgAncestorEl.getAttribute("data-framer-name") || bgAncestorEl.tagName)
-                        bgFound = true
-                        break
-                    }
-                }
-                // Stretch the bg ancestor so its background covers the
-                // full pin container height (section + spacer).
-                // Only stretch if the ancestor is between pinContainer
-                // and the page root (i.e. it's a direct wrapper).
-                if (bgAncestorEl && bgAncestorEl !== pinSectionEl) {
-                    var pinCtrHeight = pinContainer.offsetHeight
-                    if (bgAncestorEl.offsetHeight < pinCtrHeight) {
-                        scrollBgAncestor = bgAncestorEl
-                        scrollBgAncestorOrigMinHeight = bgAncestorEl.style.minHeight || ""
-                        bgAncestorEl.style.setProperty("min-height", pinCtrHeight + "px")
-                        console.log("[PC:" + baseId + "] stretched bg ancestor to:", pinCtrHeight + "px")
+                // The section's background is often on a parent frame.
+                // Only the STICKY element stays at the viewport top —
+                // everything else scrolls.  So the bg MUST go on
+                // pinSectionEl.  Use the `background` shorthand with
+                // !important to override Framer's own inline styles
+                // (which may set `background: transparent`).
+                var pinSectionBg = window.getComputedStyle(pinSectionEl).backgroundColor
+                var pinSectionHasBg = pinSectionBg && pinSectionBg !== "rgba(0, 0, 0, 0)" && pinSectionBg !== "transparent"
+                if (!pinSectionHasBg) {
+                    var bgWalk: HTMLElement | null = pinContainer.parentElement
+                    while (bgWalk && bgWalk !== document.documentElement) {
+                        var ancestorBg = window.getComputedStyle(bgWalk).backgroundColor
+                        if (ancestorBg && ancestorBg !== "rgba(0, 0, 0, 0)" && ancestorBg !== "transparent") {
+                            pinSectionEl.style.setProperty("background", ancestorBg, "important")
+                            console.log("[PC:" + baseId + "] inherited bg:", ancestorBg, "from:", bgWalk.getAttribute("data-framer-name") || bgWalk.tagName)
+                            break
+                        }
+                        bgWalk = bgWalk.parentElement
                     }
                 }
                 console.log("[PC:" + baseId + "] pin container created:", pinContainer.offsetWidth + "x" + pinContainer.offsetHeight, "pinSection:", pinSectionEl.offsetWidth + "x" + pinSectionEl.offsetHeight, pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.tagName, "priority:", pinPriority)
@@ -2626,6 +2600,12 @@ export default function PageChoreographer(props: any) {
 
                     var progress = (scrollY - animStart) / animLength
                     var clampedProgress = Math.max(0, Math.min(1, progress))
+
+                    // If scrollOnce completed, lock at progress=1
+                    if (scrollPinState.completed) {
+                        clampedProgress = 1
+                    }
+
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
@@ -2644,9 +2624,12 @@ export default function PageChoreographer(props: any) {
                         unbakeAndRecreateAnims()
                     }
                     scrollPinState.pinned = false
-                    animDone = false
-                    updateAnimProgress(0)
-                    updateInteractivity(0)
+                    // If scrollOnce completed, keep at progress=1 — don't reverse
+                    if (!scrollPinState.completed) {
+                        animDone = false
+                        updateAnimProgress(0)
+                        updateInteractivity(0)
+                    }
                     updateViewportClip()
 
                 } else {
@@ -2866,16 +2849,7 @@ export default function PageChoreographer(props: any) {
                 scrollSectionEl.style.removeProperty("transform")
                 scrollSectionEl.style.removeProperty("z-index")
                 scrollSectionEl.style.removeProperty("overflow-anchor")
-                scrollSectionEl.style.removeProperty("background-color")
-                // Restore bg ancestor min-height
-                if (scrollBgAncestor) {
-                    if (scrollBgAncestorOrigMinHeight) {
-                        scrollBgAncestor.style.setProperty("min-height", scrollBgAncestorOrigMinHeight)
-                    } else {
-                        scrollBgAncestor.style.removeProperty("min-height")
-                    }
-                    scrollBgAncestor = null
-                }
+                scrollSectionEl.style.removeProperty("background")
                 // Unwrap from pin container — move section back to its
                 // original position and remove the container
                 var pinCtr = scrollSectionEl.parentElement
