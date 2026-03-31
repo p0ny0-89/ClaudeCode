@@ -1924,16 +1924,29 @@ export default function PageChoreographer(props: any) {
                     wrapper.style.setProperty("grid-row", parentCS.gridRow)
                     // Preserve the parent's flex sizing (e.g. flex:1 for "fill")
                     // Copy the exact flex properties so the wrapper occupies
-                    // the same space in the layout.  Do NOT set width:100% —
-                    // in horizontal flex (row) layouts, that would make the
-                    // wrapper try to take the full container width, pushing
-                    // sibling columns out.  Instead, use the parent's actual
-                    // computed width as a concrete fallback.
+                    // the same space in the layout.
                     wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
                     wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
                     wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
-                    // Use computed width — safe in both row and column flex
-                    wrapper.style.setProperty("width", parentWidth + "px")
+                    // Width strategy: if the parent has an explicit fixed
+                    // pixel width in its inline style, use that.  Otherwise
+                    // the parent is filling via flex or stretch — let the
+                    // copied flex properties handle sizing instead of baking
+                    // a computed pixel value that overrides stretch.
+                    var parentInlineW = parent.style.width
+                    var parentIsFixedW = parentInlineW && /^\d/.test(parentInlineW) && !/^100%/.test(parentInlineW)
+                    if (parentIsFixedW) {
+                        wrapper.style.setProperty("width", parentInlineW)
+                    } else {
+                        // For fill parents: use 100% in column layouts,
+                        // skip explicit width in row layouts (flex handles it)
+                        var gpDir = window.getComputedStyle(parentGP).flexDirection
+                        if (gpDir === "row" || gpDir === "row-reverse") {
+                            // Row: don't set width — flex-grow/basis handle it
+                        } else {
+                            wrapper.style.setProperty("width", "100%")
+                        }
+                    }
 
                     // Mirror the section's flex layout so the Stack inside
                     // the wrapper retains its flex-based sizing & centering
@@ -2757,9 +2770,14 @@ export default function PageChoreographer(props: any) {
                     if (wp) {
                         parentWidth = wp.clientWidth
                     }
-                    // Update wrapper width to match new layout
+                    // Update wrapper width to match new layout —
+                    // only override if the wrapper has a fixed pixel width.
+                    // Fill wrappers (100% or flex-only) resize automatically.
                     if (scrollWrapper) {
-                        scrollWrapper.style.setProperty("width", parentWidth + "px")
+                        var curWrapW = scrollWrapper.style.width
+                        if (curWrapW && /^\d/.test(curWrapW) && !/^100%/.test(curWrapW)) {
+                            scrollWrapper.style.setProperty("width", parentWidth + "px")
+                        }
                     }
                     // wrapper height is auto — content sizes it
                     pinElWidth = parentWidth
