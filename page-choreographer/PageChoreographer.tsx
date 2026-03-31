@@ -1759,6 +1759,10 @@ export default function PageChoreographer(props: any) {
             var parentWidth = parent.offsetWidth
             var parentGP = parent.parentElement
 
+            // ── DIAGNOSTIC LOGGING (remove after debugging) ──
+            console.log("[PC:" + baseId + "] parent:", parent.getAttribute("data-framer-name") || parent.tagName, parentWidth + "x" + parentHeight)
+            console.log("[PC:" + baseId + "] parentGP:", parentGP ? (parentGP.getAttribute("data-framer-name") || parentGP.tagName) : "null")
+
             // ── Early section ownership check ──
             // In CMS layouts, multiple instances share the same section.
             // Only the FIRST instance (pin owner) should create scroll
@@ -1794,6 +1798,9 @@ export default function PageChoreographer(props: any) {
                 }
                 // Different parents = separate PC → continue to follow-pin
             }
+
+            console.log("[PC:" + baseId + "] earlySection:", earlySection.getAttribute("data-framer-name") || earlySection.tagName, earlySection.offsetWidth + "x" + earlySection.offsetHeight)
+            console.log("[PC:" + baseId + "] targets:", targets.length, "scrollPin:", scrollPin)
 
             // ── onScroll pre-hiding ──
             // Now that we know this instance owns the section (not bailing
@@ -1914,6 +1921,7 @@ export default function PageChoreographer(props: any) {
                 parentGP!.insertBefore(wrapper, parent)
                 wrapper.appendChild(parent)
                 scrollWrapper = wrapper
+                console.log("[PC:" + baseId + "] wrapper created:", wrapper.offsetWidth + "x" + wrapper.offsetHeight, "h=" + wrapper.style.height)
             } else {
                 // CMS/grid mode: no wrapper — use parent directly.
                 // This avoids disrupting the grid layout and prevents
@@ -1972,6 +1980,8 @@ export default function PageChoreographer(props: any) {
                     }
                 }
             }
+
+            console.log("[PC:" + baseId + "] isOwner:", isOwner, "isFollower:", isFollower)
 
             if (isOwner && sectionEl) {
                 sectionEl.setAttribute("data-choreo-pin-owner", baseId)
@@ -2138,6 +2148,9 @@ export default function PageChoreographer(props: any) {
             var totalPinLength = effectiveScrollLength
             var pinEnd = pinStart + totalPinLength
             var wrapRectLeft = pinEl.getBoundingClientRect().left
+
+            console.log("[PC:" + baseId + "] scrollRange: pinStart=" + pinStart + " pinEnd=" + pinEnd + " scrollLength=" + effectiveScrollLength)
+            console.log("[PC:" + baseId + "] measureEl:", measureEl === wrapper ? "wrapper" : (measureEl.getAttribute("data-framer-name") || measureEl.tagName), measureRect.width + "x" + measureRect.height, "docTop=" + measureDocTop)
 
             // ── Animation creation/destruction ──
             var reduced =
