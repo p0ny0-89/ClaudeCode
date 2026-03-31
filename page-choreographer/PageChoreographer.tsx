@@ -1890,12 +1890,17 @@ export default function PageChoreographer(props: any) {
                     wrapper.style.setProperty("grid-column", parentCS.gridColumn)
                     wrapper.style.setProperty("grid-row", parentCS.gridRow)
                     // Preserve the parent's flex sizing (e.g. flex:1 for "fill")
-                    // In flex layouts, flex-basis overrides width when != auto,
-                    // so width:100% is safe as a baseline — flex handles sharing.
+                    // Copy the exact flex properties so the wrapper occupies
+                    // the same space in the layout.  Do NOT set width:100% —
+                    // in horizontal flex (row) layouts, that would make the
+                    // wrapper try to take the full container width, pushing
+                    // sibling columns out.  Instead, use the parent's actual
+                    // computed width as a concrete fallback.
                     wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
                     wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
                     wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
-                    wrapper.style.setProperty("width", "100%")
+                    // Use computed width — safe in both row and column flex
+                    wrapper.style.setProperty("width", parentWidth + "px")
 
                     // Mirror the section's flex layout so the Stack inside
                     // the wrapper retains its flex-based sizing & centering
@@ -2557,6 +2562,10 @@ export default function PageChoreographer(props: any) {
                     var wp = wrapper.parentElement
                     if (wp) {
                         parentWidth = wp.clientWidth
+                    }
+                    // Update wrapper width to match new layout
+                    if (scrollWrapper) {
+                        scrollWrapper.style.setProperty("width", parentWidth + "px")
                     }
                     // wrapper height is auto — content sizes it
                     pinElWidth = parentWidth
