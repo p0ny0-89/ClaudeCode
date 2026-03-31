@@ -977,10 +977,13 @@ function findPinSection(el: HTMLElement): HTMLElement {
             continue
         }
         var h = node.offsetHeight
-        // Good pin candidate: roughly viewport height and its parent
+        // Good pin candidate: a non-collapsed element whose parent
         // has at least 2 children (meaning it's a page-level section
-        // that sits alongside other sections).
-        if (h >= vh * 0.5 && h <= vh * 1.5) {
+        // that sits alongside other sections).  No strict height
+        // range — sections can be any height (100vh, fill, fixed).
+        // The sibling check + tree walk (preferring higher ancestors)
+        // is the real section identifier.
+        if (h >= 10) {
             var parentKids = node.parentElement.children.length
             if (parentKids >= 2) {
                 best = node
