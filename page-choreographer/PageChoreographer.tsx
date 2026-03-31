@@ -1773,9 +1773,26 @@ export default function PageChoreographer(props: any) {
             // which pins the entire page instead of just the target section.
             var earlySection = findSection(parent)
             if (scrollPin && earlySection && earlySection.hasAttribute("data-choreo-pin-owner")) {
-                // Another instance already owns this section — bail out.
-                // That owner's animations cover all items including ours.
-                return
+                // Another instance already owns this section's pin.
+                // Bail out ONLY if it's a CMS case (owner's marker is
+                // inside the same parent — they target the same elements).
+                // If the markers are in DIFFERENT parents, this is a
+                // multi-PC setup (e.g. image + text) — don't bail,
+                // fall through to follow-pin logic instead.
+                var otherMarkers = parent.querySelectorAll("[data-choreo-marker]")
+                var isCmsDuplicate = false
+                for (var om = 0; om < otherMarkers.length; om++) {
+                    // If we find a marker in our parent that isn't ours,
+                    // another PC shares this parent = CMS duplicate
+                    if (otherMarkers[om] !== marker) {
+                        isCmsDuplicate = true
+                        break
+                    }
+                }
+                if (isCmsDuplicate) {
+                    return
+                }
+                // Different parents = separate PC → continue to follow-pin
             }
 
             // ── onScroll pre-hiding ──
