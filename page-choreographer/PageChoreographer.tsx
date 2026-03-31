@@ -2090,7 +2090,8 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            console.log("[PC:" + baseId + "] isOwner:", isOwner, "isFollower:", isFollower)
+            console.log("[PC:" + baseId + "] isOwner:", isOwner, "isFollower:", isFollower, "pinPriority:", pinPriority, "scrollPin:", scrollPin)
+            console.log("[PC:" + baseId + "] pinSectionEl:", pinSectionEl ? (pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.tagName) + " " + pinSectionEl.offsetWidth + "x" + pinSectionEl.offsetHeight : "null", "hasPinOwner:", pinSectionEl ? pinSectionEl.hasAttribute("data-choreo-pin-owner") : false)
 
             if (isOwner && pinSectionEl) {
                 pinSectionEl.setAttribute("data-choreo-pin-owner", baseId)
