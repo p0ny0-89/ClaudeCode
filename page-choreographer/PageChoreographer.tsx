@@ -929,28 +929,16 @@ function findSection(el: HTMLElement): HTMLElement {
     var node = el
     var heuristicCandidate: HTMLElement | null = null
     var namedCandidate: HTMLElement | null = null
-    var namedWithSiblings: HTMLElement | null = null
 
     while (node.parentElement) {
         // Framer sections have data-framer-name — good signal, but
         // reject page-level containers that are much taller than the
         // viewport (e.g. "main" wrapping the entire page).
-        if (node.getAttribute("data-framer-name") != null) {
+        if (node.getAttribute("data-framer-name") != null && !namedCandidate) {
             if (node.offsetHeight <= vh * 2.5) {
-                // Keep updating — we want the HIGHEST qualifying named
-                // ancestor, which is most likely the actual page section
-                // (e.g. "Services") rather than a sub-component (e.g.
-                // "Image-container").  This ensures multiple PC instances
-                // in the same section find the SAME section element.
                 namedCandidate = node
-                // Track named candidates with siblings separately —
-                // having siblings (≥2) is a strong signal of being a
-                // page-level section rather than a nested wrapper.
-                var parentSibCount = node.parentElement.children.length
-                if (parentSibCount >= 2) {
-                    namedWithSiblings = node
-                }
             }
+            // If too tall, skip — keep looking for a smaller named ancestor
         }
 
         var siblingCount = node.parentElement.children.length
@@ -964,8 +952,42 @@ function findSection(el: HTMLElement): HTMLElement {
         node = node.parentElement
     }
 
-    // Prefer: named with siblings (page section) > highest named > heuristic > self
-    return namedWithSiblings || namedCandidate || heuristicCandidate || el
+    // Prefer named section, fall back to heuristic, then starting element
+    return namedCandidate || heuristicCandidate || el
+}
+
+// Find the best element to use as the pin container's target.
+// This is separate from findSection because the pin needs to wrap
+// the SHARED visual section (the viewport-height block that contains
+// all PC instances), even if it's unnamed.  findSection returns the
+// local named ancestor (good for wrapper creation), but pin needs
+// the page-level section that siblings other sections.
+function findPinSection(el: HTMLElement): HTMLElement {
+    var vh = window.innerHeight
+    var node = el
+    var best: HTMLElement | null = null
+
+    while (node.parentElement) {
+        var h = node.offsetHeight
+        // Good pin candidate: roughly viewport height and its parent
+        // has at least 2 children (meaning it's a page-level section
+        // that sits alongside other sections).
+        if (h >= vh * 0.5 && h <= vh * 1.5) {
+            var parentKids = node.parentElement.children.length
+            if (parentKids >= 2) {
+                best = node
+                // Don't break — keep going up in case there's a
+                // better (higher) candidate.  But stop if the next
+                // ancestor is way too tall.
+            }
+        }
+        // Stop climbing if we've gone past 3x viewport
+        if (h > vh * 3) break
+        node = node.parentElement
+    }
+
+    // Fall back to findSection if no page-level section found
+    return best || findSection(el)
 }
 
 function isMarkerBranch(el: HTMLElement, marker: HTMLElement): boolean {
@@ -1791,7 +1813,9 @@ export default function PageChoreographer(props: any) {
             // findSection to return a page-level container (e.g. "main")
             // which pins the entire page instead of just the target section.
             var earlySection = findSection(parent)
-            if (scrollPin && earlySection && earlySection.hasAttribute("data-choreo-pin-owner")) {
+            var earlyPinSection = findPinSection(parent)
+            console.log("[PC:" + baseId + "] earlyPinSection:", earlyPinSection.getAttribute("data-framer-name") || earlyPinSection.tagName, earlyPinSection.offsetWidth + "x" + earlyPinSection.offsetHeight)
+            if (scrollPin && earlyPinSection && earlyPinSection.hasAttribute("data-choreo-pin-owner")) {
                 // Another instance already owns this section's pin.
                 // Bail out ONLY if it's a CMS case (owner's marker is
                 // inside the same parent — they target the same elements).
@@ -1976,51 +2000,38 @@ export default function PageChoreographer(props: any) {
                 // scrollWrapper stays null — cleanup won't try to unwrap
             }
 
-            // Find the actual section element (e.g. Hero) that has
-            // the background — this may be above parentGP
+            // sectionEl = the LOCAL section (for wrapper, overflow walk)
+            // pinSectionEl = the PAGE-LEVEL section (for pin container,
+            //   follow-pin detection).  This is the viewport-height block
+            //   that contains all PCs in the same visual section — may be
+            //   unnamed in Framer (just a plain DIV).
             var sectionEl = earlySection
-            scrollSectionEl = sectionEl
-
-            // Check if the SECTION (Hero) expanded to fit the wrapper.
-            // Important: check sectionEl, not parentGP — parentGP (inner
-            // Stack) may grow but the section (100vh) won't.
-            var neededHeight = parentHeight + scrollLength
-            var sectionGrew = sectionEl.offsetHeight >= neededHeight * 0.98
+            var pinSectionEl = earlyPinSection
+            scrollSectionEl = pinSectionEl
 
             // ── Determine pin mode ──
-            // When scrollPin is enabled: spacer + sticky pinning on the section.
-            // When disabled: section scrolls naturally, animation scrubs based on position.
-            // Follow-pin: if another PC instance already pinned this section,
-            // piggyback on its pin — no duplicate spacer/sticky, just scrub
-            // our animation within the existing pin's scroll range.
-            // This detection runs regardless of scrollPin — even a non-pinned
-            // instance should sync to an existing pin's scroll range.
+            // Follow-pin detection uses pinSectionEl (the shared section)
+            // so that PCs in different branches of the same section can
+            // detect each other's pin containers.
             isFollower = false
             var isOwner = scrollPin
             var ownerScrollLength = scrollLength
 
-            if (sectionEl) {
-                // Walk UP from the section looking for any ancestor that
-                // is a pin container created by another PC instance.
-                // This handles cases where findSection returns a deeply
-                // nested element (e.g. Image-container) while the owner's
-                // pin container wraps a higher-level section (e.g. Services).
-                var pinSearchNode: HTMLElement | null = sectionEl
+            if (pinSectionEl) {
+                // Check if pinSectionEl or any ancestor already has a
+                // pin container or pin-owner from another PC instance.
+                var pinSearchNode: HTMLElement | null = pinSectionEl
                 while (pinSearchNode && pinSearchNode !== document.documentElement) {
                     if (pinSearchNode.hasAttribute("data-choreo-pin-container")) {
                         var pinCtrOwner = pinSearchNode.getAttribute("data-choreo-pin-container")
                         if (pinCtrOwner !== baseId) {
-                            // Another instance owns the pin — become a follower
                             isFollower = true
                             isOwner = false
-                            // Adopt the pin container's section as our section
-                            // so scroll measurement uses the correct element
                             var pinSectionChild = pinSearchNode.querySelector("[data-choreo-pin-owner]") as HTMLElement
                             if (pinSectionChild) {
-                                sectionEl = pinSectionChild
-                                scrollSectionEl = sectionEl
+                                pinSectionEl = pinSectionChild
+                                scrollSectionEl = pinSectionEl
                             }
-                            // Read the owner's spacer height as our scroll range
                             var ownerSpacer = pinSearchNode.querySelector("[data-choreo-spacer]") as HTMLElement
                             if (ownerSpacer) {
                                 ownerScrollLength = parseInt(ownerSpacer.style.height) || scrollLength
@@ -2028,15 +2039,13 @@ export default function PageChoreographer(props: any) {
                             break
                         }
                     }
-                    // Also check if any ancestor is claimed by another
-                    // instance that hasn't finished wrapping yet
                     if (pinSearchNode.hasAttribute("data-choreo-pin-owner")) {
                         var existingOwner = pinSearchNode.getAttribute("data-choreo-pin-owner")
                         if (existingOwner !== baseId) {
                             isFollower = true
                             isOwner = false
-                            sectionEl = pinSearchNode
-                            scrollSectionEl = sectionEl
+                            pinSectionEl = pinSearchNode
+                            scrollSectionEl = pinSectionEl
                             break
                         }
                     }
@@ -2046,26 +2055,24 @@ export default function PageChoreographer(props: any) {
 
             console.log("[PC:" + baseId + "] isOwner:", isOwner, "isFollower:", isFollower)
 
-            if (isOwner && sectionEl) {
-                sectionEl.setAttribute("data-choreo-pin-owner", baseId)
+            if (isOwner && pinSectionEl) {
+                pinSectionEl.setAttribute("data-choreo-pin-owner", baseId)
 
                 // Disable browser scroll anchoring on the section and its
                 // parent so the sticky↔relative transition doesn't cause
                 // the browser to adjust scrollY (which creates oscillation).
-                sectionEl.style.setProperty("overflow-anchor", "none")
+                pinSectionEl.style.setProperty("overflow-anchor", "none")
 
                 // ── Pin container ──
-                // Wrap the section + spacer in a container div so that the
-                // section's sticky containing block matches the pin duration.
-                // Without this, sticky stays active until the section's
-                // original parent scrolls past (which can be the entire page).
+                // Wrap the PIN SECTION (the page-level viewport-height block)
+                // in a container div.  This is the shared section that contains
+                // all PC instances — wrapping at this level ensures ALL
+                // children (image + text columns) get pinned together.
                 var pinContainer = document.createElement("div")
                 pinContainer.setAttribute("data-choreo-pin-container", baseId)
                 pinContainer.style.setProperty("overflow-anchor", "none")
-                // Copy the section's flex/grid properties so the container
-                // occupies the same layout slot
-                if (sectionEl.parentElement) {
-                    var secCS = window.getComputedStyle(sectionEl)
+                if (pinSectionEl.parentElement) {
+                    var secCS = window.getComputedStyle(pinSectionEl)
                     pinContainer.style.setProperty("align-self", secCS.alignSelf)
                     pinContainer.style.setProperty("justify-self", secCS.justifySelf)
                     pinContainer.style.setProperty("order", secCS.order)
@@ -2074,23 +2081,11 @@ export default function PageChoreographer(props: any) {
                     pinContainer.style.setProperty("flex-grow", secCS.flexGrow)
                     pinContainer.style.setProperty("flex-shrink", secCS.flexShrink)
                     pinContainer.style.setProperty("flex-basis", secCS.flexBasis)
-                    pinContainer.style.setProperty("width", "100%")
-                    // Insert container in place of section, then move section inside
-                    sectionEl.parentElement.insertBefore(pinContainer, sectionEl)
-                    pinContainer.appendChild(sectionEl)
+                    pinContainer.style.setProperty("width", secCS.width)
+                    pinSectionEl.parentElement.insertBefore(pinContainer, pinSectionEl)
+                    pinContainer.appendChild(pinSectionEl)
                 }
 
-                // Create spacer INSIDE the pin container for scroll room.
-                // This bounds the sticky: browser un-sticks when the pin
-                // container's bottom scrolls past the section.
-                //
-                // IMPORTANT: The spacer adds internal height for sticky
-                // behavior, but a negative margin on the pin container
-                // collapses that extra height from the PAGE layout.
-                // This decouples animation speed (scrollLength) from
-                // layout gap — the design's spacing/padding is preserved
-                // while scrollLength controls how fast the animation
-                // scrubs during the pin.
                 var spacer = document.createElement("div")
                 spacer.style.setProperty("height", scrollLength + "px")
                 spacer.style.setProperty("width", "100%")
@@ -2100,12 +2095,10 @@ export default function PageChoreographer(props: any) {
                 pinContainer.appendChild(spacer)
                 scrollSpacer = spacer
 
-
-                // Apply sticky positioning — browser compositor handles this
-                // with zero jitter (no JS-per-frame transforms needed)
-                sectionEl.style.setProperty("position", "sticky", "important")
-                sectionEl.style.setProperty("top", "0px", "important")
-                console.log("[PC:" + baseId + "] pin container created:", pinContainer.offsetWidth + "x" + pinContainer.offsetHeight, "section:", sectionEl.offsetWidth + "x" + sectionEl.offsetHeight, sectionEl.getAttribute("data-framer-name") || sectionEl.tagName)
+                // Apply sticky positioning on the pin section
+                pinSectionEl.style.setProperty("position", "sticky", "important")
+                pinSectionEl.style.setProperty("top", "0px", "important")
+                console.log("[PC:" + baseId + "] pin container created:", pinContainer.offsetWidth + "x" + pinContainer.offsetHeight, "pinSection:", pinSectionEl.offsetWidth + "x" + pinSectionEl.offsetHeight, pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.tagName)
             }
 
             // Structural DOM changes complete — re-enable MutationObservers
@@ -2189,7 +2182,7 @@ export default function PageChoreographer(props: any) {
             // Followers use the section (already pinned) for measurement
             // and the owner's scroll length for range
             var effectiveScrollLength = isFollower ? ownerScrollLength : scrollLength
-            var measureEl = ((scrollPin || isFollower) && sectionEl) ? sectionEl : wrapper
+            var measureEl = ((scrollPin || isFollower) && pinSectionEl) ? pinSectionEl : wrapper
             var measureRect = measureEl.getBoundingClientRect()
             var measureDocTop = measureRect.top + window.scrollY
             var vh = window.innerHeight
@@ -2513,7 +2506,7 @@ export default function PageChoreographer(props: any) {
             // wrapper to find any ancestor pin container.  This handles:
             //   - scrollPin=false instances that should follow
             //   - scrollPin=true instances that ran before the real owner
-            if (!isFollower && sectionEl) {
+            if (!isFollower && pinSectionEl) {
                 requestAnimationFrame(function () {
                     if (!wrapper) return
                     var lateNode: HTMLElement | null = wrapper
@@ -2530,10 +2523,10 @@ export default function PageChoreographer(props: any) {
                                     scrollSpacer = null
                                 }
                                 // Adopt the owner's section for measurement
-                                var latePinSection = lateNode.querySelector("[data-choreo-pin-owner]") as HTMLElement
-                                if (latePinSection) {
-                                    sectionEl = latePinSection
-                                    scrollSectionEl = sectionEl
+                                var lateOwnerSection = lateNode.querySelector("[data-choreo-pin-owner]") as HTMLElement
+                                if (lateOwnerSection) {
+                                    pinSectionEl = lateOwnerSection
+                                    scrollSectionEl = pinSectionEl
                                 }
                                 var lateSpacer = lateNode.querySelector("[data-choreo-spacer]") as HTMLElement
                                 if (lateSpacer) {
@@ -2541,12 +2534,11 @@ export default function PageChoreographer(props: any) {
                                     effectiveScrollLength = ownerScrollLength
                                 }
                                 // Recalculate scroll range with owner's values
-                                var lateRect = sectionEl.getBoundingClientRect()
+                                var lateRect = pinSectionEl.getBoundingClientRect()
                                 pinStart = Math.max(0, lateRect.top + window.scrollY)
                                 totalPinLength = effectiveScrollLength
                                 pinEnd = pinStart + totalPinLength
                                 console.log("[PC:" + baseId + "] deferred follow-pin detected, new range:", pinStart, pinEnd, effectiveScrollLength)
-                                // Re-run scroll handler with corrected range
                                 handleScroll()
                                 break
                             }
@@ -2563,8 +2555,8 @@ export default function PageChoreographer(props: any) {
                     if (!wrapper || !parent) return
 
                     // Clear slide-away transform for accurate measurement
-                    if (isOwner && sectionEl && scrollPinState.afterPin) {
-                        sectionEl.style.removeProperty("transform")
+                    if (isOwner && pinSectionEl && scrollPinState.afterPin) {
+                        pinSectionEl.style.removeProperty("transform")
                     }
 
                     // Re-measure all dimensions
@@ -2589,8 +2581,8 @@ export default function PageChoreographer(props: any) {
                     }
 
                     // Followers: re-read owner's spacer in case it resized
-                    if (isFollower && sectionEl) {
-                        var rPinCtr = sectionEl.parentElement
+                    if (isFollower && pinSectionEl) {
+                        var rPinCtr = pinSectionEl.parentElement
                         if (rPinCtr && rPinCtr.hasAttribute("data-choreo-pin-container")) {
                             var rSpacer = rPinCtr.querySelector("[data-choreo-spacer]") as HTMLElement
                             if (rSpacer) {
@@ -2602,7 +2594,7 @@ export default function PageChoreographer(props: any) {
 
                     // Recalculate pin range with scrollStart offset
                     totalPinLength = effectiveScrollLength
-                    var resizeMeasureEl = ((scrollPin || isFollower) && sectionEl) ? sectionEl : wrapper
+                    var resizeMeasureEl = ((scrollPin || isFollower) && pinSectionEl) ? pinSectionEl : wrapper
                     var resizeRect = resizeMeasureEl.getBoundingClientRect()
                     var resizeVh = window.innerHeight
                     var resizeOffset = 0
