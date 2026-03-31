@@ -929,16 +929,28 @@ function findSection(el: HTMLElement): HTMLElement {
     var node = el
     var heuristicCandidate: HTMLElement | null = null
     var namedCandidate: HTMLElement | null = null
+    var namedWithSiblings: HTMLElement | null = null
 
     while (node.parentElement) {
         // Framer sections have data-framer-name — good signal, but
         // reject page-level containers that are much taller than the
         // viewport (e.g. "main" wrapping the entire page).
-        if (node.getAttribute("data-framer-name") != null && !namedCandidate) {
+        if (node.getAttribute("data-framer-name") != null) {
             if (node.offsetHeight <= vh * 2.5) {
+                // Keep updating — we want the HIGHEST qualifying named
+                // ancestor, which is most likely the actual page section
+                // (e.g. "Services") rather than a sub-component (e.g.
+                // "Image-container").  This ensures multiple PC instances
+                // in the same section find the SAME section element.
                 namedCandidate = node
+                // Track named candidates with siblings separately —
+                // having siblings (≥2) is a strong signal of being a
+                // page-level section rather than a nested wrapper.
+                var parentSibCount = node.parentElement.children.length
+                if (parentSibCount >= 2) {
+                    namedWithSiblings = node
+                }
             }
-            // If too tall, skip — keep looking for a smaller named ancestor
         }
 
         var siblingCount = node.parentElement.children.length
@@ -952,8 +964,8 @@ function findSection(el: HTMLElement): HTMLElement {
         node = node.parentElement
     }
 
-    // Prefer named section, fall back to heuristic, then starting element
-    return namedCandidate || heuristicCandidate || el
+    // Prefer: named with siblings (page section) > highest named > heuristic > self
+    return namedWithSiblings || namedCandidate || heuristicCandidate || el
 }
 
 function isMarkerBranch(el: HTMLElement, marker: HTMLElement): boolean {
@@ -1972,30 +1984,47 @@ export default function PageChoreographer(props: any) {
             var ownerScrollLength = scrollLength
 
             if (sectionEl) {
-                // Check if this section is already inside a pin container
-                // created by another Page Choreographer instance
-                var existingPinCtr = sectionEl.parentElement
-                if (existingPinCtr && existingPinCtr.hasAttribute("data-choreo-pin-container")) {
-                    var pinCtrOwner = existingPinCtr.getAttribute("data-choreo-pin-container")
-                    if (pinCtrOwner !== baseId) {
-                        // Another instance owns the pin — become a follower
-                        isFollower = true
-                        isOwner = false
-                        // Read the owner's spacer height as our scroll range
-                        var ownerSpacer = existingPinCtr.querySelector("[data-choreo-spacer]") as HTMLElement
-                        if (ownerSpacer) {
-                            ownerScrollLength = parseInt(ownerSpacer.style.height) || scrollLength
+                // Walk UP from the section looking for any ancestor that
+                // is a pin container created by another PC instance.
+                // This handles cases where findSection returns a deeply
+                // nested element (e.g. Image-container) while the owner's
+                // pin container wraps a higher-level section (e.g. Services).
+                var pinSearchNode: HTMLElement | null = sectionEl
+                while (pinSearchNode && pinSearchNode !== document.documentElement) {
+                    if (pinSearchNode.hasAttribute("data-choreo-pin-container")) {
+                        var pinCtrOwner = pinSearchNode.getAttribute("data-choreo-pin-container")
+                        if (pinCtrOwner !== baseId) {
+                            // Another instance owns the pin — become a follower
+                            isFollower = true
+                            isOwner = false
+                            // Adopt the pin container's section as our section
+                            // so scroll measurement uses the correct element
+                            var pinSectionChild = pinSearchNode.querySelector("[data-choreo-pin-owner]") as HTMLElement
+                            if (pinSectionChild) {
+                                sectionEl = pinSectionChild
+                                scrollSectionEl = sectionEl
+                            }
+                            // Read the owner's spacer height as our scroll range
+                            var ownerSpacer = pinSearchNode.querySelector("[data-choreo-spacer]") as HTMLElement
+                            if (ownerSpacer) {
+                                ownerScrollLength = parseInt(ownerSpacer.style.height) || scrollLength
+                            }
+                            break
                         }
                     }
-                }
-                // Also check if the section itself is already claimed by
-                // another instance that hasn't finished wrapping yet
-                if (!isFollower) {
-                    var existingOwner = sectionEl.getAttribute("data-choreo-pin-owner")
-                    if (existingOwner && existingOwner !== baseId) {
-                        isFollower = true
-                        isOwner = false
+                    // Also check if any ancestor is claimed by another
+                    // instance that hasn't finished wrapping yet
+                    if (pinSearchNode.hasAttribute("data-choreo-pin-owner")) {
+                        var existingOwner = pinSearchNode.getAttribute("data-choreo-pin-owner")
+                        if (existingOwner !== baseId) {
+                            isFollower = true
+                            isOwner = false
+                            sectionEl = pinSearchNode
+                            scrollSectionEl = sectionEl
+                            break
+                        }
                     }
+                    pinSearchNode = pinSearchNode.parentElement
                 }
             }
 
@@ -2462,30 +2491,50 @@ export default function PageChoreographer(props: any) {
             window.addEventListener("scroll", handleScroll, { passive: true })
 
             // ── Deferred follow-pin re-check ──
-            // If we're not a follower yet, another PC may create a pin
-            // container in a later rAF. Re-check after a short delay and
-            // update our scroll range if a pin appeared.
-            if (!isFollower && !isOwner && sectionEl) {
+            // Run for any non-follower: another PC may create a pin
+            // container in a later rAF. Walk UP the tree from the
+            // wrapper to find any ancestor pin container.  This handles:
+            //   - scrollPin=false instances that should follow
+            //   - scrollPin=true instances that ran before the real owner
+            if (!isFollower && sectionEl) {
                 requestAnimationFrame(function () {
-                    if (!sectionEl) return
-                    var latePinCtr = sectionEl.parentElement
-                    if (latePinCtr && latePinCtr.hasAttribute("data-choreo-pin-container")) {
-                        var lateOwner = latePinCtr.getAttribute("data-choreo-pin-container")
-                        if (lateOwner !== baseId) {
-                            isFollower = true
-                            var lateSpacer = latePinCtr.querySelector("[data-choreo-spacer]") as HTMLElement
-                            if (lateSpacer) {
-                                ownerScrollLength = parseInt(lateSpacer.style.height) || scrollLength
-                                effectiveScrollLength = ownerScrollLength
+                    if (!wrapper) return
+                    var lateNode: HTMLElement | null = wrapper
+                    while (lateNode && lateNode !== document.documentElement) {
+                        if (lateNode.hasAttribute("data-choreo-pin-container")) {
+                            var lateOwner = lateNode.getAttribute("data-choreo-pin-container")
+                            if (lateOwner !== baseId) {
+                                isFollower = true
+                                isOwner = false
+                                // If we created our own pin infrastructure,
+                                // clean it up — we're now a follower
+                                if (scrollSpacer && scrollSpacer.parentElement) {
+                                    scrollSpacer.parentElement.removeChild(scrollSpacer)
+                                    scrollSpacer = null
+                                }
+                                // Adopt the owner's section for measurement
+                                var latePinSection = lateNode.querySelector("[data-choreo-pin-owner]") as HTMLElement
+                                if (latePinSection) {
+                                    sectionEl = latePinSection
+                                    scrollSectionEl = sectionEl
+                                }
+                                var lateSpacer = lateNode.querySelector("[data-choreo-spacer]") as HTMLElement
+                                if (lateSpacer) {
+                                    ownerScrollLength = parseInt(lateSpacer.style.height) || scrollLength
+                                    effectiveScrollLength = ownerScrollLength
+                                }
+                                // Recalculate scroll range with owner's values
+                                var lateRect = sectionEl.getBoundingClientRect()
+                                pinStart = Math.max(0, lateRect.top + window.scrollY)
+                                totalPinLength = effectiveScrollLength
+                                pinEnd = pinStart + totalPinLength
+                                console.log("[PC:" + baseId + "] deferred follow-pin detected, new range:", pinStart, pinEnd, effectiveScrollLength)
+                                // Re-run scroll handler with corrected range
+                                handleScroll()
+                                break
                             }
-                            // Recalculate scroll range with owner's values
-                            var lateRect = sectionEl.getBoundingClientRect()
-                            pinStart = Math.max(0, lateRect.top + window.scrollY)
-                            totalPinLength = effectiveScrollLength
-                            pinEnd = pinStart + totalPinLength
-                            // Re-run scroll handler with corrected range
-                            handleScroll()
                         }
+                        lateNode = lateNode.parentElement
                     }
                 })
             }
