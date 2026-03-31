@@ -968,6 +968,14 @@ function findPinSection(el: HTMLElement): HTMLElement {
     var best: HTMLElement | null = null
 
     while (node.parentElement) {
+        // Skip over pin containers and spacers injected by previous
+        // PC instances — these are NOT real page sections and must
+        // never be returned as a pin section.
+        if (node.hasAttribute("data-choreo-pin-container") ||
+            node.hasAttribute("data-choreo-spacer")) {
+            node = node.parentElement
+            continue
+        }
         var h = node.offsetHeight
         // Good pin candidate: roughly viewport height and its parent
         // has at least 2 children (meaning it's a page-level section
@@ -2097,14 +2105,11 @@ export default function PageChoreographer(props: any) {
             // When a PC re-renders (prop change), only THAT PC's cleanup
             // runs.  Pin containers from previous render cycles of OTHER
             // PCs (different baseIds) persist and nest, breaking sticky
-            // positioning.  Walk up from pinSectionEl and unwrap any
-            // stale pin containers — but ONLY when this PC is the owner.
-            // Followers must never touch pin containers.  Also skip the
-            // immediate parent because it may be a valid container that
-            // the pin-creation code below will reuse.
+            // positioning.  Walk up from pinSectionEl and unwrap ALL
+            // pin containers — this runs BEFORE pin creation so any
+            // pin container above us is necessarily stale.
             if (isOwner && pinSectionEl) {
-                var immediateParent = pinSectionEl.parentElement
-                var staleNode: HTMLElement | null = immediateParent ? immediateParent.parentElement : null
+                var staleNode: HTMLElement | null = pinSectionEl.parentElement
                 while (staleNode && staleNode !== document.documentElement) {
                     var nextUp: HTMLElement | null = staleNode.parentElement
                     if (staleNode.hasAttribute("data-choreo-pin-container")) {
