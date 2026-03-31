@@ -1916,11 +1916,13 @@ export default function PageChoreographer(props: any) {
             // Follow-pin: if another PC instance already pinned this section,
             // piggyback on its pin — no duplicate spacer/sticky, just scrub
             // our animation within the existing pin's scroll range.
+            // This detection runs regardless of scrollPin — even a non-pinned
+            // instance should sync to an existing pin's scroll range.
             isFollower = false
             var isOwner = scrollPin
             var ownerScrollLength = scrollLength
 
-            if (isOwner && sectionEl) {
+            if (sectionEl) {
                 // Check if this section is already inside a pin container
                 // created by another Page Choreographer instance
                 var existingPinCtr = sectionEl.parentElement
@@ -2404,6 +2406,35 @@ export default function PageChoreographer(props: any) {
 
             scrollHandler = handleScroll
             window.addEventListener("scroll", handleScroll, { passive: true })
+
+            // ── Deferred follow-pin re-check ──
+            // If we're not a follower yet, another PC may create a pin
+            // container in a later rAF. Re-check after a short delay and
+            // update our scroll range if a pin appeared.
+            if (!isFollower && !isOwner && sectionEl) {
+                requestAnimationFrame(function () {
+                    if (!sectionEl) return
+                    var latePinCtr = sectionEl.parentElement
+                    if (latePinCtr && latePinCtr.hasAttribute("data-choreo-pin-container")) {
+                        var lateOwner = latePinCtr.getAttribute("data-choreo-pin-container")
+                        if (lateOwner !== baseId) {
+                            isFollower = true
+                            var lateSpacer = latePinCtr.querySelector("[data-choreo-spacer]") as HTMLElement
+                            if (lateSpacer) {
+                                ownerScrollLength = parseInt(lateSpacer.style.height) || scrollLength
+                                effectiveScrollLength = ownerScrollLength
+                            }
+                            // Recalculate scroll range with owner's values
+                            var lateRect = sectionEl.getBoundingClientRect()
+                            pinStart = Math.max(0, lateRect.top + window.scrollY)
+                            totalPinLength = effectiveScrollLength
+                            pinEnd = pinStart + totalPinLength
+                            // Re-run scroll handler with corrected range
+                            handleScroll()
+                        }
+                    }
+                })
+            }
 
             // ── Resize handler ──
             var handleResize = function () {
