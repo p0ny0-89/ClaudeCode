@@ -405,6 +405,16 @@ function createStore() {
 
     function sortTargets(list: TargetEntry[], direction: string) {
         var sorted = list.slice()
+        if (direction === "random") {
+            // Fisher-Yates shuffle for uniform random order
+            for (var si = sorted.length - 1; si > 0; si--) {
+                var sj = Math.floor(Math.random() * (si + 1))
+                var tmp = sorted[si]
+                sorted[si] = sorted[sj]
+                sorted[sj] = tmp
+            }
+            return sorted
+        }
         sorted.sort(function (a, b) {
             if (a.sortPriority !== b.sortPriority)
                 return a.sortPriority - b.sortPriority
@@ -3550,11 +3560,11 @@ addPropertyControls(PageChoreographer, {
         defaultValue: "leftToRight",
         options: [
             "leftToRight", "rightToLeft", "topToBottom",
-            "bottomToTop", "rowMajor", "columnMajor",
+            "bottomToTop", "rowMajor", "columnMajor", "random",
         ],
         optionTitles: [
             "Left → Right", "Right → Left", "Top → Bottom",
-            "Bottom → Top", "Row Major", "Column Major",
+            "Bottom → Top", "Row Major", "Column Major", "Random",
         ],
     },
 
