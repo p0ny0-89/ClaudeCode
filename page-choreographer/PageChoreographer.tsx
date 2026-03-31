@@ -1969,6 +1969,7 @@ export default function PageChoreographer(props: any) {
                 }
                 wrapper.style.setProperty("position", "relative")
                 wrapper.style.setProperty("overflow", "hidden")
+                wrapper.setAttribute("data-choreo-wrapper", baseId)
 
                 // Insert wrapper into the section
                 parentGP!.insertBefore(wrapper, parent)
@@ -2248,6 +2249,13 @@ export default function PageChoreographer(props: any) {
             // Walk UP from the section/parent to the document root
             var overflowNode: HTMLElement | null = overflowRoot
             while (overflowNode && overflowNode !== document.documentElement) {
+                // Skip our own wrapper and pin containers — their
+                // overflow settings are intentional
+                if (overflowNode.hasAttribute("data-choreo-wrapper") ||
+                    overflowNode.hasAttribute("data-choreo-pin-container")) {
+                    overflowNode = overflowNode.parentElement
+                    continue
+                }
                 var ovCS = window.getComputedStyle(overflowNode)
                 var ov = ovCS.overflow
                 var ovX = ovCS.overflowX
@@ -2274,6 +2282,12 @@ export default function PageChoreographer(props: any) {
             for (var tfi = 0; tfi < targets.length; tfi++) {
                 var tFixNode: HTMLElement | null = targets[tfi].parentElement
                 while (tFixNode && tFixNode !== overflowRoot && tFixNode !== document.documentElement) {
+                    // Skip our own wrapper and pin containers
+                    if (tFixNode.hasAttribute("data-choreo-wrapper") ||
+                        tFixNode.hasAttribute("data-choreo-pin-container")) {
+                        tFixNode = tFixNode.parentElement
+                        continue
+                    }
                     var tfCS = window.getComputedStyle(tFixNode)
                     var tfOv = tfCS.overflow
                     var tfOvX = tfCS.overflowX
