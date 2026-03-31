@@ -1886,18 +1886,43 @@ export default function PageChoreographer(props: any) {
             var neededHeight = parentHeight + scrollLength
             var sectionGrew = sectionEl.offsetHeight >= neededHeight * 0.98
 
-            // Section is not yet claimed — this instance is the owner
-            var sectionAlreadyClaimed = false
-
-
             // ── Determine pin mode ──
             // When scrollPin is enabled: spacer + sticky pinning on the section.
             // When disabled: section scrolls naturally, animation scrubs based on position.
+            // Follow-pin: if another PC instance already pinned this section,
+            // piggyback on its pin — no duplicate spacer/sticky, just scrub
+            // our animation within the existing pin's scroll range.
             var isFollower = false
             var isOwner = scrollPin
+            var ownerScrollLength = scrollLength
 
-            // No fixed height on wrapper — let content size it naturally.
-            // This prevents gaps when responsive content changes height.
+            if (isOwner && sectionEl) {
+                // Check if this section is already inside a pin container
+                // created by another Page Choreographer instance
+                var existingPinCtr = sectionEl.parentElement
+                if (existingPinCtr && existingPinCtr.hasAttribute("data-choreo-pin-container")) {
+                    var pinCtrOwner = existingPinCtr.getAttribute("data-choreo-pin-container")
+                    if (pinCtrOwner !== baseId) {
+                        // Another instance owns the pin — become a follower
+                        isFollower = true
+                        isOwner = false
+                        // Read the owner's spacer height as our scroll range
+                        var ownerSpacer = existingPinCtr.querySelector("[data-choreo-spacer]") as HTMLElement
+                        if (ownerSpacer) {
+                            ownerScrollLength = parseInt(ownerSpacer.style.height) || scrollLength
+                        }
+                    }
+                }
+                // Also check if the section itself is already claimed by
+                // another instance that hasn't finished wrapping yet
+                if (!isFollower) {
+                    var existingOwner = sectionEl.getAttribute("data-choreo-pin-owner")
+                    if (existingOwner && existingOwner !== baseId) {
+                        isFollower = true
+                        isOwner = false
+                    }
+                }
+            }
 
             if (isOwner && sectionEl) {
                 sectionEl.setAttribute("data-choreo-pin-owner", baseId)
@@ -2035,23 +2060,30 @@ export default function PageChoreographer(props: any) {
             // "bottom" = element top reaches viewport top (latest, default)
             // "center" = element center at viewport center
             // "top" = element top enters viewport bottom (earliest)
-            var measureEl = (scrollPin && sectionEl) ? sectionEl : wrapper
+            // Followers use the section (already pinned) for measurement
+            // and the owner's scroll length for range
+            var effectiveScrollLength = isFollower ? ownerScrollLength : scrollLength
+            var measureEl = ((scrollPin || isFollower) && sectionEl) ? sectionEl : wrapper
             var measureRect = measureEl.getBoundingClientRect()
             var measureDocTop = measureRect.top + window.scrollY
             var vh = window.innerHeight
             var startOffset = 0
-            if (scrollStart === "top") {
+            if (isFollower) {
+                // Follower inherits the owner's start: section top at viewport top
+                startOffset = 0
+            } else if (scrollStart === "top") {
                 startOffset = -vh // start when element enters viewport bottom
             } else if (scrollStart === "center") {
                 startOffset = -(vh / 2) + (measureRect.height / 2) // center-aligned
             }
             // "bottom" = 0 offset (element top at viewport top)
-            // Apply user offset: positive = start later (scroll further before trigger),
-            // negative = start earlier (trigger before reaching the preset point)
-            startOffset += (scrollStartOffset / 100) * vh
+            // Apply user offset (skip for followers — they sync with the owner)
+            if (!isFollower) {
+                startOffset += (scrollStartOffset / 100) * vh
+            }
 
             var pinStart = Math.max(0, measureDocTop + startOffset)
-            var totalPinLength = scrollLength
+            var totalPinLength = effectiveScrollLength
             var pinEnd = pinStart + totalPinLength
             var wrapRectLeft = pinEl.getBoundingClientRect().left
 
@@ -2302,7 +2334,7 @@ export default function PageChoreographer(props: any) {
 
                     scrollPinState.pinned = true
 
-                    var progress = (scrollY - pinStart) / scrollLength
+                    var progress = (scrollY - pinStart) / effectiveScrollLength
                     var clampedProgress = Math.max(0, Math.min(1, progress))
                     revealIfNeeded(clampedProgress)
                     updateAnimProgress(clampedProgress)
@@ -2369,23 +2401,39 @@ export default function PageChoreographer(props: any) {
                     pinElWidth = parentWidth
                     pinElHeight = parentHeight
 
-                    // Update spacer height
-                    if (scrollSpacer) {
+                    // Update spacer height (owner only — followers don't have spacers)
+                    if (scrollSpacer && !isFollower) {
                         scrollSpacer.style.setProperty("height", scrollLength + "px")
                     }
 
+                    // Followers: re-read owner's spacer in case it resized
+                    if (isFollower && sectionEl) {
+                        var rPinCtr = sectionEl.parentElement
+                        if (rPinCtr && rPinCtr.hasAttribute("data-choreo-pin-container")) {
+                            var rSpacer = rPinCtr.querySelector("[data-choreo-spacer]") as HTMLElement
+                            if (rSpacer) {
+                                ownerScrollLength = parseInt(rSpacer.style.height) || ownerScrollLength
+                                effectiveScrollLength = ownerScrollLength
+                            }
+                        }
+                    }
+
                     // Recalculate pin range with scrollStart offset
-                    totalPinLength = scrollLength
-                    var resizeMeasureEl = (scrollPin && sectionEl) ? sectionEl : wrapper
+                    totalPinLength = effectiveScrollLength
+                    var resizeMeasureEl = ((scrollPin || isFollower) && sectionEl) ? sectionEl : wrapper
                     var resizeRect = resizeMeasureEl.getBoundingClientRect()
                     var resizeVh = window.innerHeight
                     var resizeOffset = 0
-                    if (scrollStart === "top") {
+                    if (isFollower) {
+                        resizeOffset = 0
+                    } else if (scrollStart === "top") {
                         resizeOffset = -resizeVh
                     } else if (scrollStart === "center") {
                         resizeOffset = -(resizeVh / 2) + (resizeRect.height / 2)
                     }
-                    resizeOffset += (scrollStartOffset / 100) * resizeVh
+                    if (!isFollower) {
+                        resizeOffset += (scrollStartOffset / 100) * resizeVh
+                    }
                     pinStart = Math.max(0, resizeRect.top + window.scrollY + resizeOffset)
                     pinEnd = pinStart + totalPinLength
 
@@ -2463,8 +2511,9 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer.parentElement.removeChild(scrollSpacer)
             }
             scrollSpacer = null
-            // Clean section styles and release claim
-            if (scrollSectionEl) {
+            // Clean section styles and release claim (owner only —
+            // followers don't own the pin container or sticky positioning)
+            if (scrollSectionEl && !isFollower) {
                 scrollSectionEl.style.removeProperty("position")
                 scrollSectionEl.style.removeProperty("top")
                 scrollSectionEl.style.removeProperty("transform")
