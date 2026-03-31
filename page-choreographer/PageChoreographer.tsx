@@ -2199,7 +2199,13 @@ export default function PageChoreographer(props: any) {
                         pinContainer.style.setProperty("flex-grow", secCS.flexGrow)
                         pinContainer.style.setProperty("flex-shrink", secCS.flexShrink)
                         pinContainer.style.setProperty("flex-basis", secCS.flexBasis)
-                        pinContainer.style.setProperty("width", secCS.width)
+                        // Use the section's declared width, not the computed
+                        // pixel value, so "fill" (100%) sections stay fluid.
+                        var secInlineW = pinSectionEl.style.width
+                        var secIsFill = secInlineW === "100%" ||
+                            secCS.flexGrow !== "0" ||
+                            secCS.alignSelf === "stretch"
+                        pinContainer.style.setProperty("width", secIsFill ? "100%" : secCS.width)
                         pinSectionEl.parentElement.insertBefore(pinContainer, pinSectionEl)
                         pinContainer.appendChild(pinSectionEl)
                     }
