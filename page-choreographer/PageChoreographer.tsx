@@ -1147,6 +1147,113 @@ function splitTextWords(targets: HTMLElement[]): HTMLElement[] {
     return result
 }
 
+function splitTextChars(targets: HTMLElement[]): HTMLElement[] {
+    var result: HTMLElement[] = []
+    for (var i = 0; i < targets.length; i++) {
+        var el = targets[i]
+
+        // Already split? Collect existing char spans
+        var existing = el.querySelectorAll("[data-choreo-char]")
+        if (existing.length > 0) {
+            for (var ex = 0; ex < existing.length; ex++) {
+                result.push(existing[ex] as HTMLElement)
+            }
+            continue
+        }
+
+        // Collect all text-bearing leaf nodes inside the element
+        var textLeaves: HTMLElement[] = []
+        var paragraphs = el.querySelectorAll("p, span, a, em, strong, b, i, u, h1, h2, h3, h4, h5, h6")
+        if (paragraphs.length > 0) {
+            for (var p = 0; p < paragraphs.length; p++) {
+                var pEl = paragraphs[p] as HTMLElement
+                if (pEl.children.length === 0 ||
+                    (pEl.children.length > 0 && pEl.querySelector("br") != null)) {
+                    textLeaves.push(pEl)
+                }
+            }
+        }
+        if (textLeaves.length === 0) textLeaves.push(el)
+
+        var charCount = 0
+        for (var tl = 0; tl < textLeaves.length; tl++) {
+            var leaf = textLeaves[tl]
+            var nodes = leaf.childNodes
+            var fragments: Node[] = []
+            for (var cn = 0; cn < nodes.length; cn++) {
+                var nd = nodes[cn]
+                if (nd.nodeType === 3) { // Text node
+                    var text = nd.textContent || ""
+                    for (var ci = 0; ci < text.length; ci++) {
+                        var ch = text[ci]
+                        if (ch === " " || ch === "\t") {
+                            // Wrap spaces in a non-animated span to
+                            // preserve word spacing in inline-block flow
+                            var spaceSpan = document.createElement("span")
+                            spaceSpan.style.display = "inline-block"
+                            spaceSpan.style.width = "0.3em"
+                            spaceSpan.innerHTML = "&nbsp;"
+                            fragments.push(spaceSpan)
+                        } else if (ch === "\n" || ch === "\r") {
+                            fragments.push(document.createElement("br"))
+                        } else {
+                            var charSpan = document.createElement("span")
+                            charSpan.style.display = "inline-block"
+                            charSpan.setAttribute("data-choreo-char", "1")
+                            charSpan.textContent = ch
+                            fragments.push(charSpan)
+                            charCount++
+                        }
+                    }
+                } else if (nd.nodeType === 1 && (nd as HTMLElement).tagName === "BR") {
+                    fragments.push(nd.cloneNode(true))
+                } else {
+                    // Non-text inline element (e.g. <em>, <strong>)
+                    // Recurse into its text content for char splitting
+                    var inlineEl = nd as HTMLElement
+                    var inlineText = inlineEl.textContent || ""
+                    for (var ic = 0; ic < inlineText.length; ic++) {
+                        var ich = inlineText[ic]
+                        if (ich === " " || ich === "\t") {
+                            var iSpaceSpan = document.createElement("span")
+                            iSpaceSpan.style.display = "inline-block"
+                            iSpaceSpan.style.width = "0.3em"
+                            iSpaceSpan.innerHTML = "&nbsp;"
+                            fragments.push(iSpaceSpan)
+                        } else {
+                            var iCharSpan = document.createElement("span")
+                            iCharSpan.style.display = "inline-block"
+                            iCharSpan.setAttribute("data-choreo-char", "1")
+                            // Inherit the inline element's styling
+                            iCharSpan.style.fontWeight = window.getComputedStyle(inlineEl).fontWeight
+                            iCharSpan.style.fontStyle = window.getComputedStyle(inlineEl).fontStyle
+                            iCharSpan.style.textDecoration = window.getComputedStyle(inlineEl).textDecoration
+                            iCharSpan.textContent = ich
+                            fragments.push(iCharSpan)
+                            charCount++
+                        }
+                    }
+                }
+            }
+            while (leaf.firstChild) leaf.removeChild(leaf.firstChild)
+            for (var fi = 0; fi < fragments.length; fi++) {
+                leaf.appendChild(fragments[fi])
+            }
+        }
+
+        if (charCount > 0) {
+            var charSpans = el.querySelectorAll("[data-choreo-char]")
+            for (var cs = 0; cs < charSpans.length; cs++) {
+                result.push(charSpans[cs] as HTMLElement)
+            }
+            el.style.overflow = "visible"
+        } else {
+            result.push(el)
+        }
+    }
+    return result
+}
+
 // Split text elements into individual lines for per-line animation.
 // Framer rich text renders each line as <p> inside a container.
 // Plain text may use <br> tags — we wrap text runs between <br>s in spans.
@@ -1454,6 +1561,8 @@ function collectTargets(
         result = splitTextTargets(result)
     } else if (splitText === "words") {
         result = splitTextWords(result)
+    } else if (splitText === "chars") {
+        result = splitTextChars(result)
     }
     return result
 }
@@ -3048,9 +3157,9 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Enum,
         title: "Split Text",
         defaultValue: "none",
-        options: ["none", "lines", "words"],
-        optionTitles: ["None", "Lines", "Words"],
-        description: "Split text into lines or words for individual animation.",
+        options: ["none", "lines", "words", "chars"],
+        optionTitles: ["None", "Lines", "Words", "Characters"],
+        description: "Split text for individual animation. Characters works best with short text (hero headings, titles) — avoid on long paragraphs (50+ chars) for performance.",
     },
     trigger: {
         type: ControlType.Enum,
