@@ -1953,6 +1953,7 @@ export default function PageChoreographer(props: any) {
         var intObs: IntersectionObserver | null = null
         var parentDoneHandler: ((e: Event) => void) | null = null
         var parentResetHandler: ((e: Event) => void) | null = null
+        var parentResetTimer: any = null
         if (trigger === "inView" && waitForParent && parent) {
             // Wait for an ancestor PC to finish its animation before playing.
             // Listen on document (events bubble up from the parent PC's targets).
@@ -1961,6 +1962,9 @@ export default function PageChoreographer(props: any) {
                 var src = e.target as HTMLElement | null
                 if (!src || !parent) return
                 if (!src.contains(parent) && !parent.contains(src)) return
+                // Cancel any pending reset — parent re-completed before
+                // the debounce expired (fast scroll-through).
+                if (parentResetTimer) { clearTimeout(parentResetTimer); parentResetTimer = null }
                 var s = getStore()
                 if (s && !hasPlayed) {
                     hasPlayed = true
@@ -1972,13 +1976,20 @@ export default function PageChoreographer(props: any) {
                 if (!src || !parent) return
                 if (!src.contains(parent) && !parent.contains(src)) return
                 if (hasPlayed && viewRepeat) {
-                    hasPlayed = false
-                    var s2 = getStore()
-                    if (s2) s2.resetGroup(baseId)
-                    // Re-hide targets for replay
-                    for (var rh = 0; rh < preHiddenEls.length; rh++) {
-                        preHiddenEls[rh].style.setProperty("visibility", "hidden")
-                    }
+                    // Debounce the reset so fast scroll-throughs (back
+                    // past then forward again) don't flash.  If
+                    // choreo-done fires again within the window, the
+                    // reset is cancelled and the child stays visible.
+                    if (parentResetTimer) clearTimeout(parentResetTimer)
+                    parentResetTimer = setTimeout(function () {
+                        parentResetTimer = null
+                        hasPlayed = false
+                        var s2 = getStore()
+                        if (s2) s2.resetGroup(baseId)
+                        for (var rh = 0; rh < preHiddenEls.length; rh++) {
+                            preHiddenEls[rh].style.setProperty("visibility", "hidden")
+                        }
+                    }, 200)
                 }
             }
             document.addEventListener("choreo-done", parentDoneHandler)
@@ -2632,7 +2643,12 @@ export default function PageChoreographer(props: any) {
             // Positive = delay (start later), negative = start earlier.
             var animOffset = (scrollStartOffset / 100) * pinScrollLength
             var animStart = pinStart + animOffset
-            var animLength = scrollLength
+            // Clamp animation length so it can complete within the pin range.
+            // Without this, followers (or PCs with large offsets) whose
+            // animStart + scrollLength > pinEnd would never reach progress=1
+            // inside the pinned zone — breaking choreo-done dispatch.
+            var availableRange = Math.max(1, pinEnd - animStart)
+            var animLength = Math.min(scrollLength, availableRange)
             var wrapRectLeft = pinEl.getBoundingClientRect().left
 
 
@@ -3078,6 +3094,8 @@ export default function PageChoreographer(props: any) {
                                 // Recalculate own animation range
                                 animOffset = (scrollStartOffset / 100) * pinScrollLength
                                 animStart = pinStart + animOffset
+                                availableRange = Math.max(1, pinEnd - animStart)
+                                animLength = Math.min(scrollLength, availableRange)
                                 handleScroll()
                                 break
                             }
@@ -3207,6 +3225,7 @@ export default function PageChoreographer(props: any) {
             if (parentResetHandler) {
                 document.removeEventListener("choreo-reset", parentResetHandler)
             }
+            if (parentResetTimer) { clearTimeout(parentResetTimer); parentResetTimer = null }
             // Unregister group parent so stale containers don't receive events
             var cleanupStore = getStore()
             if (cleanupStore && parent) {
