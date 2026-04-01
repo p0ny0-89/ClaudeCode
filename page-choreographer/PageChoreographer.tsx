@@ -2968,6 +2968,11 @@ export default function PageChoreographer(props: any) {
 
                     var progress = (scrollY - animStart) / animLength
                     var clampedProgress = Math.max(0, Math.min(1, progress))
+                    // DEBUG: log zone transitions and progress
+                    if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "pinned") {
+                        console.log("[ZONE] → pinned | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinStart:", Math.round(pinStart), "pinEnd:", Math.round(pinEnd), "animStart:", Math.round(animStart), "animLength:", Math.round(animLength), "progress:", clampedProgress.toFixed(3), "animsCreated:", scrollAnimsCreated, "animCount:", scrollAnims.length, "visRevealed:", visibilityRevealed)
+                    }
+                    scrollPinState._dbgPrevZone = "pinned"
 
                     revealIfNeeded(clampedProgress)
                     // Re-hide when progress returns to 0 on reverse
@@ -2988,6 +2993,14 @@ export default function PageChoreographer(props: any) {
                         }
                     }
                     updateAnimProgress(clampedProgress)
+                    // DEBUG: log first target's clip-path on early scrub frames
+                    if (clampedProgress < 0.15 && preHiddenEls.length > 0) {
+                        var dbgEl = preHiddenEls[0]
+                        var dbgClip = window.getComputedStyle(dbgEl).clipPath
+                        var dbgVis = window.getComputedStyle(dbgEl).visibility
+                        var dbgOp = window.getComputedStyle(dbgEl).opacity
+                        console.log("[SCRUB] baseId:", baseId, "progress:", clampedProgress.toFixed(3), "clip:", dbgClip, "vis:", dbgVis, "op:", dbgOp, "hasHideAttr:", dbgEl.hasAttribute("data-choreo-hide"))
+                    }
                     updateInteractivity(clampedProgress)
                     animDone = clampedProgress >= 1
                     // Notify child PCs when scroll animation completes
@@ -3029,6 +3042,10 @@ export default function PageChoreographer(props: any) {
                     }
                     scrollPinState.pinned = false
                     animDone = false
+                    if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "before") {
+                        console.log("[ZONE] → before-pin | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinStart:", Math.round(pinStart), "wasAfterPin:", scrollPinState.afterPin, "animsCreated:", scrollAnimsCreated, "animCount:", scrollAnims.length)
+                    }
+                    scrollPinState._dbgPrevZone = "before"
                     // Reset choreo-done flag and notify child PCs to reset
                     if (choreoDoneDispatched && parent) {
                         choreoDoneDispatched = false
@@ -3077,6 +3094,10 @@ export default function PageChoreographer(props: any) {
                     // Sticky stays on — the browser naturally un-sticks
                     // the section when its containing block scrolls past.
                     // No manual position changes = no visual jump.
+                    if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "after") {
+                        console.log("[ZONE] → after-pin | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinEnd:", Math.round(pinEnd), "wasAfterPin:", scrollPinState.afterPin)
+                    }
+                    scrollPinState._dbgPrevZone = "after"
                     if (!scrollPinState.afterPin) {
                         scrollPinState.afterPin = true
                         scrollPinState.pinned = false
