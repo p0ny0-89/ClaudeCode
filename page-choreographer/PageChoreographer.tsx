@@ -1903,14 +1903,15 @@ export default function PageChoreographer(props: any) {
             // Listen on document (events bubble up from the parent PC's targets).
             var hasPlayed = false
             parentDoneHandler = function (e: Event) {
-                // choreo-done bubbles UP from the parent PC's animated
-                // targets toward document. We listen on document and check
-                // that the event's source element is an ancestor of (or
-                // contains) our own parent — meaning it came from a PC
-                // above us in the DOM tree.
+                // choreo-done is dispatched on each of the parent PC's
+                // animated target elements. We need to verify the event
+                // came from a PC above us. The source element (e.target)
+                // may be an ancestor of our parent, a descendant of our
+                // parent, or equal to it — any of these means the event
+                // originated from within our ancestor's animation tree.
                 var src = e.target as HTMLElement | null
                 if (!src || !parent) return
-                if (!src.contains(parent)) return
+                if (!src.contains(parent) && !parent.contains(src)) return
                 var s = getStore()
                 if (s && !hasPlayed) {
                     hasPlayed = true
@@ -1920,7 +1921,7 @@ export default function PageChoreographer(props: any) {
             parentResetHandler = function (e: Event) {
                 var src = e.target as HTMLElement | null
                 if (!src || !parent) return
-                if (!src.contains(parent)) return
+                if (!src.contains(parent) && !parent.contains(src)) return
                 if (hasPlayed && viewRepeat) {
                     hasPlayed = false
                     var s2 = getStore()
