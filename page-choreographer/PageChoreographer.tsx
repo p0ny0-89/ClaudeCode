@@ -2722,6 +2722,18 @@ export default function PageChoreographer(props: any) {
                     var el = target.ref.current
                     if (!el) continue
 
+                    // Cancel ALL existing WAAPI animations on this element
+                    // before creating new ones.  Stale animations from
+                    // previous bake/unbake cycles or Framer's own system
+                    // can compete with our scroll-scrubbed animation,
+                    // causing reversed mask direction on re-entry.
+                    try {
+                        var existing = el.getAnimations()
+                        for (var ex = 0; ex < existing.length; ex++) {
+                            existing[ex].cancel()
+                        }
+                    } catch (e) {}
+
                     var kf = reduced
                         ? { from: { opacity: "0" }, to: { opacity: "1" } }
                         : buildEnterKeyframes(target)
