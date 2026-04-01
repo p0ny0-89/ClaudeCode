@@ -2039,6 +2039,11 @@ export default function PageChoreographer(props: any) {
         var parentOrigWidth = ""
         var parentOrigHeight = ""
         var parentOrigFlexShrink = ""
+        var parentOrigPosition = ""
+        var parentOrigTop = ""
+        var parentOrigRight = ""
+        var parentOrigBottom = ""
+        var parentOrigLeft = ""
         var scrollSectionEl: HTMLElement | null = null
         var scrollSpacer: HTMLElement | null = null
         var scrollOverflowAncestors: Array<{ el: HTMLElement; orig: string }> = []
@@ -2239,7 +2244,35 @@ export default function PageChoreographer(props: any) {
                 if (!wrapper.style.height) {
                     wrapper.style.setProperty("height", "100%")
                 }
-                wrapper.style.setProperty("position", "relative")
+                // Inherit the parent's position mode. If the parent is
+                // absolutely or fixedly positioned, the wrapper must take
+                // over those coordinates so the element stays in place
+                // when it is reparented into the wrapper.
+                var parentPos = window.getComputedStyle(parent).position
+                if (parentPos === "absolute" || parentPos === "fixed") {
+                    var parentCS = window.getComputedStyle(parent)
+                    wrapper.style.setProperty("position", parentPos)
+                    if (parentCS.top !== "auto") wrapper.style.setProperty("top", parentCS.top)
+                    if (parentCS.right !== "auto") wrapper.style.setProperty("right", parentCS.right)
+                    if (parentCS.bottom !== "auto") wrapper.style.setProperty("bottom", parentCS.bottom)
+                    if (parentCS.left !== "auto") wrapper.style.setProperty("left", parentCS.left)
+                    if (parentCS.zIndex !== "auto") wrapper.style.setProperty("z-index", parentCS.zIndex)
+                    // Save and reset the parent's positioning — it now
+                    // fills the wrapper instead of being positioned in
+                    // the section.  Originals are restored on cleanup.
+                    parentOrigPosition = parent.style.position
+                    parentOrigTop = parent.style.top
+                    parentOrigRight = parent.style.right
+                    parentOrigBottom = parent.style.bottom
+                    parentOrigLeft = parent.style.left
+                    parent.style.setProperty("position", "relative")
+                    parent.style.removeProperty("top")
+                    parent.style.removeProperty("right")
+                    parent.style.removeProperty("bottom")
+                    parent.style.removeProperty("left")
+                } else {
+                    wrapper.style.setProperty("position", "relative")
+                }
                 // Respect the parent's overflow — only force hidden when
                 // mask viewport clip needs it.  If the user set overflow
                 // to visible in Framer, the wrapper should not clip.
@@ -3280,6 +3313,12 @@ export default function PageChoreographer(props: any) {
                 if (parentOrigWidth) { parent.style.setProperty("width", parentOrigWidth) } else { parent.style.removeProperty("width") }
                 if (parentOrigHeight) { parent.style.setProperty("height", parentOrigHeight) } else { parent.style.removeProperty("height") }
                 if (parentOrigFlexShrink) { parent.style.setProperty("flex-shrink", parentOrigFlexShrink) } else { parent.style.removeProperty("flex-shrink") }
+                // Restore positioning if we transferred it to the wrapper
+                if (parentOrigPosition) { parent.style.setProperty("position", parentOrigPosition) } else { parent.style.removeProperty("position") }
+                if (parentOrigTop) { parent.style.setProperty("top", parentOrigTop) } else { parent.style.removeProperty("top") }
+                if (parentOrigRight) { parent.style.setProperty("right", parentOrigRight) } else { parent.style.removeProperty("right") }
+                if (parentOrigBottom) { parent.style.setProperty("bottom", parentOrigBottom) } else { parent.style.removeProperty("bottom") }
+                if (parentOrigLeft) { parent.style.setProperty("left", parentOrigLeft) } else { parent.style.removeProperty("left") }
                 scrollWrapper.parentElement.insertBefore(parent, scrollWrapper)
                 scrollWrapper.parentElement.removeChild(scrollWrapper)
             }
