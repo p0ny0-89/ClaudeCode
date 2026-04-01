@@ -818,6 +818,23 @@ function createStore() {
             prevPriority = currentPriority
         }
 
+        Promise.all(promises).then(function () {
+            // Notify child PCs that these groups have finished animating.
+            // Dispatch on each group's first target's parent so the event
+            // bubbles up through the DOM to any descendant PC listening.
+            for (var di = 0; di < sortedGids.length; di++) {
+                var dGroup = groups[sortedGids[di]]
+                for (var dj = 0; dj < dGroup.length; dj++) {
+                    var dEl = dGroup[dj].ref.current
+                    if (dEl) {
+                        dEl.dispatchEvent(new CustomEvent("choreo-done", {
+                            bubbles: true,
+                            detail: { groupId: sortedGids[di] },
+                        }))
+                    }
+                }
+            }
+        })
         return Promise.all(promises)
     }
 
@@ -1619,6 +1636,7 @@ export default function PageChoreographer(props: any) {
         trigger = "onLoad",
         viewOffset = 100,
         viewRepeat = false,
+        waitForParent = false,
         scrollLength = 500,
         scrollStart = "bottom",
         scrollStartOffset = 0,
@@ -1878,7 +1896,38 @@ export default function PageChoreographer(props: any) {
 
         // IntersectionObserver for "inView" trigger
         var intObs: IntersectionObserver | null = null
-        if (trigger === "inView" && typeof IntersectionObserver !== "undefined") {
+        var parentDoneHandler: ((e: Event) => void) | null = null
+        var parentResetHandler: ((e: Event) => void) | null = null
+        if (trigger === "inView" && waitForParent && parent) {
+            // Wait for an ancestor PC to finish its animation before playing.
+            // Listen on document (events bubble up from the parent PC's targets).
+            var hasPlayed = false
+            parentDoneHandler = function () {
+                // Only trigger if this PC's parent is a descendant of (or is)
+                // the element that dispatched choreo-done. Since the event
+                // bubbles, we check that our parent has an ancestor that
+                // finished animating. The event fires on each animated element,
+                // so we just need ANY choreo-done to reach us from above.
+                var s = getStore()
+                if (s && !hasPlayed) {
+                    hasPlayed = true
+                    s.playEnterGroup(baseId)
+                }
+            }
+            parentResetHandler = function () {
+                if (hasPlayed && viewRepeat) {
+                    hasPlayed = false
+                    var s2 = getStore()
+                    if (s2) s2.resetGroup(baseId)
+                    // Re-hide targets for replay
+                    for (var rh = 0; rh < preHiddenEls.length; rh++) {
+                        preHiddenEls[rh].style.setProperty("visibility", "hidden")
+                    }
+                }
+            }
+            parent.addEventListener("choreo-done", parentDoneHandler)
+            parent.addEventListener("choreo-reset", parentResetHandler)
+        } else if (trigger === "inView" && typeof IntersectionObserver !== "undefined") {
             var isVisible = false
             try {
                 intObs = new IntersectionObserver(
@@ -1895,6 +1944,13 @@ export default function PageChoreographer(props: any) {
                                 isVisible = false
                                 var s2 = getStore()
                                 if (s2) s2.resetGroup(baseId)
+                                // Notify child PCs to reset for replay
+                                if (parent) {
+                                    parent.dispatchEvent(new CustomEvent("choreo-reset", {
+                                        bubbles: true,
+                                        detail: { groupId: baseId },
+                                    }))
+                                }
                             }
                         }
                     },
@@ -2719,6 +2775,7 @@ export default function PageChoreographer(props: any) {
             // aligns with the viewport edge as the element scrolls in.
             var vpClipPad = maskViewportPadding || 0
             var animDone = false // true once animation reaches 100%
+            var choreoDoneDispatched = false // dispatch choreo-done only once per cycle
 
             var updateViewportClip = function () {
                 if (!maskViewportClip || !wrapper) return
@@ -2812,6 +2869,14 @@ export default function PageChoreographer(props: any) {
                     updateAnimProgress(clampedProgress)
                     updateInteractivity(clampedProgress)
                     animDone = clampedProgress >= 1
+                    // Notify child PCs when scroll animation completes
+                    if (animDone && !choreoDoneDispatched && parent) {
+                        choreoDoneDispatched = true
+                        parent.dispatchEvent(new CustomEvent("choreo-done", {
+                            bubbles: true,
+                            detail: { groupId: baseId },
+                        }))
+                    }
                     updateViewportClip()
 
                     if (scrollOnce && clampedProgress >= 1) {
@@ -2829,6 +2894,14 @@ export default function PageChoreographer(props: any) {
                     }
                     scrollPinState.pinned = false
                     animDone = false
+                    // Reset choreo-done flag and notify child PCs to reset
+                    if (choreoDoneDispatched && parent) {
+                        choreoDoneDispatched = false
+                        parent.dispatchEvent(new CustomEvent("choreo-reset", {
+                            bubbles: true,
+                            detail: { groupId: baseId },
+                        }))
+                    }
                     updateAnimProgress(0)
                     updateInteractivity(0)
                     updateViewportClip()
@@ -3038,6 +3111,12 @@ export default function PageChoreographer(props: any) {
             if (intObs) {
                 try { intObs.disconnect() } catch (e) {}
             }
+            if (parentDoneHandler && parent) {
+                parent.removeEventListener("choreo-done", parentDoneHandler)
+            }
+            if (parentResetHandler && parent) {
+                parent.removeEventListener("choreo-reset", parentResetHandler)
+            }
             // Clean up scroll-scrub
             if (scrollSetupRaf) {
                 cancelAnimationFrame(scrollSetupRaf)
@@ -3107,7 +3186,7 @@ export default function PageChoreographer(props: any) {
         }
     }, [
         rescanGeneration,
-        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, scrollLength, scrollStart, scrollStartOffset, scrollPin, pinPriority, scrollOnce,
+        baseId, scanMode, excludeSelector, splitText, trigger, viewOffset, viewRepeat, waitForParent, scrollLength, scrollStart, scrollStartOffset, scrollPin, pinPriority, scrollOnce,
         enterPreset, exitPreset,
         enterEnabled, exitEnabled, sortPriority, priorityGap, delayOffset,
         mobileEnabled, duration, stagger,
@@ -3261,6 +3340,13 @@ addPropertyControls(PageChoreographer, {
         type: ControlType.Boolean,
         title: "Repeat",
         defaultValue: false,
+        hidden: function (props: any) { return props.trigger !== "inView" },
+    },
+    waitForParent: {
+        type: ControlType.Boolean,
+        title: "Wait for Parent",
+        defaultValue: false,
+        description: "Delay this animation until a parent Page Choreographer finishes its enter animation. Useful for chained reveals (e.g. text animates after its container unmasks).",
         hidden: function (props: any) { return props.trigger !== "inView" },
     },
 
