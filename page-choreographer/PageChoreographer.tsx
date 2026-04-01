@@ -839,7 +839,6 @@ function createStore() {
         }
 
         Promise.all(promises).then(function () {
-            console.log("[choreo-done] promises resolved, sortedGids:", sortedGids, "groupParents keys:", Object.keys(groupParents))
             // Notify child PCs that these groups have finished animating.
             // Dispatch on each animated target element...
             for (var di = 0; di < sortedGids.length; di++) {
@@ -847,7 +846,6 @@ function createStore() {
                 for (var dj = 0; dj < dGroup.length; dj++) {
                     var dEl = dGroup[dj].ref.current
                     if (dEl) {
-                        console.log("[choreo-done] dispatch on target:", dEl.getAttribute("data-framer-name") || dEl.tagName, "gid:", sortedGids[di])
                         dEl.dispatchEvent(new CustomEvent("choreo-done", {
                             bubbles: true,
                             detail: { groupId: sortedGids[di] },
@@ -859,10 +857,8 @@ function createStore() {
                 // event even when the animated targets are in a different
                 // branch of the DOM tree.
                 var gps = groupParents[sortedGids[di]]
-                console.log("[choreo-done] groupParents[" + sortedGids[di] + "]:", gps ? gps.length + " elements" : "null")
                 if (gps) {
                     for (var gpi = 0; gpi < gps.length; gpi++) {
-                        console.log("[choreo-done] dispatch on groupParent:", gps[gpi].getAttribute("data-framer-name") || gps[gpi].tagName)
                         gps[gpi].dispatchEvent(new CustomEvent("choreo-done", {
                             bubbles: true,
                             detail: { groupId: sortedGids[di] },
@@ -1847,8 +1843,6 @@ export default function PageChoreographer(props: any) {
         // on the container element, not just on individual targets.
         // This ensures child PCs in sibling stacks receive the event.
         store.registerGroupParent(baseId, parent)
-        console.log("[GP-register] baseId:", baseId, "parent:", parent.getAttribute("data-framer-name") || parent.tagName)
-
         // Delayed re-scan: masonry/grid layouts restructure the DOM
         // after initial render.  If re-scan finds MORE targets, force
         // the entire useEffect to re-run (via state update) so the full
@@ -1963,16 +1957,13 @@ export default function PageChoreographer(props: any) {
             // Wait for an ancestor PC to finish its animation before playing.
             // Listen on document (events bubble up from the parent PC's targets).
             var hasPlayed = false
-            console.log("[WFP-setup] baseId:", baseId, "parent:", parent.getAttribute("data-framer-name") || parent.tagName)
             parentDoneHandler = function (e: Event) {
                 var src = e.target as HTMLElement | null
-                console.log("[WFP-event] baseId:", baseId, "src:", src && (src.getAttribute("data-framer-name") || src.tagName), "contains:", src && parent ? src.contains(parent) + "/" + parent.contains(src) : "n/a", "hasPlayed:", hasPlayed)
                 if (!src || !parent) return
                 if (!src.contains(parent) && !parent.contains(src)) return
                 var s = getStore()
                 if (s && !hasPlayed) {
                     hasPlayed = true
-                    console.log("[WFP-play] baseId:", baseId)
                     s.playEnterGroup(baseId)
                 }
             }
@@ -3015,6 +3006,26 @@ export default function PageChoreographer(props: any) {
                         animDone = true
                         updateAnimProgress(1)
                         releaseAnimatedElements(true)
+                        // Notify child PCs when scroll animation completes via after-pin
+                        if (!choreoDoneDispatched && parent) {
+                            choreoDoneDispatched = true
+                            parent.dispatchEvent(new CustomEvent("choreo-done", {
+                                bubbles: true,
+                                detail: { groupId: baseId },
+                            }))
+                            var afterPinStore = getStore()
+                            if (afterPinStore) {
+                                var afterPinGps = afterPinStore.getGroupParents(baseId)
+                                if (afterPinGps) {
+                                    for (var apgp = 0; apgp < afterPinGps.length; apgp++) {
+                                        afterPinGps[apgp].dispatchEvent(new CustomEvent("choreo-done", {
+                                            bubbles: true,
+                                            detail: { groupId: baseId },
+                                        }))
+                                    }
+                                }
+                            }
+                        }
                         if (scrollOnce) {
                             scrollPinState.completed = true
                         }
