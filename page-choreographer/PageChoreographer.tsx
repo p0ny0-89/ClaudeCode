@@ -2764,17 +2764,33 @@ export default function PageChoreographer(props: any) {
             }
 
             var unbakeAndRecreateAnims = function () {
-                // Remove any lingering inline styles from previous bake
+                // Create new WAAPI animations FIRST so their fill:both
+                // effect layer overrides the baked inline styles immediately.
+                // Then remove the inline styles.  This order prevents CSS
+                // transitions (common in Framer components) from animating
+                // the removal of baked values — which would briefly show a
+                // reverse animation (e.g. right-to-left instead of left-to-right).
+                scrollAnimsCreated = false
+                ensureScrollAnims()
+                // Suppress CSS transitions on elements during the unbake
+                // so Framer-managed transitions can't fire on the removal.
                 for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
                     var item = scrollAnimFinalStyles[ub]
+                    item.el.style.setProperty("transition", "none", "important")
                     var keys = Object.keys(item.to)
                     for (var k = 0; k < keys.length; k++) {
                         item.el.style.removeProperty(keys[k])
                     }
                 }
-                scrollAnimsCreated = false
-                ensureScrollAnims()
                 blockAnimatedPointerEvents()
+                // Flush the transition:none with a rAF so the browser
+                // processes the style removal without transitioning, then
+                // restore normal transitions.
+                requestAnimationFrame(function () {
+                    for (var ub2 = 0; ub2 < scrollAnimFinalStyles.length; ub2++) {
+                        scrollAnimFinalStyles[ub2].el.style.removeProperty("transition")
+                    }
+                })
             }
 
             var updateAnimProgress = function (progress: number) {
@@ -2938,11 +2954,14 @@ export default function PageChoreographer(props: any) {
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
                     // ── PINNED ZONE ──
                     // Sticky keeps the section in place — just scrub animations
-                    ensureScrollAnims()
-
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
+                        // Also clear the wrapper's clip-path transition
+                        // that was set in the after-pin zone
+                        if (wrapper) wrapper.style.removeProperty("transition")
                         unbakeAndRecreateAnims()
+                    } else {
+                        ensureScrollAnims()
                     }
 
                     scrollPinState.pinned = true
@@ -3005,6 +3024,7 @@ export default function PageChoreographer(props: any) {
                     // ── BEFORE PIN ──
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
+                        if (wrapper) wrapper.style.removeProperty("transition")
                         unbakeAndRecreateAnims()
                     }
                     scrollPinState.pinned = false
