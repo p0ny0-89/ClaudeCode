@@ -2782,8 +2782,8 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // bakeAndCancelAnims removed — releaseAnimatedElements is used
-            // instead to avoid inline style conflicts with Framer hover.
+            // Animations are kept alive (never cancelled except on
+            // cleanup/resize) to avoid bake/unbake CSS transition bugs.
 
             // Block pointer-events on all animated elements to prevent
             // Framer hover effects from conflicting with active animations.
@@ -2797,29 +2797,15 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            var unbakeAndRecreateAnims = function (progress?: number) {
-                // 1. Create new WAAPI animations
-                scrollAnimsCreated = false
+            // Re-engage scroll animation after after-pin.
+            // Animations are kept alive (never cancelled in after-pin),
+            // so just re-block interactions and scrub to the right
+            // progress.  No bake/unbake cycle needed.
+            var reengageAnims = function (progress?: number) {
                 ensureScrollAnims()
-                // 2. Scrub to the CURRENT progress before removing baked
-                //    styles.  This ensures the WAAPI fill effect already
-                //    matches the visual state when inline styles are
-                //    removed — eliminating the 1-frame flash where the
-                //    from-keyframe (progress=0) was visible and caused a
-                //    reversed mask direction.
+                blockAnimatedPointerEvents()
                 if (progress !== undefined) {
                     updateAnimProgress(progress)
-                }
-                // 3. Block pointer-events + CSS transitions
-                blockAnimatedPointerEvents()
-                // 4. Remove baked inline styles — WAAPI already shows
-                //    the correct frame, so no visual discontinuity.
-                for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
-                    var item = scrollAnimFinalStyles[ub]
-                    var keys = Object.keys(item.to)
-                    for (var k = 0; k < keys.length; k++) {
-                        item.el.style.removeProperty(camelToKebab(keys[k]))
-                    }
                 }
             }
 
@@ -2894,28 +2880,26 @@ export default function PageChoreographer(props: any) {
             // transition (prevents the "jump to top" flash).
             // When bake=false, cancel without inline styles so Framer's
             // hover system can freely control the element.
-            var releaseAnimatedElements = function (bake?: boolean) {
-                if (bake) {
-                    for (var bf = 0; bf < scrollAnimFinalStyles.length; bf++) {
-                        var item = scrollAnimFinalStyles[bf]
-                        var keys = Object.keys(item.to)
-                        for (var bk = 0; bk < keys.length; bk++) {
-                            // camelToKebab: WAAPI keyframes use camelCase
-                            // (clipPath) but setProperty needs kebab-case
-                            // (clip-path).  Without this, clip-path was
-                            // never baked → after WAAPI cancel, element had
-                            // no clip-path → CSS transition fired reversed.
-                            item.el.style.setProperty(camelToKebab(keys[bk]), item.to[keys[bk]])
-                        }
-                    }
-                }
+            // Release: unblock pointer-events/transitions but keep
+            // WAAPI animations alive at their current progress.
+            // Keeping animations alive avoids the entire bake/unbake
+            // cycle — no inline styles to manage, no CSS transitions
+            // to suppress, immune to React re-renders in Framer's
+            // live preview.  Animations are only truly cancelled
+            // on cleanup or resize (via cancelScrollAnims).
+            var releaseAnimatedElements = function () {
                 for (var ra = 0; ra < scrollAnimFinalStyles.length; ra++) {
                     scrollAnimFinalStyles[ra].el.removeAttribute("data-choreo-scrubbing")
                 }
+            }
+
+            // Hard-cancel all WAAPI scroll animations (cleanup/resize)
+            var cancelScrollAnims = function () {
                 for (var rc = 0; rc < scrollAnims.length; rc++) {
                     try { scrollAnims[rc].cancel() } catch (e) {}
                 }
                 scrollAnims = []
+                scrollAnimsCreated = false
             }
 
             // Create animations eagerly so they're ready for scroll
@@ -2999,7 +2983,7 @@ export default function PageChoreographer(props: any) {
                         // Also clear the wrapper's clip-path transition
                         // that was set in the after-pin zone
                         if (wrapper) wrapper.style.removeProperty("transition")
-                        unbakeAndRecreateAnims(clampedProgress)
+                        reengageAnims(clampedProgress)
                     } else {
                         ensureScrollAnims()
                     }
@@ -3065,9 +3049,7 @@ export default function PageChoreographer(props: any) {
 
                     if (scrollOnce && clampedProgress >= 1) {
                         scrollPinState.completed = true
-                        // Bake final styles so they persist after
-                        // animations are cancelled
-                        releaseAnimatedElements(true)
+                        releaseAnimatedElements()
                     }
 
                 } else if (scrollY < pinStart) {
@@ -3075,7 +3057,7 @@ export default function PageChoreographer(props: any) {
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
                         if (wrapper) wrapper.style.removeProperty("transition")
-                        unbakeAndRecreateAnims(0)
+                        reengageAnims(0)
                     }
                     scrollPinState.pinned = false
                     animDone = false
@@ -3140,7 +3122,7 @@ export default function PageChoreographer(props: any) {
                         scrollPinState.pinned = false
                         animDone = true
                         updateAnimProgress(1)
-                        releaseAnimatedElements(true)
+                        releaseAnimatedElements()
                         // Notify child PCs when scroll animation completes via after-pin
                         if (!choreoDoneDispatched && parent) {
                             choreoDoneDispatched = true
@@ -3294,10 +3276,9 @@ export default function PageChoreographer(props: any) {
                     animOffset = (scrollStartOffset / 100) * pinScrollLength
                     animStart = pinStart + animOffset
 
-                    // Force animation recreation on next scroll handler
-                    // invocation — resize invalidates measurements that
-                    // animations depend on (element positions, widths, etc.)
-                    scrollAnimsCreated = false
+                    // Force animation recreation — resize invalidates
+                    // measurements that animations depend on.
+                    cancelScrollAnims()
 
                     // Reset afterPin so handleScroll re-evaluates state
                     scrollPinState.afterPin = false
