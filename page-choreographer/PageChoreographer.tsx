@@ -2766,19 +2766,23 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            var unbakeAndRecreateAnims = function () {
-                // Create new WAAPI animations FIRST so their fill:both
-                // effect layer overrides the baked inline styles immediately.
-                // Then remove the inline styles.  This order prevents CSS
-                // transitions (common in Framer components) from animating
-                // the removal of baked values — which would briefly show a
-                // reverse animation (e.g. right-to-left instead of left-to-right).
+            var unbakeAndRecreateAnims = function (progress?: number) {
+                // 1. Create new WAAPI animations
                 scrollAnimsCreated = false
                 ensureScrollAnims()
-                // blockAnimatedPointerEvents sets both pointer-events:none
-                // AND transition:none on all animated elements, preventing
-                // Framer CSS transitions from firing during unbake.
+                // 2. Scrub to the CURRENT progress before removing baked
+                //    styles.  This ensures the WAAPI fill effect already
+                //    matches the visual state when inline styles are
+                //    removed — eliminating the 1-frame flash where the
+                //    from-keyframe (progress=0) was visible and caused a
+                //    reversed mask direction.
+                if (progress !== undefined) {
+                    updateAnimProgress(progress)
+                }
+                // 3. Block pointer-events + CSS transitions
                 blockAnimatedPointerEvents()
+                // 4. Remove baked inline styles — WAAPI already shows
+                //    the correct frame, so no visual discontinuity.
                 for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
                     var item = scrollAnimFinalStyles[ub]
                     var keys = Object.keys(item.to)
@@ -2949,21 +2953,23 @@ export default function PageChoreographer(props: any) {
 
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
                     // ── PINNED ZONE ──
+                    // Compute progress early so unbake can scrub to the
+                    // correct frame before removing baked inline styles.
+                    var progress = (scrollY - animStart) / animLength
+                    var clampedProgress = Math.max(0, Math.min(1, progress))
+
                     // Sticky keeps the section in place — just scrub animations
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
                         // Also clear the wrapper's clip-path transition
                         // that was set in the after-pin zone
                         if (wrapper) wrapper.style.removeProperty("transition")
-                        unbakeAndRecreateAnims()
+                        unbakeAndRecreateAnims(clampedProgress)
                     } else {
                         ensureScrollAnims()
                     }
 
                     scrollPinState.pinned = true
-
-                    var progress = (scrollY - animStart) / animLength
-                    var clampedProgress = Math.max(0, Math.min(1, progress))
                     // DEBUG: log zone transitions and progress
                     if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "pinned") {
                         console.log("[ZONE] → pinned | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinStart:", Math.round(pinStart), "pinEnd:", Math.round(pinEnd), "animStart:", Math.round(animStart), "animLength:", Math.round(animLength), "progress:", clampedProgress.toFixed(3), "animsCreated:", scrollAnimsCreated, "animCount:", scrollAnims.length, "visRevealed:", visibilityRevealed)
@@ -3034,7 +3040,7 @@ export default function PageChoreographer(props: any) {
                     if (scrollPinState.afterPin) {
                         scrollPinState.afterPin = false
                         if (wrapper) wrapper.style.removeProperty("transition")
-                        unbakeAndRecreateAnims()
+                        unbakeAndRecreateAnims(0)
                     }
                     scrollPinState.pinned = false
                     animDone = false
