@@ -727,12 +727,21 @@ function createStore() {
                 animatedElements.delete(all[i].ref.current!)
             }
         }
+        // Cancel any pending batch play for this group so a queued
+        // playEnterGroupsBatch doesn't undo the reset's visibility:hidden.
+        var pidx = pendingGroups.indexOf(groupId)
+        if (pidx !== -1) pendingGroups.splice(pidx, 1)
     }
 
     // ─── Play enter for inView groups (batched by priority) ─────────────────
 
     var pendingGroups: string[] = []
     var groupBatchTimer: any = null
+
+    function cancelPendingGroup(groupId: string) {
+        var idx = pendingGroups.indexOf(groupId)
+        if (idx !== -1) pendingGroups.splice(idx, 1)
+    }
 
     function playEnterGroup(groupId: string) {
         // Collect group IDs that trigger within a short window,
@@ -961,6 +970,7 @@ function createStore() {
         playEnter: playEnter,
         playEnterGroup: playEnterGroup,
         resetGroup: resetGroup,
+        cancelPendingGroup: cancelPendingGroup,
         playExit: playExit,
         cancelActive: cancelActive,
         setupLinkInterception: setupLinkInterception,
@@ -975,6 +985,9 @@ function getStore() {
         }
         var s = (window as any)[STORE_KEY]
         // Patch stores created by older code versions that lack group parent methods
+        if (s && !s.cancelPendingGroup) {
+            s.cancelPendingGroup = function () {}
+        }
         if (s && !s.registerGroupParent) {
             var gp: { [gid: string]: HTMLElement[] } = {}
             s.registerGroupParent = function (groupId: string, el: HTMLElement) {
@@ -1974,7 +1987,10 @@ export default function PageChoreographer(props: any) {
                 if (hasPlayed && viewRepeat) {
                     hasPlayed = false
                     var s2 = getStore()
-                    if (s2) s2.resetGroup(baseId)
+                    if (s2) {
+                        s2.cancelPendingGroup(baseId)
+                        s2.resetGroup(baseId)
+                    }
                     // Immediately re-hide targets for replay
                     for (var rh = 0; rh < preHiddenEls.length; rh++) {
                         preHiddenEls[rh].style.setProperty("visibility", "hidden")
@@ -1999,7 +2015,10 @@ export default function PageChoreographer(props: any) {
                                 // Element left viewport — clear from WeakSet so it replays
                                 isVisible = false
                                 var s2 = getStore()
-                                if (s2) s2.resetGroup(baseId)
+                                if (s2) {
+                                    s2.cancelPendingGroup(baseId)
+                                    s2.resetGroup(baseId)
+                                }
                                 // Notify child PCs to reset for replay
                                 if (parent) {
                                     parent.dispatchEvent(new CustomEvent("choreo-reset", {
@@ -3247,8 +3266,9 @@ export default function PageChoreographer(props: any) {
             if (parentResetHandler) {
                 document.removeEventListener("choreo-reset", parentResetHandler)
             }
-            // Unregister group parent so stale containers don't receive events
+            // Cancel any pending batch play and unregister group parent
             var cleanupStore = getStore()
+            if (cleanupStore) cleanupStore.cancelPendingGroup(baseId)
             if (cleanupStore && parent) {
                 cleanupStore.unregisterGroupParent(baseId, parent)
             }
