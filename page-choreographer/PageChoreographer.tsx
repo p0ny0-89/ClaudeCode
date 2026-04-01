@@ -2102,8 +2102,10 @@ export default function PageChoreographer(props: any) {
                 var isCmsDuplicate = false
                 for (var om = 0; om < otherMarkers.length; om++) {
                     // If we find a marker in our parent that isn't ours,
-                    // another PC shares this parent = CMS duplicate
-                    if (otherMarkers[om] !== marker) {
+                    // another PC shares this parent = CMS duplicate.
+                    // Ignore markers with data-choreo-wait — those are
+                    // child PCs waiting for THIS PC to finish, not duplicates.
+                    if (otherMarkers[om] !== marker && !otherMarkers[om].hasAttribute("data-choreo-wait")) {
                         isCmsDuplicate = true
                         break
                     }
@@ -2928,6 +2930,19 @@ export default function PageChoreographer(props: any) {
                             bubbles: true,
                             detail: { groupId: baseId },
                         }))
+                        // Also dispatch on group parents for sibling-subtree children
+                        var scrollDoneStore = getStore()
+                        if (scrollDoneStore) {
+                            var scrollDoneGps = scrollDoneStore.getGroupParents(baseId)
+                            if (scrollDoneGps) {
+                                for (var sdgp = 0; sdgp < scrollDoneGps.length; sdgp++) {
+                                    scrollDoneGps[sdgp].dispatchEvent(new CustomEvent("choreo-done", {
+                                        bubbles: true,
+                                        detail: { groupId: baseId },
+                                    }))
+                                }
+                            }
+                        }
                     }
                     updateViewportClip()
 
@@ -3295,6 +3310,7 @@ export default function PageChoreographer(props: any) {
                 }
             }}
             data-choreo-marker="1"
+            data-choreo-wait={waitForParent ? "1" : undefined}
             style={{
                 width: 0,
                 height: 0,
