@@ -1902,19 +1902,24 @@ export default function PageChoreographer(props: any) {
             // Wait for an ancestor PC to finish its animation before playing.
             // Listen on document (events bubble up from the parent PC's targets).
             var hasPlayed = false
+            console.log("[WaitForParent] SET UP — baseId:", baseId, "parent tag:", parent.tagName, "parent id:", parent.id, "parent framer-name:", parent.getAttribute("data-framer-name"), "targets:", targets.length, "marker:", marker.id)
+            console.log("[WaitForParent] parent element:", parent)
             parentDoneHandler = function (e: Event) {
-                // choreo-done is dispatched on each of the parent PC's
-                // animated target elements. We need to verify the event
-                // came from a PC above us. The source element (e.target)
-                // may be an ancestor of our parent, a descendant of our
-                // parent, or equal to it — any of these means the event
-                // originated from within our ancestor's animation tree.
                 var src = e.target as HTMLElement | null
+                console.log("[WaitForParent] choreo-done received — baseId:", baseId, "src tag:", src && src.tagName, "src framer-name:", src && src.getAttribute("data-framer-name"), "hasPlayed:", hasPlayed)
+                console.log("[WaitForParent] src element:", src)
+                if (src && parent) {
+                    console.log("[WaitForParent] src.contains(parent):", src.contains(parent), "parent.contains(src):", parent.contains(src))
+                }
                 if (!src || !parent) return
-                if (!src.contains(parent) && !parent.contains(src)) return
+                if (!src.contains(parent) && !parent.contains(src)) {
+                    console.log("[WaitForParent] SKIPPED — no ancestry match")
+                    return
+                }
                 var s = getStore()
                 if (s && !hasPlayed) {
                     hasPlayed = true
+                    console.log("[WaitForParent] PLAYING — baseId:", baseId)
                     s.playEnterGroup(baseId)
                 }
             }
