@@ -1902,19 +1902,25 @@ export default function PageChoreographer(props: any) {
             // Wait for an ancestor PC to finish its animation before playing.
             // Listen on document (events bubble up from the parent PC's targets).
             var hasPlayed = false
-            parentDoneHandler = function () {
-                // Only trigger if this PC's parent is a descendant of (or is)
-                // the element that dispatched choreo-done. Since the event
-                // bubbles, we check that our parent has an ancestor that
-                // finished animating. The event fires on each animated element,
-                // so we just need ANY choreo-done to reach us from above.
+            parentDoneHandler = function (e: Event) {
+                // choreo-done bubbles UP from the parent PC's animated
+                // targets toward document. We listen on document and check
+                // that the event's source element is an ancestor of (or
+                // contains) our own parent — meaning it came from a PC
+                // above us in the DOM tree.
+                var src = e.target as HTMLElement | null
+                if (!src || !parent) return
+                if (!src.contains(parent)) return
                 var s = getStore()
                 if (s && !hasPlayed) {
                     hasPlayed = true
                     s.playEnterGroup(baseId)
                 }
             }
-            parentResetHandler = function () {
+            parentResetHandler = function (e: Event) {
+                var src = e.target as HTMLElement | null
+                if (!src || !parent) return
+                if (!src.contains(parent)) return
                 if (hasPlayed && viewRepeat) {
                     hasPlayed = false
                     var s2 = getStore()
@@ -1925,8 +1931,8 @@ export default function PageChoreographer(props: any) {
                     }
                 }
             }
-            parent.addEventListener("choreo-done", parentDoneHandler)
-            parent.addEventListener("choreo-reset", parentResetHandler)
+            document.addEventListener("choreo-done", parentDoneHandler)
+            document.addEventListener("choreo-reset", parentResetHandler)
         } else if (trigger === "inView" && typeof IntersectionObserver !== "undefined") {
             var isVisible = false
             try {
@@ -3111,11 +3117,11 @@ export default function PageChoreographer(props: any) {
             if (intObs) {
                 try { intObs.disconnect() } catch (e) {}
             }
-            if (parentDoneHandler && parent) {
-                parent.removeEventListener("choreo-done", parentDoneHandler)
+            if (parentDoneHandler) {
+                document.removeEventListener("choreo-done", parentDoneHandler)
             }
-            if (parentResetHandler && parent) {
-                parent.removeEventListener("choreo-reset", parentResetHandler)
+            if (parentResetHandler) {
+                document.removeEventListener("choreo-reset", parentResetHandler)
             }
             // Clean up scroll-scrub
             if (scrollSetupRaf) {
