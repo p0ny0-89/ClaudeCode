@@ -396,6 +396,26 @@ function createStore() {
     var animatedElements: WeakSet<Element> | null =
         typeof WeakSet !== "undefined" ? new WeakSet<Element>() : null
 
+    // Map groupId → parent elements to dispatch choreo-done on
+    var groupParents: { [gid: string]: HTMLElement[] } = {}
+
+    function registerGroupParent(groupId: string, el: HTMLElement) {
+        if (!groupParents[groupId]) groupParents[groupId] = []
+        if (groupParents[groupId].indexOf(el) === -1) {
+            groupParents[groupId].push(el)
+        }
+    }
+
+    function unregisterGroupParent(groupId: string, el: HTMLElement) {
+        if (!groupParents[groupId]) return
+        var idx = groupParents[groupId].indexOf(el)
+        if (idx !== -1) groupParents[groupId].splice(idx, 1)
+    }
+
+    function getGroupParents(groupId: string): HTMLElement[] | null {
+        return groupParents[groupId] || null
+    }
+
     function registerTarget(t: TargetEntry) {
         targets[t.id] = t
     }
@@ -820,14 +840,26 @@ function createStore() {
 
         Promise.all(promises).then(function () {
             // Notify child PCs that these groups have finished animating.
-            // Dispatch on each group's first target's parent so the event
-            // bubbles up through the DOM to any descendant PC listening.
+            // Dispatch on each animated target element...
             for (var di = 0; di < sortedGids.length; di++) {
                 var dGroup = groups[sortedGids[di]]
                 for (var dj = 0; dj < dGroup.length; dj++) {
                     var dEl = dGroup[dj].ref.current
                     if (dEl) {
                         dEl.dispatchEvent(new CustomEvent("choreo-done", {
+                            bubbles: true,
+                            detail: { groupId: sortedGids[di] },
+                        }))
+                    }
+                }
+                // ...AND on each registered group parent container.
+                // This ensures child PCs in sibling stacks receive the
+                // event even when the animated targets are in a different
+                // branch of the DOM tree.
+                var gps = groupParents[sortedGids[di]]
+                if (gps) {
+                    for (var gpi = 0; gpi < gps.length; gpi++) {
+                        gps[gpi].dispatchEvent(new CustomEvent("choreo-done", {
                             bubbles: true,
                             detail: { groupId: sortedGids[di] },
                         }))
@@ -920,6 +952,9 @@ function createStore() {
     return {
         registerTarget: registerTarget,
         unregisterTarget: unregisterTarget,
+        registerGroupParent: registerGroupParent,
+        unregisterGroupParent: unregisterGroupParent,
+        getGroupParents: getGroupParents,
         getTargetCount: getTargetCount,
         getAllTargets: getAllTargets,
         sortTargets: sortTargets,
@@ -938,7 +973,24 @@ function getStore() {
         if (!(window as any)[STORE_KEY]) {
             ;(window as any)[STORE_KEY] = createStore()
         }
-        return (window as any)[STORE_KEY]
+        var s = (window as any)[STORE_KEY]
+        // Patch stores created by older code versions that lack group parent methods
+        if (s && !s.registerGroupParent) {
+            var gp: { [gid: string]: HTMLElement[] } = {}
+            s.registerGroupParent = function (groupId: string, el: HTMLElement) {
+                if (!gp[groupId]) gp[groupId] = []
+                if (gp[groupId].indexOf(el) === -1) gp[groupId].push(el)
+            }
+            s.unregisterGroupParent = function (groupId: string, el: HTMLElement) {
+                if (!gp[groupId]) return
+                var idx = gp[groupId].indexOf(el)
+                if (idx !== -1) gp[groupId].splice(idx, 1)
+            }
+            s.getGroupParents = function (groupId: string) {
+                return gp[groupId] || null
+            }
+        }
+        return s
     }
     return null
 }
@@ -1787,6 +1839,10 @@ export default function PageChoreographer(props: any) {
 
         var targets = collectTargets(parent, marker, scanMode, excludeSelector, splitText)
         registerElements(targets, store)
+        // Register parent as a group parent so choreo-done is dispatched
+        // on the container element, not just on individual targets.
+        // This ensures child PCs in sibling stacks receive the event.
+        store.registerGroupParent(baseId, parent)
 
         // Delayed re-scan: masonry/grid layouts restructure the DOM
         // after initial render.  If re-scan finds MORE targets, force
@@ -1902,24 +1958,13 @@ export default function PageChoreographer(props: any) {
             // Wait for an ancestor PC to finish its animation before playing.
             // Listen on document (events bubble up from the parent PC's targets).
             var hasPlayed = false
-            console.log("[WaitForParent] SET UP — baseId:", baseId, "parent tag:", parent.tagName, "parent id:", parent.id, "parent framer-name:", parent.getAttribute("data-framer-name"), "targets:", targets.length, "marker:", marker.id)
-            console.log("[WaitForParent] parent element:", parent)
             parentDoneHandler = function (e: Event) {
                 var src = e.target as HTMLElement | null
-                console.log("[WaitForParent] choreo-done received — baseId:", baseId, "src tag:", src && src.tagName, "src framer-name:", src && src.getAttribute("data-framer-name"), "hasPlayed:", hasPlayed)
-                console.log("[WaitForParent] src element:", src)
-                if (src && parent) {
-                    console.log("[WaitForParent] src.contains(parent):", src.contains(parent), "parent.contains(src):", parent.contains(src))
-                }
                 if (!src || !parent) return
-                if (!src.contains(parent) && !parent.contains(src)) {
-                    console.log("[WaitForParent] SKIPPED — no ancestry match")
-                    return
-                }
+                if (!src.contains(parent) && !parent.contains(src)) return
                 var s = getStore()
                 if (s && !hasPlayed) {
                     hasPlayed = true
-                    console.log("[WaitForParent] PLAYING — baseId:", baseId)
                     s.playEnterGroup(baseId)
                 }
             }
@@ -1962,6 +2007,18 @@ export default function PageChoreographer(props: any) {
                                         bubbles: true,
                                         detail: { groupId: baseId },
                                     }))
+                                }
+                                // Also dispatch on group parents for sibling-subtree children
+                                if (s2) {
+                                    var resetGps = s2.getGroupParents(baseId)
+                                    if (resetGps) {
+                                        for (var rgp = 0; rgp < resetGps.length; rgp++) {
+                                            resetGps[rgp].dispatchEvent(new CustomEvent("choreo-reset", {
+                                                bubbles: true,
+                                                detail: { groupId: baseId },
+                                            }))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2009,8 +2066,6 @@ export default function PageChoreographer(props: any) {
             var parentGP = parent.parentElement
 
             // ── DIAGNOSTIC LOGGING (remove after debugging) ──
-            console.log("[PC:" + baseId + "] parent:", parent.getAttribute("data-framer-name") || parent.tagName, parentWidth + "x" + parentHeight)
-            console.log("[PC:" + baseId + "] parentGP:", parentGP ? (parentGP.getAttribute("data-framer-name") || parentGP.tagName) : "null")
 
             // ── Early section ownership check ──
             // In CMS layouts, multiple instances share the same section.
@@ -2026,7 +2081,6 @@ export default function PageChoreographer(props: any) {
             // which pins the entire page instead of just the target section.
             var earlySection = findSection(parent)
             var earlyPinSection = findPinSection(parent)
-            console.log("[PC:" + baseId + "] earlyPinSection:", earlyPinSection.getAttribute("data-framer-name") || earlyPinSection.tagName, earlyPinSection.offsetWidth + "x" + earlyPinSection.offsetHeight)
             if (scrollPin && earlyPinSection && earlyPinSection.hasAttribute("data-choreo-pin-owner") && !pinPriority) {
                 // Another instance already owns this section's pin.
                 // Bail out ONLY if it's a CMS case (owner's marker is
@@ -2052,8 +2106,6 @@ export default function PageChoreographer(props: any) {
                 // Different parents = separate PC → continue to follow-pin
             }
 
-            console.log("[PC:" + baseId + "] earlySection:", earlySection.getAttribute("data-framer-name") || earlySection.tagName, earlySection.offsetWidth + "x" + earlySection.offsetHeight)
-            console.log("[PC:" + baseId + "] targets:", targets.length, "scrollPin:", scrollPin)
 
             // ── onScroll pre-hiding ──
             // Now that we know this instance owns the section (not bailing
@@ -2217,18 +2269,6 @@ export default function PageChoreographer(props: any) {
                 parent.style.setProperty("height", parentPreMoveH + "px")
                 parent.style.setProperty("flex-shrink", "0")
                 scrollWrapper = wrapper
-                console.log("[PC:" + baseId + "] wrapper created:", wrapper.offsetWidth + "x" + wrapper.offsetHeight, "w=" + wrapper.style.width, "h=" + wrapper.style.height)
-                console.log("[PC:" + baseId + "] parent after wrap:", parent.offsetWidth + "x" + parent.offsetHeight, "w=" + parent.style.width, "h=" + parent.style.height)
-                console.log("[PC:" + baseId + "] parentGP after wrap:", parentGP!.offsetWidth + "x" + parentGP!.offsetHeight, parentGP!.getAttribute("data-framer-name") || parentGP!.tagName)
-                // Log the full ancestry chain for debugging layout issues
-                var chainNode: HTMLElement | null = wrapper
-                var chain = ""
-                while (chainNode && chainNode !== document.documentElement) {
-                    var cn = chainNode.getAttribute("data-framer-name") || chainNode.getAttribute("data-choreo-pin-container") ? "pin-ctr" : chainNode.tagName
-                    chain += cn + "(" + chainNode.offsetWidth + "x" + chainNode.offsetHeight + ") > "
-                    chainNode = chainNode.parentElement
-                }
-                console.log("[PC:" + baseId + "] ancestry:", chain)
             } else {
                 // CMS/grid mode: no wrapper — use parent directly.
                 // This avoids disrupting the grid layout and prevents
@@ -2326,8 +2366,6 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            console.log("[PC:" + baseId + "] isOwner:", isOwner, "isFollower:", isFollower, "pinPriority:", pinPriority, "scrollPin:", scrollPin)
-            console.log("[PC:" + baseId + "] pinSectionEl:", pinSectionEl ? (pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.tagName) + " " + pinSectionEl.offsetWidth + "x" + pinSectionEl.offsetHeight : "null", "hasPinOwner:", pinSectionEl ? pinSectionEl.hasAttribute("data-choreo-pin-owner") : false)
 
             // ── Clean up stale pin containers ──
             // When a PC re-renders (prop change), only THAT PC's cleanup
@@ -2362,7 +2400,6 @@ export default function PageChoreographer(props: any) {
                             }
                             staleNode.parentElement.removeChild(staleNode)
                         }
-                        console.log("[PC:" + baseId + "] cleaned stale pin-ctr from:", staleOwner)
                     }
                     staleNode = nextUp
                 }
@@ -2429,7 +2466,6 @@ export default function PageChoreographer(props: any) {
                         var secInlineW = pinSectionEl.style.width
                         var isFixedWidth = secInlineW && /^\d/.test(secInlineW) && secInlineW !== "100%"
                         pinContainer.style.setProperty("width", isFixedWidth ? secInlineW : "100%")
-                        console.log("[PC:" + baseId + "] pin-ctr width:", isFixedWidth ? secInlineW : "100%", "secInlineW:", JSON.stringify(secInlineW), "secComputedW:", secCS.width, "alignSelf:", secCS.alignSelf)
                         pinSectionEl.parentElement.insertBefore(pinContainer, pinSectionEl)
                         pinContainer.appendChild(pinSectionEl)
                     }
@@ -2466,13 +2502,11 @@ export default function PageChoreographer(props: any) {
                         var ancestorBg = window.getComputedStyle(bgWalk).backgroundColor
                         if (ancestorBg && ancestorBg !== "rgba(0, 0, 0, 0)" && ancestorBg !== "transparent") {
                             pinSectionEl.style.setProperty("background", ancestorBg, "important")
-                            console.log("[PC:" + baseId + "] inherited bg:", ancestorBg, "from:", bgWalk.getAttribute("data-framer-name") || bgWalk.tagName)
                             break
                         }
                         bgWalk = bgWalk.parentElement
                     }
                 }
-                console.log("[PC:" + baseId + "] pin container created:", pinContainer.offsetWidth + "x" + pinContainer.offsetHeight, "pinSection:", pinSectionEl.offsetWidth + "x" + pinSectionEl.offsetHeight, pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.tagName, "priority:", pinPriority)
             }
 
             // Structural DOM changes complete — re-enable MutationObservers
@@ -2600,8 +2634,6 @@ export default function PageChoreographer(props: any) {
             var animLength = scrollLength
             var wrapRectLeft = pinEl.getBoundingClientRect().left
 
-            console.log("[PC:" + baseId + "] scrollRange: pinStart=" + pinStart + " pinEnd=" + pinEnd + " pinLength=" + pinScrollLength + " animStart=" + animStart + " animLength=" + animLength)
-            console.log("[PC:" + baseId + "] measureEl:", measureEl === wrapper ? "wrapper" : (measureEl.getAttribute("data-framer-name") || measureEl.tagName), measureRect.width + "x" + measureRect.height, "docTop=" + measureDocTop)
 
             // ── Animation creation/destruction ──
             var reduced =
@@ -2913,6 +2945,19 @@ export default function PageChoreographer(props: any) {
                             bubbles: true,
                             detail: { groupId: baseId },
                         }))
+                        // Also dispatch on group parents for sibling-subtree children
+                        var scrollResetStore = getStore()
+                        if (scrollResetStore) {
+                            var scrollResetGps = scrollResetStore.getGroupParents(baseId)
+                            if (scrollResetGps) {
+                                for (var srgp = 0; srgp < scrollResetGps.length; srgp++) {
+                                    scrollResetGps[srgp].dispatchEvent(new CustomEvent("choreo-reset", {
+                                        bubbles: true,
+                                        detail: { groupId: baseId },
+                                    }))
+                                }
+                            }
+                        }
                     }
                     updateAnimProgress(0)
                     updateInteractivity(0)
@@ -2999,7 +3044,6 @@ export default function PageChoreographer(props: any) {
                                 // Recalculate own animation range
                                 animOffset = (scrollStartOffset / 100) * pinScrollLength
                                 animStart = pinStart + animOffset
-                                console.log("[PC:" + baseId + "] deferred follow-pin detected, pinRange:", pinStart, pinEnd, "animStart:", animStart, "animLength:", animLength)
                                 handleScroll()
                                 break
                             }
@@ -3128,6 +3172,11 @@ export default function PageChoreographer(props: any) {
             }
             if (parentResetHandler) {
                 document.removeEventListener("choreo-reset", parentResetHandler)
+            }
+            // Unregister group parent so stale containers don't receive events
+            var cleanupStore = getStore()
+            if (cleanupStore && parent) {
+                cleanupStore.unregisterGroupParent(baseId, parent)
             }
             // Clean up scroll-scrub
             if (scrollSetupRaf) {
