@@ -735,7 +735,6 @@ function createStore() {
     var groupBatchTimer: any = null
 
     function playEnterGroup(groupId: string) {
-        console.log("[BATCH-queue] groupId:", groupId)
         // Collect group IDs that trigger within a short window,
         // then play them all together sorted by priority
         if (pendingGroups.indexOf(groupId) === -1) {
@@ -746,7 +745,6 @@ function createStore() {
             groupBatchTimer = null
             var batch = pendingGroups.slice()
             pendingGroups = []
-            console.log("[BATCH-play] batch:", batch)
             playEnterGroupsBatch(batch)
         }, 80)
     }
@@ -1959,16 +1957,13 @@ export default function PageChoreographer(props: any) {
             // Wait for an ancestor PC to finish its animation before playing.
             // Listen on document (events bubble up from the parent PC's targets).
             var hasPlayed = false
-            console.log("[WFP-setup] child:", baseId, "viewRepeat:", viewRepeat, "preHiddenEls:", preHiddenEls.length)
             parentDoneHandler = function (e: Event) {
                 var src = e.target as HTMLElement | null
                 if (!src || !parent) return
                 if (!src.contains(parent) && !parent.contains(src)) return
-                console.log("[WFP-done] child:", baseId, "src:", src.getAttribute("data-framer-name") || src.tagName, "hasPlayed:", hasPlayed)
                 var s = getStore()
                 if (s && !hasPlayed) {
                     hasPlayed = true
-                    console.log("[WFP-play] child:", baseId)
                     s.playEnterGroup(baseId)
                 }
             }
@@ -1976,12 +1971,10 @@ export default function PageChoreographer(props: any) {
                 var src = e.target as HTMLElement | null
                 if (!src || !parent) return
                 if (!src.contains(parent) && !parent.contains(src)) return
-                console.log("[WFP-reset] child:", baseId, "hasPlayed:", hasPlayed, "viewRepeat:", viewRepeat)
                 if (hasPlayed && viewRepeat) {
                     hasPlayed = false
                     var s2 = getStore()
                     if (s2) s2.resetGroup(baseId)
-                    console.log("[WFP-hide] child:", baseId, "hiding", preHiddenEls.length, "elements")
                     // Immediately re-hide targets for replay
                     for (var rh = 0; rh < preHiddenEls.length; rh++) {
                         preHiddenEls[rh].style.setProperty("visibility", "hidden")
@@ -1998,7 +1991,6 @@ export default function PageChoreographer(props: any) {
                         for (var e = 0; e < entries.length; e++) {
                             if (entries[e].isIntersecting && !isVisible) {
                                 isVisible = true
-                                console.log("[IO-visible] baseId:", baseId, "trigger: inView (non-WFP)")
                                 var s = getStore()
                                 if (s) s.playEnterGroup(baseId)
                                 // If not repeating, stop observing
@@ -2930,7 +2922,6 @@ export default function PageChoreographer(props: any) {
                     // Notify child PCs when scroll animation completes
                     if (animDone && !choreoDoneDispatched && parent) {
                         choreoDoneDispatched = true
-                        console.log("[SCROLL-done] parent:", baseId, "progress:", clampedProgress, "zone: pinned")
                         parent.dispatchEvent(new CustomEvent("choreo-done", {
                             bubbles: true,
                             detail: { groupId: baseId },
@@ -2969,7 +2960,6 @@ export default function PageChoreographer(props: any) {
                     // Reset choreo-done flag and notify child PCs to reset
                     if (choreoDoneDispatched && parent) {
                         choreoDoneDispatched = false
-                        console.log("[SCROLL-reset] parent:", baseId, "zone: before-pin")
                         parent.dispatchEvent(new CustomEvent("choreo-reset", {
                             bubbles: true,
                             detail: { groupId: baseId },
@@ -3024,7 +3014,6 @@ export default function PageChoreographer(props: any) {
                         // Notify child PCs when scroll animation completes via after-pin
                         if (!choreoDoneDispatched && parent) {
                             choreoDoneDispatched = true
-                            console.log("[SCROLL-done] parent:", baseId, "zone: after-pin")
                             parent.dispatchEvent(new CustomEvent("choreo-done", {
                                 bubbles: true,
                                 detail: { groupId: baseId },
