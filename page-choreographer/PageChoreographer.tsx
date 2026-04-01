@@ -2145,6 +2145,16 @@ export default function PageChoreographer(props: any) {
             // Now that we know this instance owns the section (not bailing
             // out), pre-hide targets so they don't flash before the scroll
             // animation starts.
+            // Persistent style tag that suppresses CSS transitions on
+            // elements being scroll-scrubbed.  Uses a data attribute
+            // selector instead of inline styles because Framer's live
+            // preview re-renders can strip inline transition:none via
+            // React reconciliation — the attribute + stylesheet approach
+            // survives those re-renders.
+            var scrubStyleTag = document.createElement("style")
+            scrubStyleTag.textContent = "[data-choreo-scrubbing] { transition: none !important; pointer-events: none !important; }"
+            document.head.appendChild(scrubStyleTag)
+
             if (enterEnabled) {
                 var styleTag = document.createElement("style")
                 styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
@@ -2780,10 +2790,10 @@ export default function PageChoreographer(props: any) {
             // Unblocked per-element when its animation is released (98%).
             var blockAnimatedPointerEvents = function () {
                 for (var bp = 0; bp < scrollAnimFinalStyles.length; bp++) {
-                    scrollAnimFinalStyles[bp].el.style.setProperty("pointer-events", "none", "important")
-                    // Suppress CSS transitions during scroll scrubbing so
-                    // Framer-managed transitions can't fight with WAAPI.
-                    scrollAnimFinalStyles[bp].el.style.setProperty("transition", "none", "important")
+                    // Use data attribute for transition/pointer-events
+                    // suppression — survives React re-renders (unlike
+                    // inline styles which Framer's live preview strips).
+                    scrollAnimFinalStyles[bp].el.setAttribute("data-choreo-scrubbing", "1")
                 }
             }
 
@@ -2900,8 +2910,7 @@ export default function PageChoreographer(props: any) {
                     }
                 }
                 for (var ra = 0; ra < scrollAnimFinalStyles.length; ra++) {
-                    scrollAnimFinalStyles[ra].el.style.removeProperty("pointer-events")
-                    scrollAnimFinalStyles[ra].el.style.removeProperty("transition")
+                    scrollAnimFinalStyles[ra].el.removeAttribute("data-choreo-scrubbing")
                 }
                 for (var rc = 0; rc < scrollAnims.length; rc++) {
                     try { scrollAnims[rc].cancel() } catch (e) {}
@@ -3360,11 +3369,14 @@ export default function PageChoreographer(props: any) {
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
             }
-            // Restore pointer-events on animated elements
+            // Remove scrubbing attribute + style tag
             if (typeof scrollAnimFinalStyles !== "undefined") {
                 for (var pe = 0; pe < scrollAnimFinalStyles.length; pe++) {
-                    try { scrollAnimFinalStyles[pe].el.style.removeProperty("pointer-events") } catch (e) {}
+                    try { scrollAnimFinalStyles[pe].el.removeAttribute("data-choreo-scrubbing") } catch (e) {}
                 }
+            }
+            if (typeof scrubStyleTag !== "undefined" && scrubStyleTag && scrubStyleTag.parentNode) {
+                scrubStyleTag.parentNode.removeChild(scrubStyleTag)
             }
             // Restore overflow on ancestors
             for (var oc = 0; oc < scrollOverflowAncestors.length; oc++) {
