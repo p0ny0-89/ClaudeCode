@@ -36,6 +36,15 @@ function easingToCss(e: number[]): string {
 
 var maskDirectionPool = ["left", "right", "up", "down", "topLeft", "topRight", "bottomLeft", "bottomRight"]
 
+// WAAPI keyframes use camelCase (clipPath, transformOrigin) but
+// CSSStyleDeclaration.setProperty/removeProperty need kebab-case
+// (clip-path, transform-origin).  Without this conversion, bake/unbake
+// silently fails for hyphenated properties, leaving no inline clip-path
+// after WAAPI cancel — which triggers CSS transitions on re-entry.
+function camelToKebab(s: string): string {
+    return s.replace(/[A-Z]/g, function (m) { return "-" + m.toLowerCase() })
+}
+
 function resolveMaskDirection(dir: string): string {
     if (dir === "random") {
         return maskDirectionPool[Math.floor(Math.random() * maskDirectionPool.length)]
@@ -2799,7 +2808,7 @@ export default function PageChoreographer(props: any) {
                     var item = scrollAnimFinalStyles[ub]
                     var keys = Object.keys(item.to)
                     for (var k = 0; k < keys.length; k++) {
-                        item.el.style.removeProperty(keys[k])
+                        item.el.style.removeProperty(camelToKebab(keys[k]))
                     }
                 }
             }
@@ -2881,7 +2890,12 @@ export default function PageChoreographer(props: any) {
                         var item = scrollAnimFinalStyles[bf]
                         var keys = Object.keys(item.to)
                         for (var bk = 0; bk < keys.length; bk++) {
-                            item.el.style.setProperty(keys[bk], item.to[keys[bk]])
+                            // camelToKebab: WAAPI keyframes use camelCase
+                            // (clipPath) but setProperty needs kebab-case
+                            // (clip-path).  Without this, clip-path was
+                            // never baked → after WAAPI cancel, element had
+                            // no clip-path → CSS transition fired reversed.
+                            item.el.style.setProperty(camelToKebab(keys[bk]), item.to[keys[bk]])
                         }
                     }
                 }
