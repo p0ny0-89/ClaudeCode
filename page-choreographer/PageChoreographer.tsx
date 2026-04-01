@@ -2760,6 +2760,9 @@ export default function PageChoreographer(props: any) {
             var blockAnimatedPointerEvents = function () {
                 for (var bp = 0; bp < scrollAnimFinalStyles.length; bp++) {
                     scrollAnimFinalStyles[bp].el.style.setProperty("pointer-events", "none", "important")
+                    // Suppress CSS transitions during scroll scrubbing so
+                    // Framer-managed transitions can't fight with WAAPI.
+                    scrollAnimFinalStyles[bp].el.style.setProperty("transition", "none", "important")
                 }
             }
 
@@ -2772,25 +2775,17 @@ export default function PageChoreographer(props: any) {
                 // reverse animation (e.g. right-to-left instead of left-to-right).
                 scrollAnimsCreated = false
                 ensureScrollAnims()
-                // Suppress CSS transitions on elements during the unbake
-                // so Framer-managed transitions can't fire on the removal.
+                // blockAnimatedPointerEvents sets both pointer-events:none
+                // AND transition:none on all animated elements, preventing
+                // Framer CSS transitions from firing during unbake.
+                blockAnimatedPointerEvents()
                 for (var ub = 0; ub < scrollAnimFinalStyles.length; ub++) {
                     var item = scrollAnimFinalStyles[ub]
-                    item.el.style.setProperty("transition", "none", "important")
                     var keys = Object.keys(item.to)
                     for (var k = 0; k < keys.length; k++) {
                         item.el.style.removeProperty(keys[k])
                     }
                 }
-                blockAnimatedPointerEvents()
-                // Flush the transition:none with a rAF so the browser
-                // processes the style removal without transitioning, then
-                // restore normal transitions.
-                requestAnimationFrame(function () {
-                    for (var ub2 = 0; ub2 < scrollAnimFinalStyles.length; ub2++) {
-                        scrollAnimFinalStyles[ub2].el.style.removeProperty("transition")
-                    }
-                })
             }
 
             var updateAnimProgress = function (progress: number) {
@@ -2812,7 +2807,7 @@ export default function PageChoreographer(props: any) {
             var visibilityRevealed = false
 
             var ensureScrollAnims = function () {
-                if (scrollAnimsCreated) return
+                if (scrollAnimsCreated && scrollAnims.length > 0) return
                 scrollAnimsCreated = true
                 createScrollAnims()
                 // Don't remove visibility:hidden here — keep elements
@@ -2876,6 +2871,7 @@ export default function PageChoreographer(props: any) {
                 }
                 for (var ra = 0; ra < scrollAnimFinalStyles.length; ra++) {
                     scrollAnimFinalStyles[ra].el.style.removeProperty("pointer-events")
+                    scrollAnimFinalStyles[ra].el.style.removeProperty("transition")
                 }
                 for (var rc = 0; rc < scrollAnims.length; rc++) {
                     try { scrollAnims[rc].cancel() } catch (e) {}
@@ -3256,6 +3252,11 @@ export default function PageChoreographer(props: any) {
                     // Recalculate own animation range
                     animOffset = (scrollStartOffset / 100) * pinScrollLength
                     animStart = pinStart + animOffset
+
+                    // Force animation recreation on next scroll handler
+                    // invocation — resize invalidates measurements that
+                    // animations depend on (element positions, widths, etc.)
+                    scrollAnimsCreated = false
 
                     // Reset afterPin so handleScroll re-evaluates state
                     scrollPinState.afterPin = false
