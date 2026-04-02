@@ -2341,7 +2341,10 @@ export default function PageChoreographer(props: any) {
                     var visibilityRevealed = false
                     var revealIfNeeded = function (progress: number) {
                         if (visibilityRevealed) return
-                        if (!maskPreview && progress < 0) return
+                        // Only reveal once scroll has actually progressed into the trigger
+                        // (progress > 0), not merely at the start boundary (progress === 0).
+                        // maskPreview mode reveals immediately for canvas editing.
+                        if (!maskPreview && progress <= 0) return
                         visibilityRevealed = true
                         for (var ph = 0; ph < preHiddenEls.length; ph++) {
                             preHiddenEls[ph].removeAttribute("data-choreo-hide")
@@ -2353,6 +2356,13 @@ export default function PageChoreographer(props: any) {
                         if (preHideStyleTag && preHideStyleTag.parentNode) {
                             preHideStyleTag.parentNode.removeChild(preHideStyleTag)
                             preHideStyleTag = null
+                        }
+                    }
+                    var rehideIfNeeded = function () {
+                        if (!visibilityRevealed) return
+                        visibilityRevealed = false
+                        for (var rh = 0; rh < preHiddenEls.length; rh++) {
+                            preHiddenEls[rh].setAttribute("data-choreo-hide", "")
                         }
                     }
 
@@ -2473,7 +2483,7 @@ export default function PageChoreographer(props: any) {
                             }
                             localProgress = Math.max(0, Math.min(1, localProgress))
 
-                            revealIfNeeded(localProgress)
+                            revealIfNeeded(progress)
                             updateAnimProgress(localProgress)
                             updateViewportClip()
 
@@ -2516,14 +2526,11 @@ export default function PageChoreographer(props: any) {
                             choreoDoneDispatched = false
                             blockAnimatedPointerEvents()
                             updateAnimProgress(0)
+                            rehideIfNeeded()
                             if (wrapper) {
                                 wrapper.style.removeProperty("transition")
                                 wrapper.style.removeProperty("clip-path")
                             }
-                        },
-                        onEnter: function () {
-                            if (!gsapMounted) return
-                            revealIfNeeded(0)
                         },
                     })
 
@@ -2540,13 +2547,22 @@ export default function PageChoreographer(props: any) {
                         console.log("[Choreo] ScrollTrigger.sort() + refresh() — total triggers:", ST.getAll().length)
                     }, 0)
 
-                    // Safety fallback: if elements are still hidden after 500ms,
-                    // force-reveal them.
+                    // Safety fallback: if GSAP loaded but elements remain
+                    // hidden after 5 seconds (e.g. trigger never fires), reveal
+                    // to avoid permanently invisible content.
                     scrollSafetyTimer = setTimeout(function () {
                         if (!visibilityRevealed && preHiddenEls.length > 0) {
-                            revealIfNeeded(0)
+                            console.warn("[Choreo] Safety reveal for", baseId, "— trigger never fired within 5s")
+                            visibilityRevealed = true
+                            for (var sr = 0; sr < preHiddenEls.length; sr++) {
+                                preHiddenEls[sr].removeAttribute("data-choreo-hide")
+                                preHiddenEls[sr].style.removeProperty("visibility")
+                                preHiddenEls[sr].style.removeProperty("opacity")
+                                preHiddenEls[sr].style.removeProperty("pointer-events")
+                                preHiddenEls[sr].style.removeProperty("clip-path")
+                            }
                         }
-                    }, 500) as unknown as number
+                    }, 5000) as unknown as number
 
                 }, parent) // end gsap.context scope
             }).catch(function (err) {
