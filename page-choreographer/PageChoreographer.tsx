@@ -2067,14 +2067,7 @@ export default function PageChoreographer(props: any) {
         var scrollSafetyTimer = 0
         var scrollResizeHandler: (() => void) | null = null
         var scrollWrapper: HTMLElement | null = null
-        var parentOrigWidth = ""
-        var parentOrigHeight = ""
-        var parentOrigFlexShrink = ""
-        var parentOrigPosition = ""
-        var parentOrigTop = ""
-        var parentOrigRight = ""
-        var parentOrigBottom = ""
-        var parentOrigLeft = ""
+        var parentOrigOverflow = ""
         var scrollSectionEl: HTMLElement | null = null
         var scrollSpacer: HTMLElement | null = null
         var scrollOverflowAncestors: Array<{ el: HTMLElement; orig: string }> = []
@@ -2229,143 +2222,19 @@ export default function PageChoreographer(props: any) {
             // infinite re-render loops.
             choreoMutGlobalSuppress = true
 
-            if (allTargetsInside) {
-                // ── Create wrapper inside the section ──
-                wrapper = document.createElement("div")
-
-                if (parentGP) {
-                    // Copy the parent's flex-child properties so wrapper
-                    // occupies the same position/size in the section
-                    var parentCS = window.getComputedStyle(parent)
-                    wrapper.style.setProperty("align-self", parentCS.alignSelf)
-                    wrapper.style.setProperty("justify-self", parentCS.justifySelf)
-                    wrapper.style.setProperty("order", parentCS.order)
-                    wrapper.style.setProperty("grid-column", parentCS.gridColumn)
-                    wrapper.style.setProperty("grid-row", parentCS.gridRow)
-                    // Preserve the parent's flex sizing (e.g. flex:1 for "fill")
-                    // Copy the exact flex properties so the wrapper occupies
-                    // the same space in the layout.
-                    wrapper.style.setProperty("flex-grow", parentCS.flexGrow)
-                    wrapper.style.setProperty("flex-shrink", parentCS.flexShrink)
-                    wrapper.style.setProperty("flex-basis", parentCS.flexBasis)
-                    // Width strategy: if the parent has an explicit fixed
-                    // pixel width in its inline style, use that.  Otherwise
-                    // the parent is filling via flex or stretch — let the
-                    // copied flex properties handle sizing instead of baking
-                    // a computed pixel value that overrides stretch.
-                    var parentInlineW = parent.style.width
-                    var parentIsFixedW = parentInlineW && /^\d/.test(parentInlineW) && !/^100%/.test(parentInlineW)
-                    if (parentIsFixedW) {
-                        wrapper.style.setProperty("width", parentInlineW)
-                    } else {
-                        // For fill parents: use 100% in column layouts,
-                        // skip explicit width in row layouts (flex handles it)
-                        var gpDir = window.getComputedStyle(parentGP).flexDirection
-                        if (gpDir === "row" || gpDir === "row-reverse") {
-                            // Row: don't set width — flex-grow/basis handle it
-                        } else {
-                            wrapper.style.setProperty("width", "100%")
-                        }
-                    }
-
-                    // Mirror the section's flex layout so the Stack inside
-                    // the wrapper retains its flex-based sizing & centering
-                    var gpCS = window.getComputedStyle(parentGP)
-                    wrapper.style.setProperty("display", "flex")
-                    wrapper.style.setProperty("flex-direction", gpCS.flexDirection)
-                    wrapper.style.setProperty("align-items", gpCS.alignItems)
-                    wrapper.style.setProperty("justify-content", gpCS.justifyContent)
-                    wrapper.style.setProperty("gap", gpCS.gap)
-                }
-                // Copy parent's height so the wrapper doesn't collapse,
-                // especially when nested inside intermediate containers.
-                // Try responsive units first, then fall back to computed px.
-                var parentInlineHeight = parent.style.height
-                if (parentInlineHeight && /vh|vw|svh|dvh|lvh|%/.test(parentInlineHeight)) {
-                    wrapper.style.setProperty("height", parentInlineHeight)
-                } else {
-                    var parentRect = parent.getBoundingClientRect()
-                    var vpH = window.innerHeight
-                    if (Math.abs(parentRect.height - vpH) < 2) {
-                        wrapper.style.setProperty("height", "100vh")
-                    } else if (parentRect.height > 0) {
-                        // Always set a concrete height so the wrapper doesn't
-                        // collapse in deeply nested layouts where flex sizing
-                        // alone isn't enough
-                        wrapper.style.setProperty("height", parentRect.height + "px")
-                    }
-                }
-                // Also ensure height:100% as a fallback for flex/fill layouts
-                // where the parent fills its container
-                if (!wrapper.style.height) {
-                    wrapper.style.setProperty("height", "100%")
-                }
-                // Inherit the parent's position mode. If the parent is
-                // absolutely or fixedly positioned, the wrapper must take
-                // over those coordinates so the element stays in place
-                // when it is reparented into the wrapper.
-                var parentPos = window.getComputedStyle(parent).position
-                if (parentPos === "absolute" || parentPos === "fixed") {
-                    var parentCS = window.getComputedStyle(parent)
-                    wrapper.style.setProperty("position", parentPos)
-                    if (parentCS.top !== "auto") wrapper.style.setProperty("top", parentCS.top)
-                    if (parentCS.right !== "auto") wrapper.style.setProperty("right", parentCS.right)
-                    if (parentCS.bottom !== "auto") wrapper.style.setProperty("bottom", parentCS.bottom)
-                    if (parentCS.left !== "auto") wrapper.style.setProperty("left", parentCS.left)
-                    if (parentCS.zIndex !== "auto") wrapper.style.setProperty("z-index", parentCS.zIndex)
-                    // Save and reset the parent's positioning — it now
-                    // fills the wrapper instead of being positioned in
-                    // the section.  Originals are restored on cleanup.
-                    parentOrigPosition = parent.style.position
-                    parentOrigTop = parent.style.top
-                    parentOrigRight = parent.style.right
-                    parentOrigBottom = parent.style.bottom
-                    parentOrigLeft = parent.style.left
-                    parent.style.setProperty("position", "relative")
-                    parent.style.removeProperty("top")
-                    parent.style.removeProperty("right")
-                    parent.style.removeProperty("bottom")
-                    parent.style.removeProperty("left")
-                } else {
-                    wrapper.style.setProperty("position", "relative")
-                }
-                // Respect the parent's overflow — only force hidden when
-                // mask viewport clip needs it.  If the user set overflow
-                // to visible in Framer, the wrapper should not clip.
-                var parentOverflow = window.getComputedStyle(parent).overflow
-                if (maskViewportClip || parentOverflow === "hidden" || parentOverflow === "clip") {
-                    wrapper.style.setProperty("overflow", "hidden")
-                } else {
-                    wrapper.style.setProperty("overflow", parentOverflow)
-                }
-                wrapper.setAttribute("data-choreo-wrapper", baseId)
-
-                // Insert wrapper into the section
-                parentGP!.insertBefore(wrapper, parent)
-                // Save parent's original inline styles so we can restore on cleanup
-                parentOrigWidth = parent.style.width
-                parentOrigHeight = parent.style.height
-                parentOrigFlexShrink = parent.style.flexShrink
-                // Capture the parent's computed size BEFORE moving it,
-                // since its current size comes from the flex/grid context
-                // of parentGP.  Once moved into the wrapper, that context
-                // is lost and the parent can collapse to min-content.
-                var parentPreMoveH = parent.offsetHeight
-                wrapper.appendChild(parent)
-                // Ensure the parent fills the wrapper — it may have relied
-                // on its old flex context for sizing (especially in nested
-                // layouts with an intermediate frame/DIV).
-                parent.style.setProperty("width", "100%")
-                parent.style.setProperty("height", parentPreMoveH + "px")
-                parent.style.setProperty("flex-shrink", "0")
-                scrollWrapper = wrapper
-            } else {
-                // CMS/grid mode: no wrapper — use parent directly.
-                // This avoids disrupting the grid layout and prevents
-                // clipping on items outside this CMS item.
-                wrapper = parent
-                // scrollWrapper stays null — cleanup won't try to unwrap
+            // Use parent directly as the "wrapper" — never reparent
+            // React-managed DOM nodes.  Moving elements via
+            // insertBefore/appendChild breaks React's internal DOM
+            // tracking, causing "classList of null" crashes in Framer's
+            // preview on re-render/reload.
+            wrapper = parent
+            wrapper.setAttribute("data-choreo-wrapper", baseId)
+            // Save and optionally override overflow for viewport clipping
+            parentOrigOverflow = parent.style.overflow
+            if (maskViewportClip) {
+                parent.style.setProperty("overflow", "hidden")
             }
+            // scrollWrapper stays null — no unwrapping needed on cleanup
 
             // sectionEl = the LOCAL section (for wrapper, overflow walk)
             // pinSectionEl = the PAGE-LEVEL section (for pin container,
@@ -3438,20 +3307,12 @@ export default function PageChoreographer(props: any) {
                     scrollSectionEl.removeAttribute("data-choreo-pin-priority")
                 }
             }
-            if (scrollWrapper && scrollWrapper.parentElement && parent) {
-                // Restore parent's original inline styles that we overrode
-                // during wrapper creation (width/height/flex-shrink)
-                if (parentOrigWidth) { parent.style.setProperty("width", parentOrigWidth) } else { parent.style.removeProperty("width") }
-                if (parentOrigHeight) { parent.style.setProperty("height", parentOrigHeight) } else { parent.style.removeProperty("height") }
-                if (parentOrigFlexShrink) { parent.style.setProperty("flex-shrink", parentOrigFlexShrink) } else { parent.style.removeProperty("flex-shrink") }
-                // Restore positioning if we transferred it to the wrapper
-                if (parentOrigPosition) { parent.style.setProperty("position", parentOrigPosition) } else { parent.style.removeProperty("position") }
-                if (parentOrigTop) { parent.style.setProperty("top", parentOrigTop) } else { parent.style.removeProperty("top") }
-                if (parentOrigRight) { parent.style.setProperty("right", parentOrigRight) } else { parent.style.removeProperty("right") }
-                if (parentOrigBottom) { parent.style.setProperty("bottom", parentOrigBottom) } else { parent.style.removeProperty("bottom") }
-                if (parentOrigLeft) { parent.style.setProperty("left", parentOrigLeft) } else { parent.style.removeProperty("left") }
-                scrollWrapper.parentElement.insertBefore(parent, scrollWrapper)
-                scrollWrapper.parentElement.removeChild(scrollWrapper)
+            // Restore parent's overflow and remove wrapper attribute
+            if (parent) {
+                parent.removeAttribute("data-choreo-wrapper")
+                if (parentOrigOverflow) { parent.style.setProperty("overflow", parentOrigOverflow) } else { parent.style.removeProperty("overflow") }
+                parent.style.removeProperty("clip-path")
+                parent.style.removeProperty("transition")
             }
             scrollPinEl = null
             unregisterAll(getStore())
