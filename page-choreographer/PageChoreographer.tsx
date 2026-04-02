@@ -2478,15 +2478,19 @@ export default function PageChoreographer(props: any) {
                         }
                     }
 
-                    // ── Create animations eagerly ──
-                    createScrollAnims()
-                    blockAnimatedPointerEvents()
-                    // Only set animations to "from" state for below-fold
-                    // sections.  Above-fold sections must stay in their
-                    // natural visible state until the trigger activates —
-                    // setting progress(0) forces opacity:0/translateY/etc.
+                    // ── Create animations ──
+                    // For below-fold sections: create eagerly, set to
+                    // progress 0 (elements hidden in "from" state).
+                    // For above-fold sections: defer creation until the
+                    // trigger enters — creating a WAAPI animation with
+                    // fill:"both" immediately applies the "from" keyframe
+                    // (opacity:0 etc.), making visible content disappear.
+                    var _animsCreated = false
                     if (!earlyAboveFold) {
+                        createScrollAnims()
+                        blockAnimatedPointerEvents()
                         updateAnimProgress(0)
+                        _animsCreated = true
                     }
 
                     // ── Determine pin section and scroll range ──
@@ -2605,8 +2609,19 @@ export default function PageChoreographer(props: any) {
                             }
                             localProgress = Math.max(0, Math.min(1, localProgress))
 
+                            // Deferred animation creation for above-fold:
+                            // Create WAAPI anims on first real progress so
+                            // elements stay visible until scroll reaches them.
+                            if (!_animsCreated && rebased > 0) {
+                                createScrollAnims()
+                                blockAnimatedPointerEvents()
+                                _animsCreated = true
+                            }
+
                             revealIfNeeded(rebased)
-                            updateAnimProgress(localProgress)
+                            if (_animsCreated) {
+                                updateAnimProgress(localProgress)
+                            }
                             updateViewportClip()
 
                             animDone = localProgress >= 1
