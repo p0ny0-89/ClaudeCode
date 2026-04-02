@@ -2356,6 +2356,17 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
+            // Every PC with scrollPin stores its needed pin length
+            // as a data attribute on pinSectionEl.  The owner reads
+            // ALL stored values and uses the MAX for the spacer and
+            // pin range, ensuring the section stays pinned long enough
+            // for ALL animations to complete.
+            if (scrollPin && pinSectionEl) {
+                var myNeededPinLen = scrollLength + Math.max(0, (scrollStartOffset / 100) * scrollLength)
+                pinSectionEl.setAttribute("data-choreo-pin-need-" + baseId, myNeededPinLen.toString())
+                console.log("[Choreo] PIN NEED stored:", baseId, "need:", myNeededPinLen, "isOwner:", isOwner, "isFollower:", isFollower)
+            }
+
             if (isOwner && pinSectionEl) {
                 pinSectionEl.setAttribute("data-choreo-pin-owner", baseId)
                 if (pinPriority) {
@@ -2365,10 +2376,19 @@ export default function PageChoreographer(props: any) {
                 // Disable browser scroll anchoring
                 pinSectionEl.style.setProperty("overflow-anchor", "none")
 
-                // Total spacer height must accommodate the animation offset
-                // so the pin stays active until the animation finishes.
+                // Total spacer height = MAX of all PCs' needed pin lengths.
+                // Read all data-choreo-pin-need-* attributes on pinSectionEl.
                 var ownerAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
                 var totalSpacerHeight = scrollLength + ownerAnimOffset
+                var pinNeedAttrs = pinSectionEl.attributes
+                for (var pna = 0; pna < pinNeedAttrs.length; pna++) {
+                    if (pinNeedAttrs[pna].name.indexOf("data-choreo-pin-need-") === 0) {
+                        var pnaVal = parseInt(pinNeedAttrs[pna].value) || 0
+                        if (pnaVal > totalSpacerHeight) {
+                            totalSpacerHeight = pnaVal
+                        }
+                    }
+                }
 
                 // ── Spacer (no pin container — avoid reparenting) ──
                 // Instead of creating a wrapper container and moving the
@@ -2433,13 +2453,24 @@ export default function PageChoreographer(props: any) {
                     }
                 }
 
+                // Collect all pin-need values for logging
+                var allPinNeeds: Record<string, number> = {}
+                for (var logPna = 0; logPna < pinSectionEl.attributes.length; logPna++) {
+                    var logAttr = pinSectionEl.attributes[logPna]
+                    if (logAttr.name.indexOf("data-choreo-pin-need-") === 0) {
+                        allPinNeeds[logAttr.name.replace("data-choreo-pin-need-", "")] = parseInt(logAttr.value) || 0
+                    }
+                }
                 console.log("[Choreo] PIN SETUP:", {
+                    baseId: baseId,
+                    isOwner: isOwner,
+                    isFollower: isFollower,
                     pinSectionEl: pinSectionEl.tagName + "#" + pinSectionEl.id + "." + (pinSectionEl.getAttribute("data-framer-name") || "") + " cls:" + pinSectionEl.className.slice(0, 40),
                     pinSectionH: pinSectionEl.offsetHeight,
-                    pinParent: pinParentEl ? pinParentEl.tagName + "#" + pinParentEl.id + "." + (pinParentEl.getAttribute("data-framer-name") || "") : "null",
-                    pinParentH: pinParentEl ? pinParentEl.offsetHeight : "n/a",
                     spacerH: totalSpacerHeight,
-                    parentIsWrapper: pinParentEl === wrapper,
+                    allPinNeeds: allPinNeeds,
+                    scrollLength: scrollLength,
+                    scrollStartOffset: scrollStartOffset,
                 })
             }
 
@@ -2853,15 +2884,28 @@ export default function PageChoreographer(props: any) {
                     return
                 }
 
-                // Owner: dynamically re-read the spacer height.
-                // Followers that need more scroll room expand the
-                // spacer at setup time. The owner must pick up the
-                // new height so pinEnd extends to cover all animations.
-                if (isOwner && scrollSpacer) {
-                    var dynamicSpacerH = parseInt(scrollSpacer.style.height) || 0
-                    if (dynamicSpacerH > totalPinLength) {
-                        totalPinLength = dynamicSpacerH
+                // Owner: dynamically re-read the max needed pin length
+                // from data attributes on pinSectionEl.  Followers that
+                // set up AFTER the owner store their needs as attributes;
+                // the owner picks them up here so pinEnd extends to cover
+                // all animations.  Also update the spacer to match.
+                if (isOwner && pinSectionEl) {
+                    var maxNeeded = totalPinLength
+                    var dynAttrs = pinSectionEl.attributes
+                    for (var da = 0; da < dynAttrs.length; da++) {
+                        if (dynAttrs[da].name.indexOf("data-choreo-pin-need-") === 0) {
+                            var daVal = parseInt(dynAttrs[da].value) || 0
+                            if (daVal > maxNeeded) maxNeeded = daVal
+                        }
+                    }
+                    if (maxNeeded > totalPinLength) {
+                        console.log("[Choreo] DYNAMIC PIN EXTEND:", baseId, "from:", totalPinLength, "to:", maxNeeded, "pinEnd:", pinStart + maxNeeded)
+                        totalPinLength = maxNeeded
                         pinEnd = pinStart + totalPinLength
+                        // Also expand spacer to match
+                        if (scrollSpacer) {
+                            scrollSpacer.style.setProperty("height", maxNeeded + "px")
+                        }
                     }
                 }
 
@@ -3306,6 +3350,12 @@ export default function PageChoreographer(props: any) {
                     scrollSectionEl.removeAttribute("data-choreo-pin-owner")
                     scrollSectionEl.removeAttribute("data-choreo-pin-priority")
                 }
+                // Clean up our pin-need attribute
+                scrollSectionEl.removeAttribute("data-choreo-pin-need-" + baseId)
+            }
+            // Followers also need to clean up their pin-need attribute
+            if (scrollSectionEl && isFollower) {
+                scrollSectionEl.removeAttribute("data-choreo-pin-need-" + baseId)
             }
             // Restore parent's overflow and remove wrapper attribute
             if (parent) {
