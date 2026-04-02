@@ -1085,8 +1085,16 @@ function findPinSection(el: HTMLElement): HTMLElement {
         // Skip over pin containers and spacers injected by previous
         // PC instances — these are NOT real page sections and must
         // never be returned as a pin section.
+        // Also skip GSAP ScrollTrigger's own pin-spacer wrappers.
+        // When PCs mount in separate React renders, GSAP may have
+        // already wrapped the real section in a pin-spacer div
+        // (class="pin-spacer").  If we don't skip these, later PCs
+        // find the pin-spacer instead of the original section,
+        // claim pin ownership on it, and create nested pins that
+        // cause the section to jump sizes/positions during scroll.
         if (node.hasAttribute("data-choreo-pin-container") ||
-            node.hasAttribute("data-choreo-spacer")) {
+            node.hasAttribute("data-choreo-spacer") ||
+            (node.classList && node.classList.contains("pin-spacer"))) {
             node = node.parentElement
             continue
         }
