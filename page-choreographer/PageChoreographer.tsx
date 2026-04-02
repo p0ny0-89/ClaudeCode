@@ -2400,13 +2400,15 @@ export default function PageChoreographer(props: any) {
                     // Map scrollStart to GSAP start/end strings
                     var gsapStart: string
                     if (scrollStart === "top") {
-                        gsapStart = "top top"
+                        // "top": animation begins when section top enters
+                        // viewport from below (section top at viewport bottom)
+                        gsapStart = "top bottom"
                     } else if (scrollStart === "center") {
                         gsapStart = "center center"
                     } else {
                         // "bottom" (default): animation begins when section
-                        // top reaches the viewport bottom
-                        gsapStart = "top bottom"
+                        // top reaches the viewport top (fully scrolled into view)
+                        gsapStart = "top top"
                     }
 
                     // Compute the scroll distance for this PC
