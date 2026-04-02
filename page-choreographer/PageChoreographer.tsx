@@ -2074,6 +2074,8 @@ export default function PageChoreographer(props: any) {
         var scrollPinEl: HTMLElement | null = null
         var scrollSetupRaf = 0
         var scrollResizeTimer = 0
+        var pinParentEl: HTMLElement | null = null
+        var pinParentOrigMinHeight = ""
         var scrollPinState = { pinned: false, afterPin: false, completed: false, origStyles: "" }
         var isFollower = false
 
@@ -2379,6 +2381,19 @@ export default function PageChoreographer(props: any) {
                         pinSectionEl.parentElement!.appendChild(spacer)
                     }
                     scrollSpacer = spacer
+                }
+
+                // ── Expand parent's min-height so sticky has room ──
+                // position:sticky only works when the parent is taller
+                // than the sticky element.  The spacer is a sibling but
+                // the parent (Framer Stack) may have an explicit height
+                // that doesn't account for it.  Set min-height to the
+                // section height + spacer height so sticky has scroll room.
+                if (pinSectionEl.parentElement) {
+                    pinParentEl = pinSectionEl.parentElement
+                    pinParentOrigMinHeight = pinParentEl.style.minHeight || ""
+                    var sectionNaturalH = pinSectionEl.offsetHeight
+                    pinParentEl.style.setProperty("min-height", (sectionNaturalH + totalSpacerHeight) + "px", "important")
                 }
 
                 // Apply sticky positioning on the pin section.
@@ -3070,7 +3085,13 @@ export default function PageChoreographer(props: any) {
                     // Include animation offset so pin lasts until animation finishes
                     if (scrollSpacer && !isFollower) {
                         var resizeAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
-                        scrollSpacer.style.setProperty("height", (scrollLength + resizeAnimOffset) + "px")
+                        var newSpacerH = scrollLength + resizeAnimOffset
+                        scrollSpacer.style.setProperty("height", newSpacerH + "px")
+                        // Update parent min-height to match
+                        if (pinParentEl && pinSectionEl) {
+                            var resizeSectionH = pinSectionEl.offsetHeight
+                            pinParentEl.style.setProperty("min-height", (resizeSectionH + newSpacerH) + "px", "important")
+                        }
                     }
 
                     // Followers: re-read owner's spacer in case it resized
@@ -3206,6 +3227,15 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer.parentElement.removeChild(scrollSpacer)
             }
             scrollSpacer = null
+            // Restore parent min-height
+            if (pinParentEl) {
+                if (pinParentOrigMinHeight) {
+                    pinParentEl.style.setProperty("min-height", pinParentOrigMinHeight)
+                } else {
+                    pinParentEl.style.removeProperty("min-height")
+                }
+                pinParentEl = null
+            }
             // Clean section styles and release claim (owner only —
             // followers don't own sticky positioning)
             if (scrollSectionEl && !isFollower) {
