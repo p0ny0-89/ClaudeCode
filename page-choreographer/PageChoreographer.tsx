@@ -2437,17 +2437,22 @@ export default function PageChoreographer(props: any) {
                     var triggerName = triggerEl.getAttribute("data-framer-name") || triggerEl.className.toString().slice(0, 40) || "(unnamed)"
                     var triggerRect = triggerEl.getBoundingClientRect()
                     console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "." + triggerName, "size:", Math.round(triggerRect.width) + "x" + Math.round(triggerRect.height), "top:", Math.round(triggerRect.top), "pin:", shouldPin, "isPinOwner:", isPinOwner, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset)
+                    var _firstUpdate = true
                     gsapScrollTrigger = ST.create({
+                        id: baseId,
                         trigger: triggerEl,
                         pin: shouldPin,
                         pinSpacing: shouldPin,
-                        pinType: "transform",
                         anticipatePin: shouldPin ? 1 : 0,
                         start: gsapStart,
                         end: "+=" + totalScrollDist,
-                        markers: true, // DEBUG: visual markers for trigger start/end
+                        markers: { startColor: "lime", endColor: "red", fontSize: "10px" },
                         onUpdate: function (self: any) {
                             if (!gsapMounted) return
+                            if (_firstUpdate) {
+                                _firstUpdate = false
+                                console.log("[Choreo] FIRST UPDATE:", baseId, "progress:", self.progress.toFixed(3), "isActive:", self.isActive, "direction:", self.direction, "start:", self.start, "end:", self.end)
+                            }
                             var progress = self.progress
 
                             // Apply animation offset: the first portion of
