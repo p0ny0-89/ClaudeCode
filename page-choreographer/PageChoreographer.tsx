@@ -3264,8 +3264,12 @@ export default function PageChoreographer(props: any) {
                             resizeOffset = -(resizeVh / 2) + (resizeRect.height / 2)
                         }
                     }
+                    var oldPinStart = pinStart
                     pinStart = Math.max(0, resizeRect.top + window.scrollY + resizeOffset)
                     pinEnd = pinStart + totalPinLength
+                    if (Math.abs(pinStart - oldPinStart) > 10) {
+                        console.log("[Choreo] RESIZE pinStart SHIFT:", baseId, "from:", oldPinStart, "to:", pinStart, "rectTop:", resizeRect.top, "scrollY:", window.scrollY, "resizeOffset:", resizeOffset, "totalPinLength:", totalPinLength, "scrollStart:", scrollStart, "isOwner:", isOwner, "isFollower:", isFollower, "transformCleared:", isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId)
+                    }
                     // Recalculate own animation range
                     animOffset = (scrollStartOffset / 100) * pinScrollLength
                     animStart = pinStart + animOffset
