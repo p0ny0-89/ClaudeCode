@@ -2346,16 +2346,15 @@ export default function PageChoreographer(props: any) {
                         // maskPreview mode reveals immediately for canvas editing.
                         if (!maskPreview && progress <= 0) return
                         visibilityRevealed = true
+                        // Remove the data-choreo-hide attribute from THIS PC's
+                        // elements only.  Do NOT remove the shared <style> tag —
+                        // other PCs still rely on it for their hidden elements.
                         for (var ph = 0; ph < preHiddenEls.length; ph++) {
                             preHiddenEls[ph].removeAttribute("data-choreo-hide")
                             preHiddenEls[ph].style.removeProperty("visibility")
                             preHiddenEls[ph].style.removeProperty("opacity")
                             preHiddenEls[ph].style.removeProperty("pointer-events")
                             preHiddenEls[ph].style.removeProperty("clip-path")
-                        }
-                        if (preHideStyleTag && preHideStyleTag.parentNode) {
-                            preHideStyleTag.parentNode.removeChild(preHideStyleTag)
-                            preHideStyleTag = null
                         }
                     }
                     var rehideIfNeeded = function () {
