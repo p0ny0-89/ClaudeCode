@@ -1104,9 +1104,12 @@ function findPinSection(el: HTMLElement): HTMLElement {
             var parentKids = node.parentElement.children.length
             if (parentKids >= 2) {
                 best = node
-                // Don't break — keep going up in case there's a
-                // better (higher) candidate.  But stop if the next
-                // ancestor is way too tall.
+                // Stop at the FIRST valid section — the lowest
+                // ancestor whose parent has ≥2 children.  Climbing
+                // higher risks landing on a shared page-level
+                // container, causing PCs in separate stacks to
+                // resolve to the same pin section.
+                break
             }
         }
         // Stop climbing if we've gone past 3x viewport
