@@ -2660,24 +2660,32 @@ export default function PageChoreographer(props: any) {
                     // Log immediate post-create state
                     console.log("[Choreo] ST created:", baseId, "gsapScrollTrigger:", !!gsapScrollTrigger, "pin:", gsapScrollTrigger && gsapScrollTrigger.pin, "spacer:", gsapScrollTrigger && gsapScrollTrigger.spacer, "isActive:", gsapScrollTrigger && gsapScrollTrigger.isActive)
 
-                    // Defer sort/refresh until ALL PCs have created their
-                    // ScrollTriggers.  All .then() callbacks fire in the
-                    // same microtask (shared promise), so setTimeout(0)
-                    // runs after all of them.  This ensures sort/refresh
-                    // sees the complete set of triggers.
-                    clearTimeout((window as any).__choreoRefreshTimer)
-                    ;(window as any).__choreoRefreshTimer = setTimeout(function () {
+                    // Queue WAAPI creation for AFTER ST.refresh().
+                    // Each PC pushes its own callback; the shared timer
+                    // flushes them all after sort+refresh.  This avoids
+                    // the old bug where the last PC's timer cancelled
+                    // all earlier PCs' callbacks.
+                    var _postRefreshQueue = (window as any).__choreoPostRefreshQueue = (window as any).__choreoPostRefreshQueue || []
+                    _postRefreshQueue.push(function () {
                         if (!gsapMounted) return
-                        ST.sort()
-                        ST.refresh()
-
-                        // NOW create WAAPI animations — AFTER GSAP has
-                        // measured natural element positions.  fill:"both"
-                        // transforms won't interfere with position calc.
                         createScrollAnims()
                         blockAnimatedPointerEvents()
                         updateAnimProgress(0)
                         _animsReady = true
+                        console.log("[Choreo] WAAPI anims created:", baseId)
+                    })
+
+                    clearTimeout((window as any).__choreoRefreshTimer)
+                    ;(window as any).__choreoRefreshTimer = setTimeout(function () {
+                        ST.sort()
+                        ST.refresh()
+
+                        // Flush all queued WAAPI creations AFTER refresh
+                        var fns = (window as any).__choreoPostRefreshQueue || []
+                        ;(window as any).__choreoPostRefreshQueue = []
+                        for (var qi = 0; qi < fns.length; qi++) {
+                            try { fns[qi]() } catch (e) { console.error("[Choreo] post-refresh error:", e) }
+                        }
 
                         var allTriggers = ST.getAll()
                         console.log("[Choreo] ScrollTrigger.sort() + refresh() — total triggers:", allTriggers.length)
