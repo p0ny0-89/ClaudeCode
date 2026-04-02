@@ -2384,46 +2384,32 @@ export default function PageChoreographer(props: any) {
                     scrollSpacer = spacer
                 }
 
-                // ── Expand parent's min-height so sticky has room ──
-                // position:sticky only works when the parent is taller
-                // than the sticky element.  The spacer is a sibling but
-                // the parent (Framer Stack) may have an explicit height
-                // that doesn't account for it.  Set min-height to the
-                // section height + spacer height so sticky has scroll room.
+                // ── Expand parent height so the spacer creates scroll room ──
+                // The spacer is a flex child of pinSectionEl's parent.
+                // Framer Stacks set explicit height via inline styles, so
+                // the spacer may not contribute to the parent's size.
+                // Override height to (section + spacer) to guarantee the
+                // page is tall enough for the scroll-scrub range.
                 if (pinSectionEl.parentElement) {
                     pinParentEl = pinSectionEl.parentElement
                     pinParentOrigMinHeight = pinParentEl.style.minHeight || ""
                     pinParentOrigHeight = pinParentEl.style.height || ""
                     var sectionNaturalH = pinSectionEl.offsetHeight
                     var neededHeight = sectionNaturalH + totalSpacerHeight
-                    // Debug: log parent state before and after
-                    console.log("[Choreo] pinParent BEFORE:", {
-                        tagName: pinParentEl.tagName,
-                        id: pinParentEl.id,
-                        className: pinParentEl.className,
-                        inlineStyle: pinParentEl.getAttribute("style"),
-                        offsetHeight: pinParentEl.offsetHeight,
-                        sectionNaturalH: sectionNaturalH,
-                        totalSpacerHeight: totalSpacerHeight,
-                        neededHeight: neededHeight,
-                    })
-                    // Framer sets explicit `height` on Stack elements via inline
-                    // style.  An explicit height overrides min-height, so we must
-                    // also override height itself.
                     pinParentEl.style.setProperty("min-height", neededHeight + "px", "important")
                     pinParentEl.style.setProperty("height", neededHeight + "px", "important")
-                    console.log("[Choreo] pinParent AFTER:", {
-                        inlineStyle: pinParentEl.getAttribute("style"),
-                        offsetHeight: pinParentEl.offsetHeight,
-                    })
                 }
 
-                // Apply sticky positioning on the pin section.
-                // Do NOT force z-index — the user controls stacking
-                // order via Framer's z-index property.  Sticky elements
-                // naturally paint above their siblings (the spacer).
-                pinSectionEl.style.setProperty("position", "sticky", "important")
-                pinSectionEl.style.setProperty("top", "0px", "important")
+                // ── Transform-based pinning ──
+                // position:sticky is fragile in Framer's flex Stacks
+                // (overflow:hidden on ancestors, explicit heights, etc.).
+                // Instead, the scroll handler applies translateY to
+                // counteract natural scroll, keeping the section visually
+                // pinned.  No position change needed — just transform.
+                // Ensure the section has position:relative so transform
+                // works reliably and it paints above the spacer.
+                pinSectionEl.style.setProperty("position", "relative", "important")
+                pinSectionEl.style.setProperty("z-index", "1", "important")
 
                 // ── Background fix for pinned sections ──
                 // The section's background is often on a parent frame.
@@ -2860,6 +2846,14 @@ export default function PageChoreographer(props: any) {
                     }
 
                     scrollPinState.pinned = true
+
+                    // ── Transform-based pin ──
+                    // Counteract scroll by translating the section down
+                    // by the same amount it has scrolled up.
+                    if (pinSectionEl) {
+                        pinSectionEl.style.setProperty("transform", "translateY(" + (scrollY - pinStart) + "px)", "important")
+                    }
+
                     // DEBUG: log zone transitions and progress
                     if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "pinned") {
                         console.log("[ZONE] → pinned | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinStart:", Math.round(pinStart), "pinEnd:", Math.round(pinEnd), "animStart:", Math.round(animStart), "animLength:", Math.round(animLength), "progress:", clampedProgress.toFixed(3), "animsCreated:", scrollAnimsCreated, "animCount:", scrollAnims.length, "visRevealed:", visibilityRevealed)
@@ -2920,6 +2914,10 @@ export default function PageChoreographer(props: any) {
                     }
                     scrollPinState.pinned = false
                     animDone = false
+                    // Clear transform so the section sits at its natural position
+                    if (pinSectionEl) {
+                        pinSectionEl.style.removeProperty("transform")
+                    }
                     if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "before") {
                         console.log("[ZONE] → before-pin | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinStart:", Math.round(pinStart), "wasAfterPin:", scrollPinState.afterPin, "animsCreated:", scrollAnimsCreated, "animCount:", scrollAnims.length)
                     }
@@ -2975,9 +2973,11 @@ export default function PageChoreographer(props: any) {
 
                 } else {
                     // ── AFTER PIN ──
-                    // Sticky stays on — the browser naturally un-sticks
-                    // the section when its containing block scrolls past.
-                    // No manual position changes = no visual jump.
+                    // Hold the final transform so the section resumes its
+                    // natural scroll position after the pin range.
+                    if (pinSectionEl) {
+                        pinSectionEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
+                    }
                     if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "after") {
                         console.log("[ZONE] → after-pin | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinEnd:", Math.round(pinEnd), "wasAfterPin:", scrollPinState.afterPin)
                     }
