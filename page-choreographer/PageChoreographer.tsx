@@ -1090,6 +1090,9 @@ function findPinSection(el: HTMLElement): HTMLElement {
             node = node.parentElement
             continue
         }
+        // Never select body or html as a pin section — these are
+        // page-level containers, not sections.
+        if (node === document.body || node === document.documentElement) break
         var h = node.offsetHeight
         // Good pin candidate: a non-collapsed element whose parent
         // has at least 2 children (meaning it's a page-level section
