@@ -2272,23 +2272,19 @@ export default function PageChoreographer(props: any) {
                         var pinCtrOwner = pinSearchNode.getAttribute("data-choreo-pin-container")
                         if (pinCtrOwner !== baseId) {
                             // Another PC already owns the pin.
-                            // If WE have pinPriority and THEY don't,
-                            // we take over.  If BOTH have priority,
-                            // the longer scrollLength wins (provides
-                            // more scroll room for all animations).
                             var existingHasPriority = pinSearchNode.getAttribute("data-choreo-pin-priority") === "true"
                             var existingSpacer = pinSearchNode.querySelector("[data-choreo-spacer]") as HTMLElement
                             var existingLength = existingSpacer ? (parseInt(existingSpacer.style.height) || 0) : 0
+                            var ourNeededLen1 = scrollLength + Math.max(0, (scrollStartOffset / 100) * scrollLength)
                             var shouldTakeOver = false
                             if (pinPriority && !existingHasPriority) {
                                 shouldTakeOver = true
-                            } else if (pinPriority && existingHasPriority && scrollLength > existingLength) {
+                            } else if (pinPriority && existingHasPriority && ourNeededLen1 > existingLength) {
+                                shouldTakeOver = true
+                            } else if (!existingHasPriority && ourNeededLen1 > existingLength) {
                                 shouldTakeOver = true
                             }
                             if (shouldTakeOver) {
-                                // We'll take over — don't become follower.
-                                // The existing pin container will be reused
-                                // (our pin creation code will handle it).
                                 break
                             }
                             isFollower = true
@@ -2309,14 +2305,15 @@ export default function PageChoreographer(props: any) {
                         var existingOwner = pinSearchNode.getAttribute("data-choreo-pin-owner")
                         if (existingOwner !== baseId) {
                             var ownerHasPri = pinSearchNode.getAttribute("data-choreo-pin-priority") === "true"
-                            // Take over if we have priority and they don't,
-                            // or both have priority but we have longer scroll
-                            var ownerSpEl = pinSearchNode.parentElement
+                            // Read the existing owner's spacer height.
+                            // The spacer is a sibling of pinSectionEl.
                             var ownerSpLen = 0
-                            if (ownerSpEl && ownerSpEl.hasAttribute("data-choreo-pin-container")) {
-                                var ownerSpSpacer = ownerSpEl.querySelector("[data-choreo-spacer]") as HTMLElement
-                                if (ownerSpSpacer) ownerSpLen = parseInt(ownerSpSpacer.style.height) || 0
+                            var ownerSpSpacer2: HTMLElement | null = null
+                            if (pinSearchNode.parentElement) {
+                                ownerSpSpacer2 = pinSearchNode.parentElement.querySelector("[data-choreo-spacer]") as HTMLElement
+                                if (ownerSpSpacer2) ownerSpLen = parseInt(ownerSpSpacer2.style.height) || 0
                             }
+                            // Priority-based takeover (original behavior)
                             if ((pinPriority && !ownerHasPri) || (pinPriority && ownerHasPri && scrollLength > ownerSpLen)) {
                                 break // take over
                             }
@@ -2324,6 +2321,20 @@ export default function PageChoreographer(props: any) {
                             isOwner = false
                             pinSectionEl = pinSearchNode
                             scrollSectionEl = pinSectionEl
+                            // Use the owner's spacer as ownerScrollLength
+                            if (ownerSpLen > 0) {
+                                ownerScrollLength = ownerSpLen
+                            }
+                            // If OUR needed pin range exceeds the owner's
+                            // spacer, EXPAND the spacer so the owner's pin
+                            // lasts long enough for our animation.  The
+                            // owner's scroll handler reads the spacer height
+                            // dynamically, so it will pick up the change.
+                            var ourNeededPinLen = scrollLength + Math.max(0, (scrollStartOffset / 100) * scrollLength)
+                            if (ourNeededPinLen > ownerSpLen && ownerSpSpacer2) {
+                                ownerSpSpacer2.style.setProperty("height", ourNeededPinLen + "px")
+                                ownerScrollLength = ourNeededPinLen
+                            }
                             break
                         }
                     }
@@ -2842,6 +2853,18 @@ export default function PageChoreographer(props: any) {
                     return
                 }
 
+                // Owner: dynamically re-read the spacer height.
+                // Followers that need more scroll room expand the
+                // spacer at setup time. The owner must pick up the
+                // new height so pinEnd extends to cover all animations.
+                if (isOwner && scrollSpacer) {
+                    var dynamicSpacerH = parseInt(scrollSpacer.style.height) || 0
+                    if (dynamicSpacerH > totalPinLength) {
+                        totalPinLength = dynamicSpacerH
+                        pinEnd = pinStart + totalPinLength
+                    }
+                }
+
                 if (scrollY >= pinStart && scrollY <= pinEnd) {
                     // ── PINNED ZONE ──
                     // Compute progress early so unbake can scrub to the
@@ -3094,8 +3117,13 @@ export default function PageChoreographer(props: any) {
                 scrollResizeTimer = window.setTimeout(function () {
                     if (!wrapper || !parent) return
 
-                    // Clear slide-away transform for accurate measurement
-                    if (isOwner && pinSectionEl && scrollPinState.afterPin) {
+                    // Clear ANY active transform for accurate measurement.
+                    // getBoundingClientRect includes transforms, so if the
+                    // section has a pinned or after-pin translateY, the
+                    // measured docTop would be wrong → stale pinStart.
+                    // The scroll handler (called at the end of resize)
+                    // will reapply the correct transform.
+                    if (isOwner && pinSectionEl) {
                         pinSectionEl.style.removeProperty("transform")
                     }
 
