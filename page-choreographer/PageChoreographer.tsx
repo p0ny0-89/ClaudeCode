@@ -2460,10 +2460,6 @@ export default function PageChoreographer(props: any) {
                         markers: { startColor: "lime", endColor: "red", fontSize: "10px" },
                         onUpdate: function (self: any) {
                             if (!gsapMounted) return
-                            if (_firstUpdate) {
-                                _firstUpdate = false
-                                console.log("[Choreo] FIRST UPDATE:", baseId, "progress:", self.progress.toFixed(3), "isActive:", self.isActive, "direction:", self.direction, "start:", self.start, "end:", self.end)
-                            }
                             var progress = self.progress
 
                             // Apply animation offset: the first portion of
@@ -2481,6 +2477,19 @@ export default function PageChoreographer(props: any) {
                                 localProgress = progress
                             }
                             localProgress = Math.max(0, Math.min(1, localProgress))
+
+                            if (_firstUpdate) {
+                                _firstUpdate = false
+                                console.log("[Choreo] FIRST UPDATE:", baseId, "progress:", progress.toFixed(3), "isActive:", self.isActive, "direction:", self.direction, "start:", self.start, "end:", self.end)
+                                // On the very first onUpdate (fired during
+                                // trigger creation / ST.refresh()), set the
+                                // animation to the correct frame but do NOT
+                                // reveal.  This keeps elements hidden on page
+                                // load even if the trigger is already active.
+                                // Real scroll-driven updates will reveal.
+                                updateAnimProgress(localProgress)
+                                return
+                            }
 
                             revealIfNeeded(progress)
                             updateAnimProgress(localProgress)
@@ -2546,22 +2555,9 @@ export default function PageChoreographer(props: any) {
                         console.log("[Choreo] ScrollTrigger.sort() + refresh() — total triggers:", ST.getAll().length)
                     }, 0)
 
-                    // Safety fallback: if GSAP loaded but elements remain
-                    // hidden after 5 seconds (e.g. trigger never fires), reveal
-                    // to avoid permanently invisible content.
-                    scrollSafetyTimer = setTimeout(function () {
-                        if (!visibilityRevealed && preHiddenEls.length > 0) {
-                            console.warn("[Choreo] Safety reveal for", baseId, "— trigger never fired within 5s")
-                            visibilityRevealed = true
-                            for (var sr = 0; sr < preHiddenEls.length; sr++) {
-                                preHiddenEls[sr].removeAttribute("data-choreo-hide")
-                                preHiddenEls[sr].style.removeProperty("visibility")
-                                preHiddenEls[sr].style.removeProperty("opacity")
-                                preHiddenEls[sr].style.removeProperty("pointer-events")
-                                preHiddenEls[sr].style.removeProperty("clip-path")
-                            }
-                        }
-                    }, 5000) as unknown as number
+                    // No safety timer — elements stay hidden until the
+                    // user scrolls into the trigger range.  The .catch()
+                    // fallback handles GSAP load failures.
 
                 }, parent) // end gsap.context scope
             }).catch(function (err) {
