@@ -2639,6 +2639,15 @@ export default function PageChoreographer(props: any) {
                         },
                     })
 
+                    // Above-fold sections: reveal immediately.
+                    // onUpdate only fires when scroll is between start
+                    // and end, but above-fold content with start:
+                    // "center center" doesn't trigger until scroll ~200.
+                    // Content must be visible before that.
+                    if (_aboveFold) {
+                        revealIfNeeded(1)
+                    }
+
                     // Defer sort/refresh until ALL PCs have created their
                     // ScrollTriggers.  All .then() callbacks fire in the
                     // same microtask (shared promise), so setTimeout(0)
