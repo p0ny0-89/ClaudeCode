@@ -2516,20 +2516,28 @@ export default function PageChoreographer(props: any) {
                     var triggerName = triggerEl.getAttribute("data-framer-name") || triggerEl.className.toString().slice(0, 40) || "(unnamed)"
                     var triggerRect = triggerEl.getBoundingClientRect()
                     console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "." + triggerName, "size:", Math.round(triggerRect.width) + "x" + Math.round(triggerRect.height), "top:", Math.round(triggerRect.top), "pin:", shouldPin, "isPinOwner:", isPinOwner, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset)
-                    // Gate reveals on actual user scroll.  GSAP fires
-                    // onUpdate during trigger creation and ST.refresh(),
-                    // which can have different progress values — so
-                    // comparing deltas is unreliable.  Instead, listen
-                    // for a real scroll event to flip the gate.
-                    var _userHasScrolled = false
+                    // ── Reveal gating ──
+                    // Determine whether the trigger element is "above
+                    // the fold" — i.e. its top is within the first
+                    // viewport height at page load.  Above-fold
+                    // sections should reveal immediately.  Below-fold
+                    // sections wait for actual user scroll to avoid
+                    // flash-of-content on ultrawide/tall viewports.
+                    var _aboveFold = triggerRect.top < window.innerHeight
+                    var _userHasScrolled = _aboveFold // above-fold: pretend user already scrolled
                     var _progressBaseline = 0
-                    var _scrollGateHandler = function () {
-                        _userHasScrolled = true
-                        window.removeEventListener("scroll", _scrollGateHandler, true)
-                    }
-                    window.addEventListener("scroll", _scrollGateHandler, true)
-                    _scrollGateCleanup = function () {
-                        window.removeEventListener("scroll", _scrollGateHandler, true)
+                    var _scrollGateHandler: (() => void) | null = null
+                    if (!_aboveFold) {
+                        _scrollGateHandler = function () {
+                            _userHasScrolled = true
+                            window.removeEventListener("scroll", _scrollGateHandler!, true)
+                        }
+                        window.addEventListener("scroll", _scrollGateHandler, true)
+                        _scrollGateCleanup = function () {
+                            if (_scrollGateHandler) {
+                                window.removeEventListener("scroll", _scrollGateHandler, true)
+                            }
+                        }
                     }
 
                     gsapScrollTrigger = ST.create({
@@ -2546,15 +2554,11 @@ export default function PageChoreographer(props: any) {
                             var progress = self.progress
 
                             // ── Rebase progress on first real scroll ──
-                            // On ultrawide/tall viewports a trigger can
-                            // already be mid-range on load (e.g. 42%).
-                            // We record that as a baseline and remap so
-                            // the animation starts from 0 when the user
-                            // first scrolls, using the remaining range.
+                            // Below-fold sections on ultrawide/tall
+                            // viewports can be mid-range on load.  Record
+                            // baseline and remap so animation starts at 0.
+                            // Above-fold sections skip this (gate is open).
                             if (!_userHasScrolled) {
-                                // Before any scroll: keep recording the
-                                // latest progress as baseline and hold
-                                // animation at 0.
                                 _progressBaseline = progress
                                 updateAnimProgress(0)
                                 return
