@@ -2409,10 +2409,11 @@ export default function PageChoreographer(props: any) {
                     var visibilityRevealed = false
                     var revealIfNeeded = function (progress: number) {
                         if (visibilityRevealed) return
-                        // Only reveal once scroll has actually progressed into the trigger
-                        // (progress > 0), not merely at the start boundary (progress === 0).
-                        // maskPreview mode reveals immediately for canvas editing.
-                        if (!maskPreview && progress <= 0) return
+                        // Above-fold sections and maskPreview reveal
+                        // immediately — the user can already see them.
+                        // Below-fold sections require progress > 0 so
+                        // they don't flash before the user scrolls.
+                        if (!maskPreview && !_aboveFold && progress <= 0) return
                         visibilityRevealed = true
                         // Remove the data-choreo-hide attribute from THIS PC's
                         // elements only.  Do NOT remove the shared <style> tag —
