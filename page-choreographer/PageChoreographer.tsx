@@ -2251,10 +2251,32 @@ export default function PageChoreographer(props: any) {
             }
 
             // ── Load GSAP and create ScrollTrigger ──
-            loadGSAP().then(function (libs) {
+            // If GSAP is already loaded (cached), create triggers
+            // synchronously so they survive React re-render cycles.
+            // With async .then(), useLayoutEffect cleanup kills the
+            // old trigger, and the new trigger isn't created until
+            // the next microtask — by which time another re-render
+            // may have already killed it.  Synchronous creation
+            // means cleanup + recreation happens in the same tick.
+            var _existingGsap = (window as any).gsap
+            var _existingST = (window as any).ScrollTrigger
+            if (_existingGsap && _existingST) {
+                _createScrollTrigger(_existingGsap, _existingST)
+            } else {
+                loadGSAP().then(function (libs) {
+                    _createScrollTrigger(libs.gsap, libs.ScrollTrigger)
+                }).catch(function (err) {
+                    console.warn("[Choreo] GSAP load failed:", err)
+                    // Fallback: just reveal everything
+                    for (var fb = 0; fb < preHiddenEls.length; fb++) {
+                        preHiddenEls[fb].removeAttribute("data-choreo-hide")
+                        preHiddenEls[fb].style.removeProperty("visibility")
+                    }
+                })
+            }
+
+            function _createScrollTrigger(gsap: any, ST: any) {
                 if (!gsapMounted || !parent) return
-                var gsap = libs.gsap
-                var ST = libs.ScrollTrigger
 
                 gsapCtx = gsap.context(function () {
                     var store = getStore()
@@ -2589,14 +2611,7 @@ export default function PageChoreographer(props: any) {
                     // fallback handles GSAP load failures.
 
                 }, parent) // end gsap.context scope
-            }).catch(function (err) {
-                console.warn("[Choreo] GSAP load failed:", err)
-                // Fallback: just reveal everything
-                for (var fb = 0; fb < preHiddenEls.length; fb++) {
-                    preHiddenEls[fb].removeAttribute("data-choreo-hide")
-                    preHiddenEls[fb].style.removeProperty("visibility")
-                }
-            })
+            } // end _createScrollTrigger
         }
 
         return function () {
