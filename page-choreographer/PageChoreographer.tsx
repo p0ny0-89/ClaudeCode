@@ -2860,10 +2860,11 @@ export default function PageChoreographer(props: any) {
                     scrollPinState.pinned = true
 
                     // ── Transform-based pin ──
-                    // Counteract scroll by translating the section down
-                    // by the same amount it has scrolled up.
-                    if (pinSectionEl) {
-                        var pinTranslateY = scrollY - pinStart
+                    // Only the OWNER applies translateY — followers just
+                    // scrub their animations.  Without this guard, multiple
+                    // PCs sharing a section would each overwrite the transform.
+                    var pinTranslateY = scrollY - pinStart
+                    if (isOwner && pinSectionEl) {
                         pinSectionEl.style.setProperty("transform", "translateY(" + pinTranslateY + "px)", "important")
                     }
 
@@ -2928,8 +2929,8 @@ export default function PageChoreographer(props: any) {
                     }
                     scrollPinState.pinned = false
                     animDone = false
-                    // Clear transform so the section sits at its natural position
-                    if (pinSectionEl) {
+                    // Only the owner clears the transform
+                    if (isOwner && pinSectionEl) {
                         pinSectionEl.style.removeProperty("transform")
                     }
                     if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "before") {
@@ -2987,9 +2988,8 @@ export default function PageChoreographer(props: any) {
 
                 } else {
                     // ── AFTER PIN ──
-                    // Hold the final transform so the section resumes its
-                    // natural scroll position after the pin range.
-                    if (pinSectionEl) {
+                    // Only the owner holds the final transform.
+                    if (isOwner && pinSectionEl) {
                         pinSectionEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
                     }
                     if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "after") {
