@@ -1684,6 +1684,44 @@ function collectTargets(
     return result
 }
 
+// ─── GSAP CDN Loader ─────────────────────────────────────────────────────────
+// Loads gsap + ScrollTrigger from CDN (standard license).
+// Returns a promise that resolves with the gsap global.
+// Multiple callers share a single load promise.
+
+var GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.12/dist/gsap.min.js"
+var ST_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.12/dist/ScrollTrigger.min.js"
+
+function loadGSAP(): Promise<{ gsap: any; ScrollTrigger: any }> {
+    var key = "__choreoGsapLoad"
+    if ((window as any)[key]) return (window as any)[key]
+    ;(window as any)[key] = new Promise<{ gsap: any; ScrollTrigger: any }>(function (resolve, reject) {
+        // If already loaded (another plugin, etc.), skip script tags
+        if ((window as any).gsap && (window as any).ScrollTrigger) {
+            resolve({ gsap: (window as any).gsap, ScrollTrigger: (window as any).ScrollTrigger })
+            return
+        }
+        var s1 = document.createElement("script")
+        s1.src = GSAP_CDN
+        s1.onload = function () {
+            var s2 = document.createElement("script")
+            s2.src = ST_CDN
+            s2.onload = function () {
+                var g = (window as any).gsap
+                var ST = (window as any).ScrollTrigger
+                if (!g || !ST) { reject(new Error("GSAP load failed")); return }
+                g.registerPlugin(ST)
+                resolve({ gsap: g, ScrollTrigger: ST })
+            }
+            s2.onerror = reject
+            document.head.appendChild(s2)
+        }
+        s1.onerror = reject
+        document.head.appendChild(s1)
+    })
+    return (window as any)[key]
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 var groupCounter = 0
@@ -2059,103 +2097,41 @@ export default function PageChoreographer(props: any) {
             } catch (e) {}
         }
 
-        // ─── Scroll-scrub trigger ────────────────────────────────────────────
-        // All DOM manipulation (wrapper creation) is deferred to the first
-        // scroll event. On Framer canvas, scroll never fires, so the DOM is
-        // never modified and elements render naturally.
+        // ─── Scroll-scrub trigger (GSAP ScrollTrigger) ─────────────────────
+        // Uses GSAP ScrollTrigger for pinning and scroll progress.
+        // WAAPI animations are kept for the actual element animations.
         var scrollAnims: Animation[] = []
         var scrollAnimFinalStyles: Array<{ el: HTMLElement; to: Record<string, string> }> = []
         var scrubStyleTag: HTMLStyleElement | null = null
-        var scrollHandler: (() => void) | null = null
         var scrollSafetyTimer = 0
-        var scrollResizeHandler: (() => void) | null = null
-        var scrollWrapper: HTMLElement | null = null
-        var parentOrigOverflow = ""
-        var scrollSectionEl: HTMLElement | null = null
-        var scrollSpacer: HTMLElement | null = null
+        var gsapCtx: any = null
+        var gsapScrollTrigger: any = null
         var scrollOverflowAncestors: Array<{ el: HTMLElement; orig: string }> = []
-        var scrollPinEl: HTMLElement | null = null
-        var scrollSetupRaf = 0
-        var scrollResizeTimer = 0
-        var pinParentEl: HTMLElement | null = null
-        var pinParentOrigMinHeight = ""
-        var pinParentOrigHeight = ""
-        var scrollPinState = { pinned: false, afterPin: false, completed: false, origStyles: "" }
-        var isFollower = false
+        var parentOrigOverflow = ""
+        var gsapMounted = true
 
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
 
         if (trigger === "onScroll" && parent && isPreview && targets.length > 0) {
 
-            // Defer setup to next frame so CMS/async content has laid out
-            scrollSetupRaf = requestAnimationFrame(function () {
-            scrollSetupRaf = requestAnimationFrame(function () {
-            scrollSetupRaf = 0
-
-            var timelineDuration = 0
-
-            // ── Measure after layout has settled ──
-            var parentHeight = parent.offsetHeight
-            var parentWidth = parent.offsetWidth
-            var parentGP = parent.parentElement
-
-            // ── DIAGNOSTIC LOGGING (remove after debugging) ──
-
-            // ── Early section ownership check ──
-            // In CMS layouts, multiple instances share the same section.
-            // Only the FIRST instance (pin owner) should create scroll
-            // infrastructure (wrapper, spacer, animations).  Follower
-            // instances bail out entirely — their items are already
-            // targeted by the owner via inclusive collection (no
-            // isMarkerBranch filtering).  This prevents followers from
-            // creating wrappers with overflow:hidden that clip content.
-            // Start section detection from `parent` (the PC's container),
-            // not `parentGP`.  Starting one level too high causes
-            // findSection to return a page-level container (e.g. "main")
-            // which pins the entire page instead of just the target section.
-            var earlySection = findSection(parent)
+            // ── CMS bail-out ──
             var earlyPinSection = findPinSection(parent)
-            if (scrollPin && earlyPinSection && earlyPinSection.hasAttribute("data-choreo-pin-owner") && !pinPriority) {
-                // Another instance already owns this section's pin.
-                // Bail out ONLY if it's a CMS case (owner's marker is
-                // inside the same parent — they target the same elements).
-                // If the markers are in DIFFERENT parents, this is a
-                // multi-PC setup (e.g. image + text) — don't bail,
-                // fall through to follow-pin logic instead.
-                // NOTE: pinPriority PCs skip this check entirely — they
-                // MUST continue to take over the pin, never bail out.
+            if (scrollPin && earlyPinSection && earlyPinSection.hasAttribute("data-choreo-gsap-pin") && !pinPriority) {
                 var otherMarkers = parent.querySelectorAll("[data-choreo-marker]")
                 var isCmsDuplicate = false
                 for (var om = 0; om < otherMarkers.length; om++) {
-                    // If we find a marker in our parent that isn't ours,
-                    // another PC shares this parent = CMS duplicate.
-                    // Ignore markers with data-choreo-wait — those are
-                    // child PCs waiting for THIS PC to finish, not duplicates.
                     if (otherMarkers[om] !== marker && !otherMarkers[om].hasAttribute("data-choreo-wait")) {
                         isCmsDuplicate = true
                         break
                     }
                 }
                 if (isCmsDuplicate) {
-                    return
+                    // Another PC in the same parent already handles scroll
+                    return function () { unregisterAll(getStore()) }
                 }
-                // Different parents = separate PC → continue to follow-pin
             }
 
-
-            // ── onScroll pre-hiding ──
-            // Now that we know this instance owns the section (not bailing
-            // out), pre-hide targets so they don't flash before the scroll
-            // animation starts.
-            // Persistent style tag that suppresses CSS transitions on
-            // elements being scroll-scrubbed.  Uses a data attribute
-            // selector instead of inline styles because Framer's live
-            // preview re-renders can strip inline transition:none via
-            // React reconciliation — the attribute + stylesheet approach
-            // survives those re-renders.
-            // Singleton style tags: reuse if already in DOM from
-            // another PC instance (or a stale soft-refresh orphan).
-            // This prevents duplicates and ensures cleanup works.
+            // ── Pre-hiding ──
             var existingScrub = document.querySelector("style[data-choreo-style='scrub']") as HTMLStyleElement
             if (existingScrub) {
                 scrubStyleTag = existingScrub
@@ -2208,325 +2184,36 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // ── Check if targets span outside the parent ──
-            // In CMS grid/masonry layouts, targets are in multiple columns
-            // or grid cells — outside this instance's parent.  Creating a
-            // wrapper would disrupt the grid layout and cause clipping.
-            // In that case, skip wrapper creation and use parent directly.
-            var allTargetsInside = true
-            for (var oti = 0; oti < targets.length; oti++) {
-                if (!parent.contains(targets[oti])) {
-                    allTargetsInside = false
-                    break
-                }
-            }
-
-            var wrapper: HTMLElement
-
-            // Suppress all MutationObservers during structural DOM changes
-            // (wrapper creation, pin container, spacer) to prevent cross-instance
-            // infinite re-render loops.
-            choreoMutGlobalSuppress = true
-
-            // Use parent directly as the "wrapper" — never reparent
-            // React-managed DOM nodes.  Moving elements via
-            // insertBefore/appendChild breaks React's internal DOM
-            // tracking, causing "classList of null" crashes in Framer's
-            // preview on re-render/reload.
-            wrapper = parent
+            // ── Wrapper setup ──
+            var wrapper: HTMLElement = parent
             wrapper.setAttribute("data-choreo-wrapper", baseId)
-            // Save and optionally override overflow for viewport clipping
             parentOrigOverflow = parent.style.overflow
             if (maskViewportClip) {
                 parent.style.setProperty("overflow", "hidden")
             }
-            // scrollWrapper stays null — no unwrapping needed on cleanup
 
-            // sectionEl = the LOCAL section (for wrapper, overflow walk)
-            // pinSectionEl = the PAGE-LEVEL section (for pin container,
-            //   follow-pin detection).  This is the viewport-height block
-            //   that contains all PCs in the same visual section — may be
-            //   unnamed in Framer (just a plain DIV).
-            var sectionEl = earlySection
             var pinSectionEl = earlyPinSection
-            scrollSectionEl = pinSectionEl
 
-            // ── Determine pin mode ──
-            // Follow-pin detection uses pinSectionEl (the shared section)
-            // so that PCs in different branches of the same section can
-            // detect each other's pin containers.
-            //
-            // Pin Priority: when set, this PC claims ownership even if
-            // another non-priority PC already claimed.  This gives the
-            // user explicit control over which scroll length drives the
-            // pin duration.  Each PC still uses its OWN scroll length
-            // for animation progress.
-            isFollower = false
-            var isOwner = scrollPin
-            var ownerScrollLength = scrollLength
-
-            if (pinSectionEl) {
-                var pinSearchNode: HTMLElement | null = pinSectionEl
-                // DEBUG: log what the walk starts with
-                console.log("[Choreo] OWNER WALK start:", baseId, "pinSectionEl:", pinSectionEl.tagName + "#" + pinSectionEl.id + "." + (pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.className.slice(0, 30)), "hasPinOwner:", pinSectionEl.hasAttribute("data-choreo-pin-owner"), "pinOwnerVal:", pinSectionEl.getAttribute("data-choreo-pin-owner"))
-                while (pinSearchNode && pinSearchNode !== document.documentElement) {
-                    console.log("[Choreo] WALK STEP:", baseId, "node:", pinSearchNode.tagName + "." + (pinSearchNode.className || "").toString().slice(0, 30), "hasContainer:", pinSearchNode.hasAttribute("data-choreo-pin-container"), "hasOwner:", pinSearchNode.hasAttribute("data-choreo-pin-owner"), "ownerVal:", pinSearchNode.getAttribute("data-choreo-pin-owner"))
-                    if (pinSearchNode.hasAttribute("data-choreo-pin-container")) {
-                        console.log("[Choreo] WALK HIT CONTAINER:", baseId, "containerVal:", pinSearchNode.getAttribute("data-choreo-pin-container"))
-                        var pinCtrOwner = pinSearchNode.getAttribute("data-choreo-pin-container")
-                        if (pinCtrOwner !== baseId) {
-                            // Another PC already owns the pin.
-                            var existingHasPriority = pinSearchNode.getAttribute("data-choreo-pin-priority") === "true"
-                            var existingSpacer = pinSearchNode.querySelector("[data-choreo-spacer]") as HTMLElement
-                            var existingLength = existingSpacer ? (parseInt(existingSpacer.style.height) || 0) : 0
-                            var ourNeededLen1 = scrollLength + Math.max(0, (scrollStartOffset / 100) * scrollLength)
-                            var shouldTakeOver = false
-                            if (pinPriority && !existingHasPriority) {
-                                shouldTakeOver = true
-                            } else if (pinPriority && existingHasPriority && ourNeededLen1 > existingLength) {
-                                shouldTakeOver = true
-                            } else if (!existingHasPriority && ourNeededLen1 > existingLength) {
-                                shouldTakeOver = true
-                            }
-                            if (shouldTakeOver) {
-                                break
-                            }
-                            isFollower = true
-                            isOwner = false
-                            var pinSectionChild = pinSearchNode.querySelector("[data-choreo-pin-owner]") as HTMLElement
-                            if (pinSectionChild) {
-                                pinSectionEl = pinSectionChild
-                                scrollSectionEl = pinSectionEl
-                            }
-                            var ownerSpacer = pinSearchNode.querySelector("[data-choreo-spacer]") as HTMLElement
-                            if (ownerSpacer) {
-                                ownerScrollLength = parseInt(ownerSpacer.style.height) || scrollLength
-                            }
-                            break
-                        }
-                    }
-                    if (pinSearchNode.hasAttribute("data-choreo-pin-owner")) {
-                        var existingOwner = pinSearchNode.getAttribute("data-choreo-pin-owner")
-                        console.log("[Choreo] WALK HIT OWNER:", baseId, "existingOwner:", existingOwner, "isSelf:", existingOwner === baseId, "pinPriority:", pinPriority)
-                        if (existingOwner !== baseId) {
-                            // ALWAYS become a follower — never take over.
-                            // Takeover creates a "deposed owner" whose closure
-                            // is permanently stale (wrong pinEnd, stale spacer
-                            // ref).  Instead, followers store their pin-need as
-                            // a data attribute and the owner picks it up via
-                            // dynamic pin extend every frame.  pinPriority is
-                            // now only used to ensure the pin-need is stored
-                            // (all followers do this anyway).
-                            var ownerSpLen = 0
-                            var ownerSpSpacer2: HTMLElement | null = null
-                            if (pinSearchNode.parentElement) {
-                                ownerSpSpacer2 = pinSearchNode.parentElement.querySelector("[data-choreo-spacer]") as HTMLElement
-                                if (ownerSpSpacer2) ownerSpLen = parseInt(ownerSpSpacer2.style.height) || 0
-                            }
-                            console.log("[Choreo] BECAME FOLLOWER:", baseId, "owner:", existingOwner, "ownerSpLen:", ownerSpLen, "pinPriority:", pinPriority)
-                            isFollower = true
-                            isOwner = false
-                            pinSectionEl = pinSearchNode
-                            scrollSectionEl = pinSectionEl
-                            // Use the owner's spacer as ownerScrollLength
-                            if (ownerSpLen > 0) {
-                                ownerScrollLength = ownerSpLen
-                            }
-                            // If OUR needed pin range exceeds the owner's
-                            // spacer, EXPAND the spacer so the owner's pin
-                            // lasts long enough for our animation.  The
-                            // owner's scroll handler reads the spacer height
-                            // dynamically, so it will pick up the change.
-                            var ourNeededPinLen = scrollLength + Math.max(0, (scrollStartOffset / 100) * scrollLength)
-                            if (ourNeededPinLen > ownerSpLen && ownerSpSpacer2) {
-                                ownerSpSpacer2.style.setProperty("height", ourNeededPinLen + "px")
-                                ownerScrollLength = ourNeededPinLen
-                                console.log("[Choreo] EXPANDED SPACER:", baseId, "to:", ourNeededPinLen)
-                            }
-                            break
-                        }
-                    }
-                    pinSearchNode = pinSearchNode.parentElement
-                }
-                console.log("[Choreo] WALK DONE:", baseId, "isOwner:", isOwner, "isFollower:", isFollower, "walkExitedAt:", pinSearchNode ? pinSearchNode.tagName + "." + (pinSearchNode.className || "").toString().slice(0, 30) : "null/docEl")
-            }
-
-
-            // ── Clean up stale spacers and pin attributes ──
-            // When a PC re-renders, stale spacers from previous cycles
-            // may persist.  Remove them before creating new ones.
-            if (isOwner && pinSectionEl && pinSectionEl.parentElement) {
-                var staleSpacers = pinSectionEl.parentElement.querySelectorAll("[data-choreo-spacer]")
-                for (var ssi = 0; ssi < staleSpacers.length; ssi++) {
-                    var ss = staleSpacers[ssi] as HTMLElement
-                    if (ss.getAttribute("data-choreo-spacer") !== baseId) {
-                        ss.parentElement!.removeChild(ss)
-                    }
-                }
-            }
-
-            // Every PC with scrollPin stores its needed pin length
-            // as a data attribute on pinSectionEl.  The owner reads
-            // ALL stored values and uses the MAX for the spacer and
-            // pin range, ensuring the section stays pinned long enough
-            // for ALL animations to complete.
-            if (scrollPin && pinSectionEl) {
-                var myNeededPinLen = scrollLength + Math.max(0, (scrollStartOffset / 100) * scrollLength)
-                pinSectionEl.setAttribute("data-choreo-pin-need-" + baseId, myNeededPinLen.toString())
-                console.log("[Choreo] PIN NEED stored:", baseId, "need:", myNeededPinLen, "isOwner:", isOwner, "isFollower:", isFollower)
-            }
-
-            if (isOwner && pinSectionEl) {
-                pinSectionEl.setAttribute("data-choreo-pin-owner", baseId)
-                if (pinPriority) {
-                    pinSectionEl.setAttribute("data-choreo-pin-priority", "true")
-                }
-
-                // Disable browser scroll anchoring
-                pinSectionEl.style.setProperty("overflow-anchor", "none")
-
-                // Total spacer height = MAX of all PCs' needed pin lengths.
-                // Read all data-choreo-pin-need-* attributes on pinSectionEl.
-                var ownerAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
-                var totalSpacerHeight = scrollLength + ownerAnimOffset
-                var pinNeedAttrs = pinSectionEl.attributes
-                for (var pna = 0; pna < pinNeedAttrs.length; pna++) {
-                    if (pinNeedAttrs[pna].name.indexOf("data-choreo-pin-need-") === 0) {
-                        var pnaVal = parseInt(pinNeedAttrs[pna].value) || 0
-                        if (pnaVal > totalSpacerHeight) {
-                            totalSpacerHeight = pnaVal
-                        }
-                    }
-                }
-
-                // ── Spacer (no pin container — avoid reparenting) ──
-                // Instead of creating a wrapper container and moving the
-                // section into it (which breaks React's DOM tracking),
-                // insert the spacer as a sibling right after the section.
-                // The section gets position:sticky directly.  The spacer
-                // creates the scroll distance needed for the pin.
-                var existingSpacer = pinSectionEl.parentElement
-                    ? pinSectionEl.parentElement.querySelector("[data-choreo-spacer='" + baseId + "']") as HTMLElement
-                    : null
-                if (existingSpacer) {
-                    existingSpacer.style.setProperty("height", totalSpacerHeight + "px")
-                    scrollSpacer = existingSpacer
-                } else {
-                    var spacer = document.createElement("div")
-                    spacer.style.setProperty("height", totalSpacerHeight + "px")
-                    spacer.style.setProperty("width", "100%")
-                    spacer.style.setProperty("pointer-events", "none")
-                    spacer.style.setProperty("flex-shrink", "0")
-                    spacer.setAttribute("data-choreo-spacer", baseId)
-                    // Insert spacer right after the section
-                    if (pinSectionEl.nextSibling) {
-                        pinSectionEl.parentElement!.insertBefore(spacer, pinSectionEl.nextSibling)
-                    } else {
-                        pinSectionEl.parentElement!.appendChild(spacer)
-                    }
-                    scrollSpacer = spacer
-                }
-
-                // ── Transform-based pinning ──
-                // The spacer (inserted above) provides scroll room by
-                // overflowing the parent.  The overflow walk (below) sets
-                // overflow:visible on all ancestors, so the spacer's
-                // overflow contributes to the document's scroll height.
-                //
-                // We do NOT expand the parent's height — doing so
-                // corrupts multi-section layouts where multiple PCs
-                // share a parent (each overwriting the height).
-                //
-                // The scroll handler applies translateY to counteract
-                // natural scroll, keeping the section visually pinned.
-                pinSectionEl.style.setProperty("position", "relative", "important")
-
-                // ── Background fix for pinned sections ──
-                // The section's background is often on a parent frame.
-                // Only the STICKY element stays at the viewport top —
-                // everything else scrolls.  So the bg MUST go on
-                // pinSectionEl.  Use the `background` shorthand with
-                // !important to override Framer's own inline styles
-                // (which may set `background: transparent`).
-                var pinSectionBg = window.getComputedStyle(pinSectionEl).backgroundColor
-                var pinSectionHasBg = pinSectionBg && pinSectionBg !== "rgba(0, 0, 0, 0)" && pinSectionBg !== "transparent"
-                if (!pinSectionHasBg) {
-                    var bgWalk: HTMLElement | null = pinSectionEl.parentElement
-                    while (bgWalk && bgWalk !== document.documentElement) {
-                        var ancestorBg = window.getComputedStyle(bgWalk).backgroundColor
-                        if (ancestorBg && ancestorBg !== "rgba(0, 0, 0, 0)" && ancestorBg !== "transparent") {
-                            pinSectionEl.style.setProperty("background", ancestorBg, "important")
-                            break
-                        }
-                        bgWalk = bgWalk.parentElement
-                    }
-                }
-
-                // Collect all pin-need values for logging
-                var allPinNeeds: Record<string, number> = {}
-                for (var logPna = 0; logPna < pinSectionEl.attributes.length; logPna++) {
-                    var logAttr = pinSectionEl.attributes[logPna]
-                    if (logAttr.name.indexOf("data-choreo-pin-need-") === 0) {
-                        allPinNeeds[logAttr.name.replace("data-choreo-pin-need-", "")] = parseInt(logAttr.value) || 0
-                    }
-                }
-                console.log("[Choreo] PIN SETUP:", {
-                    baseId: baseId,
-                    isOwner: isOwner,
-                    isFollower: isFollower,
-                    pinSectionEl: pinSectionEl.tagName + "#" + pinSectionEl.id + "." + (pinSectionEl.getAttribute("data-framer-name") || "") + " cls:" + pinSectionEl.className.slice(0, 40),
-                    pinSectionH: pinSectionEl.offsetHeight,
-                    spacerH: totalSpacerHeight,
-                    allPinNeeds: allPinNeeds,
-                    scrollLength: scrollLength,
-                    scrollStartOffset: scrollStartOffset,
-                })
-            }
-
-            // Structural DOM changes complete — re-enable MutationObservers
-            choreoMutGlobalSuppress = false
-
-            // ── Bidirectional overflow walk ──
-            // Fix any ancestor/intermediate containers that clip animating
-            // elements. This runs for ALL onScroll setups (pinned AND
-            // non-pinned) because Framer containers often have
-            // overflow:hidden/clip or contain:paint that clips transforms.
-            var overflowRoot: HTMLElement | null = sectionEl || parent
-            // Walk UP from the section/parent to the document root
+            // ── Overflow fix for Framer containers ──
+            // Framer containers often have overflow:hidden/clip or
+            // contain:paint that prevents ScrollTrigger from working.
+            // Walk up and fix these.
+            var overflowRoot: HTMLElement | null = pinSectionEl || parent
             var overflowNode: HTMLElement | null = overflowRoot
             while (overflowNode && overflowNode !== document.documentElement) {
-                // Skip our own wrapper and pin containers — their
-                // overflow settings are intentional
-                if (overflowNode.hasAttribute("data-choreo-wrapper") ||
-                    overflowNode.hasAttribute("data-choreo-pin-container")) {
-                    overflowNode = overflowNode.parentElement
-                    continue
-                }
-                // NEVER force overflow:visible on the pinSectionEl itself.
-                // The pinSectionEl is the viewport-height block (e.g. a
-                // 720px section in a Stack).  Removing its overflow clip
-                // makes its content visually expand beyond its intended
-                // height, breaking the "viewport height" contract.
-                // Its PARENT still needs overflow:visible so the spacer
-                // (a sibling of pinSectionEl) contributes to scroll height.
-                if (pinSectionEl && overflowNode === pinSectionEl) {
+                if (overflowNode.hasAttribute("data-choreo-wrapper")) {
                     overflowNode = overflowNode.parentElement
                     continue
                 }
                 var ovCS = window.getComputedStyle(overflowNode)
                 var ov = ovCS.overflow
-                var ovX = ovCS.overflowX
-                var ovY = ovCS.overflowY
                 var ovContain = ovCS.contain || ""
                 var needsFix = ov === "clip" || ov === "hidden" ||
-                    ovX === "clip" || ovX === "hidden" ||
-                    ovY === "clip" || ovY === "hidden" ||
+                    ovCS.overflowX === "clip" || ovCS.overflowX === "hidden" ||
+                    ovCS.overflowY === "clip" || ovCS.overflowY === "hidden" ||
                     /paint|strict|content/.test(ovContain)
                 if (needsFix) {
-                    scrollOverflowAncestors.push({
-                        el: overflowNode,
-                        orig: ov,
-                    })
+                    scrollOverflowAncestors.push({ el: overflowNode, orig: ov })
                     overflowNode.style.setProperty("overflow", "visible", "important")
                     if (/paint|strict|content/.test(ovContain)) {
                         overflowNode.style.setProperty("contain", "none", "important")
@@ -2534,789 +2221,306 @@ export default function PageChoreographer(props: any) {
                 }
                 overflowNode = overflowNode.parentElement
             }
-            // Walk from each target UP to the section/parent, fixing any
-            // intermediate containers (grid wrappers, column divs, etc.)
-            for (var tfi = 0; tfi < targets.length; tfi++) {
-                var tFixNode: HTMLElement | null = targets[tfi].parentElement
-                while (tFixNode && tFixNode !== overflowRoot && tFixNode !== document.documentElement) {
-                    // Skip our own wrapper and pin containers
-                    if (tFixNode.hasAttribute("data-choreo-wrapper") ||
-                        tFixNode.hasAttribute("data-choreo-pin-container")) {
-                        tFixNode = tFixNode.parentElement
-                        continue
-                    }
-                    // Skip pinSectionEl (preserve viewport clipping)
-                    if (pinSectionEl && tFixNode === pinSectionEl) {
-                        tFixNode = tFixNode.parentElement
-                        continue
-                    }
-                    var tfCS = window.getComputedStyle(tFixNode)
-                    var tfOv = tfCS.overflow
-                    var tfOvX = tfCS.overflowX
-                    var tfOvY = tfCS.overflowY
-                    var tfContain = tfCS.contain || ""
-                    var tfNeedsFix = tfOv === "clip" || tfOv === "hidden" ||
-                        tfOvX === "clip" || tfOvX === "hidden" ||
-                        tfOvY === "clip" || tfOvY === "hidden" ||
-                        /paint|strict|content/.test(tfContain)
-                    if (tfNeedsFix) {
-                        var alreadyTracked = false
-                        for (var at = 0; at < scrollOverflowAncestors.length; at++) {
-                            if (scrollOverflowAncestors[at].el === tFixNode) {
-                                alreadyTracked = true
-                                break
-                            }
+
+            // ── Load GSAP and create ScrollTrigger ──
+            loadGSAP().then(function (libs) {
+                if (!gsapMounted || !parent) return
+                var gsap = libs.gsap
+                var ST = libs.ScrollTrigger
+
+                gsapCtx = gsap.context(function () {
+                    var store = getStore()
+                    if (!store) return
+
+                    var timelineDuration = 0
+                    var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                    var mobile = window.innerWidth < 768
+
+                    // ── WAAPI animation creation ──
+                    var createScrollAnims = function () {
+                        for (var ca = 0; ca < scrollAnims.length; ca++) {
+                            try { scrollAnims[ca].cancel() } catch (e) {}
                         }
-                        if (!alreadyTracked) {
-                            scrollOverflowAncestors.push({ el: tFixNode, orig: tfOv })
-                            tFixNode.style.setProperty("overflow", "visible", "important")
-                            if (/paint|strict|content/.test(tfContain)) {
-                                tFixNode.style.setProperty("contain", "none", "important")
-                            }
-                        }
-                    }
-                    tFixNode = tFixNode.parentElement
-                }
-            }
+                        scrollAnims = []
+                        scrollAnimFinalStyles = []
+                        timelineDuration = 0
 
-            var pinEl: HTMLElement = parent
-            var pinElWidth: number = parentWidth
-            var pinElHeight: number = parentHeight
-            scrollPinState.origStyles = parent.style.cssText
-            scrollPinEl = pinEl
-
-            // Measure pin/scroll range
-            // Two separate ranges:
-            //   pinStart/pinEnd — when the section is sticky (owner's range)
-            //   animStart/animLength — when THIS PC's animation plays
-            //
-            // The pin range is determined by the owner's spacer height.
-            // Each PC's animation range uses its OWN scrollLength and
-            // scrollStartOffset, allowing staggered reveals within a
-            // shared pin duration.
-            var pinScrollLength = isFollower ? ownerScrollLength : scrollLength
-            // Total pin duration includes the owner's animation offset
-            // so the pin stays active until the animation finishes.
-            var pinAnimOffset = isFollower ? 0 : Math.max(0, (scrollStartOffset / 100) * scrollLength)
-            var measureEl = ((scrollPin || isFollower) && pinSectionEl) ? pinSectionEl : wrapper
-            var measureRect = measureEl.getBoundingClientRect()
-            var measureDocTop = measureRect.top + window.scrollY
-            var vh = window.innerHeight
-            var startOffset = 0
-            if (!isFollower) {
-                if (scrollStart === "top") {
-                    startOffset = -vh
-                } else if (scrollStart === "center") {
-                    startOffset = -(vh / 2) + (measureRect.height / 2)
-                }
-            }
-
-            var pinStart = Math.max(0, measureDocTop + startOffset)
-            var totalPinLength = pinScrollLength + pinAnimOffset
-            var pinEnd = pinStart + totalPinLength
-
-            // Each PC's animation offset within the pin range.
-            // scrollStartOffset is a percentage of the pin's scroll length,
-            // allowing each PC to start its animation at a different point.
-            // Positive = delay (start later), negative = start earlier.
-            var animOffset = (scrollStartOffset / 100) * pinScrollLength
-            var animStart = pinStart + animOffset
-            // Clamp animation length so it can complete within the pin range.
-            // Without this, followers (or PCs with large offsets) whose
-            // animStart + scrollLength > pinEnd would never reach progress=1
-            // inside the pinned zone — breaking choreo-done dispatch.
-            var availableRange = Math.max(1, pinEnd - animStart)
-            var animLength = Math.min(scrollLength, availableRange)
-            var wrapRectLeft = pinEl.getBoundingClientRect().left
-
-
-            // ── Animation creation/destruction ──
-            var reduced =
-                window.matchMedia &&
-                window.matchMedia("(prefers-reduced-motion: reduce)").matches
-            var mobile = window.innerWidth < 768
-
-            scrollAnimFinalStyles = []
-
-            var createScrollAnims = function () {
-                for (var ca = 0; ca < scrollAnims.length; ca++) {
-                    try { scrollAnims[ca].cancel() } catch (e) {}
-                }
-                scrollAnims = []
-                scrollAnimFinalStyles = []
-                timelineDuration = 0
-
-                var allTargets = store.getAllTargets().filter(function (t: any) {
-                    return t.groupId === baseId && t.enterEnabled &&
-                        (t.mobileEnabled || !mobile) && t.ref.current
-                })
-
-                var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
-                var sorted = store.sortTargets(allTargets, direction)
-
-                for (var si = 0; si < sorted.length; si++) {
-                    var target = sorted[si]
-                    var el = target.ref.current
-                    if (!el) continue
-
-                    // Cancel ALL existing WAAPI animations on this element
-                    // before creating new ones.  Stale animations from
-                    // previous bake/unbake cycles or Framer's own system
-                    // can compete with our scroll-scrubbed animation,
-                    // causing reversed mask direction on re-entry.
-                    try {
-                        var existing = el.getAnimations()
-                        for (var ex = 0; ex < existing.length; ex++) {
-                            existing[ex].cancel()
-                        }
-                    } catch (e) {}
-
-                    var kf = reduced
-                        ? { from: { opacity: "0" }, to: { opacity: "1" } }
-                        : buildEnterKeyframes(target)
-
-                    scrollAnimFinalStyles.push({ el: el, to: kf.to })
-
-                    var staggerVal = reduced ? 0 : target.stagger
-                    var itemDelay = staggerVal * si
-                    var dur = reduced ? 10 : target.duration * 1000
-
-                    try {
-                        var scrollAnim = el.animate([kf.from, kf.to], {
-                            duration: dur,
-                            delay: itemDelay * 1000,
-                            easing: easingToCss(target.easing),
-                            fill: "both",
+                        var allTargets = store.getAllTargets().filter(function (t: any) {
+                            return t.groupId === baseId && t.enterEnabled &&
+                                (t.mobileEnabled || !mobile) && t.ref.current
                         })
-                        scrollAnim.pause()
-                        scrollAnims.push(scrollAnim)
-                    } catch (e) {}
-                }
+                        var direction = allTargets.length > 0 ? allTargets[0].staggerDirection : "leftToRight"
+                        var sorted = store.sortTargets(allTargets, direction)
 
-                if (sorted.length > 0) {
-                    var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
-                    var lastDur = reduced ? 10 : sorted[0].duration * 1000
-                    timelineDuration = lastStagger * 1000 + lastDur
-                }
-            }
+                        for (var si = 0; si < sorted.length; si++) {
+                            var target = sorted[si]
+                            var el = target.ref.current
+                            if (!el) continue
+                            try {
+                                var existing = el.getAnimations()
+                                for (var ex = 0; ex < existing.length; ex++) { existing[ex].cancel() }
+                            } catch (e) {}
 
-            // Animations are kept alive (never cancelled except on
-            // cleanup/resize) to avoid bake/unbake CSS transition bugs.
+                            var kf = reduced
+                                ? { from: { opacity: "0" }, to: { opacity: "1" } }
+                                : buildEnterKeyframes(target)
+                            scrollAnimFinalStyles.push({ el: el, to: kf.to })
 
-            // Block pointer-events on all animated elements to prevent
-            // Framer hover effects from conflicting with active animations.
-            // Unblocked per-element when its animation is released (98%).
-            var blockAnimatedPointerEvents = function () {
-                for (var bp = 0; bp < scrollAnimFinalStyles.length; bp++) {
-                    // Use data attribute for transition/pointer-events
-                    // suppression — survives React re-renders (unlike
-                    // inline styles which Framer's live preview strips).
-                    scrollAnimFinalStyles[bp].el.setAttribute("data-choreo-scrubbing", "1")
-                }
-            }
+                            var staggerVal = reduced ? 0 : target.stagger
+                            var itemDelay = staggerVal * si
+                            var dur = reduced ? 10 : target.duration * 1000
 
-            // Re-engage scroll animation after after-pin.
-            // Animations are kept alive (never cancelled in after-pin),
-            // so just re-block interactions and scrub to the right
-            // progress.  No bake/unbake cycle needed.
-            var reengageAnims = function (progress?: number) {
-                ensureScrollAnims()
-                blockAnimatedPointerEvents()
-                if (progress !== undefined) {
-                    updateAnimProgress(progress)
-                }
-            }
+                            try {
+                                var scrollAnim = el.animate([kf.from, kf.to], {
+                                    duration: dur,
+                                    delay: itemDelay * 1000,
+                                    easing: easingToCss(target.easing),
+                                    fill: "both",
+                                })
+                                scrollAnim.pause()
+                                scrollAnims.push(scrollAnim)
+                            } catch (e) {}
+                        }
 
-            var updateAnimProgress = function (progress: number) {
-                for (var a = 0; a < scrollAnims.length; a++) {
-                    try {
-                        var anim = scrollAnims[a]
-                        var timing = anim.effect && anim.effect.getComputedTiming
-                            ? anim.effect.getComputedTiming()
-                            : null
-                        var animDelay = timing ? (timing.delay || 0) : 0
-                        var animDur = timing ? (timing.duration || 600) : 600
-                        var time = progress * timelineDuration
-                        anim.currentTime = Math.max(0, Math.min(time, animDelay + (animDur as number)))
-                    } catch (e) {}
-                }
-            }
-
-            var scrollAnimsCreated = false
-            var visibilityRevealed = false
-
-            var ensureScrollAnims = function () {
-                if (scrollAnimsCreated && scrollAnims.length > 0) return
-                scrollAnimsCreated = true
-                createScrollAnims()
-                // Don't remove visibility:hidden here — keep elements
-                // hidden until scroll progress > 0 to prevent flash
-            }
-
-            // interactivity is now per-element (see updateInteractivity)
-
-            var revealIfNeeded = function (progress: number) {
-                // For maskPreview, elements are already visible — skip the
-                // progress gate since there's nothing to "reveal"
-                if (visibilityRevealed) return
-                // With WAAPI animations kept alive, the first keyframe
-                // handles visual hiding at progress=0 (clip-path, opacity).
-                // Safe to remove data-choreo-hide as soon as we're in the
-                // pinned zone.  The old scrollY<=0 guard blocked hero
-                // sections (pinStart=0) from ever revealing on reload.
-                if (!maskPreview && progress < 0) return
-                visibilityRevealed = true
-                for (var ph = 0; ph < preHiddenEls.length; ph++) {
-                    preHiddenEls[ph].removeAttribute("data-choreo-hide")
-                    preHiddenEls[ph].style.removeProperty("visibility")
-                    preHiddenEls[ph].style.removeProperty("opacity")
-                    preHiddenEls[ph].style.removeProperty("pointer-events")
-                    // Remove inline clip-path so the animation takes over
-                    preHiddenEls[ph].style.removeProperty("clip-path")
-                }
-                // Remove the style tag — no longer needed
-                if (preHideStyleTag && preHideStyleTag.parentNode) {
-                    preHideStyleTag.parentNode.removeChild(preHideStyleTag)
-                    preHideStyleTag = null
-                }
-            }
-
-            // Per-element animation release: when an individual element's
-            // animation reaches 100%, cancel it WITHOUT setting any inline
-            // styles. The element reverts to its natural CSS state (which IS
-            // the animation's final frame: full opacity, no transform, no clip).
-            // With no active animation AND no conflicting inline styles,
-            // Framer's hover system (whileHover / inline style manipulation)
-            // can freely control the element.
-            // Pointer-events are blocked on animated elements during scroll.
-            // They're unblocked when animations are done (after-pin zone).
-            // No mid-scroll animation canceling — that causes visual jumps.
-            var updateInteractivity = function (progress: number) {
-                // no-op during scroll — pointer-events managed by
-                // blockAnimatedPointerEvents and releaseAnimatedElements
-            }
-
-            // Release animated elements — cancel animations and restore
-            // pointer-events.  When bake=true, persist each animation's
-            // final-frame values as inline styles BEFORE canceling so the
-            // visual state is preserved during the sticky→relative
-            // transition (prevents the "jump to top" flash).
-            // When bake=false, cancel without inline styles so Framer's
-            // hover system can freely control the element.
-            // Release: unblock pointer-events/transitions but keep
-            // WAAPI animations alive at their current progress.
-            // Keeping animations alive avoids the entire bake/unbake
-            // cycle — no inline styles to manage, no CSS transitions
-            // to suppress, immune to React re-renders in Framer's
-            // live preview.  Animations are only truly cancelled
-            // on cleanup or resize (via cancelScrollAnims).
-            var releaseAnimatedElements = function () {
-                for (var ra = 0; ra < scrollAnimFinalStyles.length; ra++) {
-                    scrollAnimFinalStyles[ra].el.removeAttribute("data-choreo-scrubbing")
-                }
-            }
-
-            // Hard-cancel all WAAPI scroll animations (cleanup/resize)
-            var cancelScrollAnims = function () {
-                for (var rc = 0; rc < scrollAnims.length; rc++) {
-                    try { scrollAnims[rc].cancel() } catch (e) {}
-                }
-                scrollAnims = []
-                scrollAnimsCreated = false
-            }
-
-            // Create animations eagerly so they're ready for scroll
-            ensureScrollAnims()
-            blockAnimatedPointerEvents()
-            updateAnimProgress(0)
-
-            // ── Viewport clip helper ──
-            // Clips the wrapper to viewport bounds so the mask reveal
-            // aligns with the viewport edge as the element scrolls in.
-            var vpClipPad = maskViewportPadding || 0
-            var animDone = false // true once animation reaches 100%
-            var choreoDoneDispatched = false // dispatch choreo-done only once per cycle
-
-            var updateViewportClip = function () {
-                if (!maskViewportClip || !wrapper) return
-
-                // Once animation completes, transition clip-path to none
-                // smoothly instead of a hard snap.
-                if (animDone) {
-                    // Add a CSS transition for the removal so the padding
-                    // clip eases out rather than jumping
-                    wrapper.style.setProperty("transition", "clip-path 0.35s ease-out")
-                    wrapper.style.removeProperty("clip-path")
-                    return
-                }
-
-                // Clear transition during scroll scrub so it's instant
-                wrapper.style.removeProperty("transition")
-
-                var wRect = wrapper.getBoundingClientRect()
-                var vpH = window.innerHeight
-                var vpW = window.innerWidth
-                // Overflow-based clips (content extending past viewport)
-                var overflowTop = Math.max(0, -wRect.top)
-                var overflowRight = Math.max(0, wRect.right - vpW)
-                var overflowBottom = Math.max(0, wRect.bottom - vpH)
-                var overflowLeft = Math.max(0, -wRect.left)
-                // Padding-based clip — bottom only, so the mask reveal
-                // doesn't get cut off abruptly at the viewport bottom edge
-                var padTop = 0, padRight = 0, padLeft = 0
-                var padBottom = (wRect.bottom >= vpH - vpClipPad) ? Math.max(0, vpClipPad - (vpH - wRect.bottom)) : 0
-                // Use whichever is larger: overflow clip or padding clip
-                var clipTop = Math.round(Math.max(overflowTop, padTop))
-                var clipRight = Math.round(Math.max(overflowRight, padRight))
-                var clipBottom = Math.round(Math.max(overflowBottom, padBottom))
-                var clipLeft = Math.round(Math.max(overflowLeft, padLeft))
-                if (clipTop === 0 && clipRight === 0 && clipBottom === 0 && clipLeft === 0) {
-                    wrapper.style.removeProperty("clip-path")
-                } else {
-                    wrapper.style.setProperty("clip-path",
-                        "inset(" + clipTop + "px " + clipRight + "px " + clipBottom + "px " + clipLeft + "px)", "important")
-                }
-            }
-
-            // ── Scroll handler ──
-            // Sticky handles the visual pinning (zero jitter). The scroll
-            // handler only scrubs animation progress and manages the
-            // sticky → relative transition at pinEnd.
-            var handleScroll = function () {
-                if (!parent || !wrapper) return
-
-                var scrollY = window.scrollY
-
-                // scrollOnce: once the animation is done, freeze
-                // everything — don't recreate, unbake, or reverse.
-                if (scrollPinState.completed) {
-                    return
-                }
-
-                // Owner: dynamically re-read the max needed pin length
-                // from data attributes on pinSectionEl.  Followers that
-                // set up AFTER the owner store their needs as attributes;
-                // the owner picks them up here so pinEnd extends to cover
-                // all animations.  Also update the spacer to match.
-                if (isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
-                    var maxNeeded = totalPinLength
-                    var dynAttrs = pinSectionEl.attributes
-                    for (var da = 0; da < dynAttrs.length; da++) {
-                        if (dynAttrs[da].name.indexOf("data-choreo-pin-need-") === 0) {
-                            var daVal = parseInt(dynAttrs[da].value) || 0
-                            if (daVal > maxNeeded) maxNeeded = daVal
+                        if (sorted.length > 0) {
+                            var lastStagger = (sorted.length - 1) * (reduced ? 0 : sorted[0].stagger)
+                            var lastDur = reduced ? 10 : sorted[0].duration * 1000
+                            timelineDuration = lastStagger * 1000 + lastDur
                         }
                     }
-                    if (maxNeeded > totalPinLength) {
-                        console.log("[Choreo] DYNAMIC PIN EXTEND:", baseId, "from:", totalPinLength, "to:", maxNeeded, "pinEnd:", pinStart + maxNeeded)
-                        totalPinLength = maxNeeded
-                        pinEnd = pinStart + totalPinLength
-                        // Also expand spacer to match
-                        if (scrollSpacer) {
-                            scrollSpacer.style.setProperty("height", maxNeeded + "px")
+
+                    var updateAnimProgress = function (progress: number) {
+                        for (var a = 0; a < scrollAnims.length; a++) {
+                            try {
+                                var anim = scrollAnims[a]
+                                var timing = anim.effect && anim.effect.getComputedTiming
+                                    ? anim.effect.getComputedTiming() : null
+                                var animDelay = timing ? (timing.delay || 0) : 0
+                                var animDur = timing ? (timing.duration || 600) : 600
+                                var time = progress * timelineDuration
+                                anim.currentTime = Math.max(0, Math.min(time, animDelay + (animDur as number)))
+                            } catch (e) {}
                         }
                     }
-                }
 
-                if (scrollY >= pinStart && scrollY <= pinEnd) {
-                    // ── PINNED ZONE ──
-                    // Compute progress early so unbake can scrub to the
-                    // correct frame before removing baked inline styles.
-                    var progress = (scrollY - animStart) / animLength
-                    var clampedProgress = Math.max(0, Math.min(1, progress))
-
-                    // Sticky keeps the section in place — just scrub animations
-                    if (scrollPinState.afterPin) {
-                        scrollPinState.afterPin = false
-                        // Also clear the wrapper's clip-path transition
-                        // that was set in the after-pin zone
-                        if (wrapper) wrapper.style.removeProperty("transition")
-                        reengageAnims(clampedProgress)
-                    } else {
-                        ensureScrollAnims()
-                    }
-
-                    scrollPinState.pinned = true
-
-                    // ── Transform-based pin ──
-                    // Only the OWNER applies translateY — followers just
-                    // scrub their animations.  Without this guard, multiple
-                    // PCs sharing a section would each overwrite the transform.
-                    // CRITICAL: Also check the DOM attribute — another PC with
-                    // pinPriority may have taken over ownership AFTER our
-                    // closure captured isOwner=true.  The attribute is the
-                    // source of truth; our closure variable is stale.
-                    var pinTranslateY = scrollY - pinStart
-                    var stillOwner = isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId
-                    if (stillOwner) {
-                        pinSectionEl!.style.setProperty("transform", "translateY(" + pinTranslateY + "px)", "important")
-                    }
-
-                    // DEBUG: log zone transitions, progress, and pin verification
-                    if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "pinned") {
-                        var pinRect = pinSectionEl ? pinSectionEl.getBoundingClientRect() : null
-                        console.log("[ZONE] → pinned | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinStart:", Math.round(pinStart), "pinEnd:", Math.round(pinEnd), "progress:", clampedProgress.toFixed(3), "pinSectionTag:", pinSectionEl ? pinSectionEl.tagName + "." + (pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.className.slice(0, 30)) : "null", "rectTop:", pinRect ? Math.round(pinRect.top) : "n/a", "translateY:", pinTranslateY)
-                    }
-                    scrollPinState._dbgPrevZone = "pinned"
-
-                    revealIfNeeded(clampedProgress)
-                    // No re-hide in the pinned zone — the WAAPI animation's
-                    // first keyframe handles visual hiding at progress=0
-                    // (opacity=0, clip-path, etc.).  The before-pin zone
-                    // below handles re-hiding when scrolling completely
-                    // before the section.
-                    updateAnimProgress(clampedProgress)
-                    // DEBUG: log first target's clip-path on early scrub frames
-                    if (clampedProgress < 0.15 && preHiddenEls.length > 0) {
-                        var dbgEl = preHiddenEls[0]
-                        var dbgClip = window.getComputedStyle(dbgEl).clipPath
-                        var dbgVis = window.getComputedStyle(dbgEl).visibility
-                        var dbgOp = window.getComputedStyle(dbgEl).opacity
-                        console.log("[SCRUB] baseId:", baseId, "progress:", clampedProgress.toFixed(3), "clip:", dbgClip, "vis:", dbgVis, "op:", dbgOp, "hasHideAttr:", dbgEl.hasAttribute("data-choreo-hide"))
-                    }
-                    updateInteractivity(clampedProgress)
-                    animDone = clampedProgress >= 1
-                    // Notify child PCs when scroll animation completes
-                    if (animDone && !choreoDoneDispatched && parent) {
-                        choreoDoneDispatched = true
-                        parent.dispatchEvent(new CustomEvent("choreo-done", {
-                            bubbles: true,
-                            detail: { groupId: baseId },
-                        }))
-                        // Also dispatch on group parents for sibling-subtree children
-                        var scrollDoneStore = getStore()
-                        if (scrollDoneStore) {
-                            var scrollDoneGps = scrollDoneStore.getGroupParents(baseId)
-                            if (scrollDoneGps) {
-                                for (var sdgp = 0; sdgp < scrollDoneGps.length; sdgp++) {
-                                    scrollDoneGps[sdgp].dispatchEvent(new CustomEvent("choreo-done", {
-                                        bubbles: true,
-                                        detail: { groupId: baseId },
-                                    }))
-                                }
-                            }
+                    var blockAnimatedPointerEvents = function () {
+                        for (var bp = 0; bp < scrollAnimFinalStyles.length; bp++) {
+                            scrollAnimFinalStyles[bp].el.setAttribute("data-choreo-scrubbing", "1")
                         }
                     }
-                    updateViewportClip()
 
-                    if (scrollOnce && clampedProgress >= 1) {
-                        scrollPinState.completed = true
-                        releaseAnimatedElements()
-                    }
-
-                } else if (scrollY < pinStart) {
-                    // ── BEFORE PIN ──
-                    if (scrollPinState.afterPin) {
-                        scrollPinState.afterPin = false
-                        if (wrapper) wrapper.style.removeProperty("transition")
-                        reengageAnims(0)
-                    }
-                    scrollPinState.pinned = false
-                    animDone = false
-                    // Only the owner clears the transform
-                    if (isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
-                        pinSectionEl.style.removeProperty("transform")
-                    }
-                    if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "before") {
-                        console.log("[ZONE] → before-pin | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinStart:", Math.round(pinStart), "wasAfterPin:", scrollPinState.afterPin, "animsCreated:", scrollAnimsCreated, "animCount:", scrollAnims.length)
-                    }
-                    scrollPinState._dbgPrevZone = "before"
-                    // Reset choreo-done flag and notify child PCs to reset
-                    if (choreoDoneDispatched && parent) {
-                        choreoDoneDispatched = false
-                        parent.dispatchEvent(new CustomEvent("choreo-reset", {
-                            bubbles: true,
-                            detail: { groupId: baseId },
-                        }))
-                        // Also dispatch on group parents for sibling-subtree children
-                        var scrollResetStore = getStore()
-                        if (scrollResetStore) {
-                            var scrollResetGps = scrollResetStore.getGroupParents(baseId)
-                            if (scrollResetGps) {
-                                for (var srgp = 0; srgp < scrollResetGps.length; srgp++) {
-                                    scrollResetGps[srgp].dispatchEvent(new CustomEvent("choreo-reset", {
-                                        bubbles: true,
-                                        detail: { groupId: baseId },
-                                    }))
-                                }
-                            }
+                    var releaseAnimatedElements = function () {
+                        for (var ra = 0; ra < scrollAnimFinalStyles.length; ra++) {
+                            scrollAnimFinalStyles[ra].el.removeAttribute("data-choreo-scrubbing")
                         }
                     }
+
+                    var visibilityRevealed = false
+                    var revealIfNeeded = function (progress: number) {
+                        if (visibilityRevealed) return
+                        if (!maskPreview && progress < 0) return
+                        visibilityRevealed = true
+                        for (var ph = 0; ph < preHiddenEls.length; ph++) {
+                            preHiddenEls[ph].removeAttribute("data-choreo-hide")
+                            preHiddenEls[ph].style.removeProperty("visibility")
+                            preHiddenEls[ph].style.removeProperty("opacity")
+                            preHiddenEls[ph].style.removeProperty("pointer-events")
+                            preHiddenEls[ph].style.removeProperty("clip-path")
+                        }
+                        if (preHideStyleTag && preHideStyleTag.parentNode) {
+                            preHideStyleTag.parentNode.removeChild(preHideStyleTag)
+                            preHideStyleTag = null
+                        }
+                    }
+
+                    // ── Viewport clip helper ──
+                    var vpClipPad = maskViewportPadding || 0
+                    var animDone = false
+                    var choreoDoneDispatched = false
+
+                    var updateViewportClip = function () {
+                        if (!maskViewportClip || !wrapper) return
+                        if (animDone) {
+                            wrapper.style.setProperty("transition", "clip-path 0.35s ease-out")
+                            wrapper.style.removeProperty("clip-path")
+                            return
+                        }
+                        wrapper.style.removeProperty("transition")
+                        var wRect = wrapper.getBoundingClientRect()
+                        var vpH = window.innerHeight
+                        var vpW = window.innerWidth
+                        var overflowTop = Math.max(0, -wRect.top)
+                        var overflowRight = Math.max(0, wRect.right - vpW)
+                        var overflowBottom = Math.max(0, wRect.bottom - vpH)
+                        var overflowLeft = Math.max(0, -wRect.left)
+                        var padBottom = (wRect.bottom >= vpH - vpClipPad) ? Math.max(0, vpClipPad - (vpH - wRect.bottom)) : 0
+                        var clipTop = Math.round(Math.max(overflowTop, 0))
+                        var clipRight = Math.round(Math.max(overflowRight, 0))
+                        var clipBottom = Math.round(Math.max(overflowBottom, padBottom))
+                        var clipLeft = Math.round(Math.max(overflowLeft, 0))
+                        if (clipTop === 0 && clipRight === 0 && clipBottom === 0 && clipLeft === 0) {
+                            wrapper.style.removeProperty("clip-path")
+                        } else {
+                            wrapper.style.setProperty("clip-path",
+                                "inset(" + clipTop + "px " + clipRight + "px " + clipBottom + "px " + clipLeft + "px)", "important")
+                        }
+                    }
+
+                    // ── Create animations eagerly ──
+                    createScrollAnims()
+                    blockAnimatedPointerEvents()
                     updateAnimProgress(0)
-                    updateInteractivity(0)
-                    updateViewportClip()
-                    // Re-hide elements so they match the initial-load
-                    // state.  Without this, elements at progress=0
-                    // are at their animation start keyframe (partially
-                    // visible), and with overflow:visible they can
-                    // leak out of the section on reverse scroll.
-                    if (visibilityRevealed && preHiddenEls.length > 0) {
-                        visibilityRevealed = false
-                        // Re-add the hide style tag if it was removed
-                        if (!preHideStyleTag) {
-                            var existRehide = document.querySelector("style[data-choreo-style='hide']") as HTMLStyleElement
-                            if (existRehide) {
-                                preHideStyleTag = existRehide
-                            } else {
-                                var rehideTag = document.createElement("style")
-                                rehideTag.setAttribute("data-choreo-style", "hide")
-                                rehideTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
-                                document.head.appendChild(rehideTag)
-                                preHideStyleTag = rehideTag
-                            }
-                        }
-                        for (var rh = 0; rh < preHiddenEls.length; rh++) {
-                            preHiddenEls[rh].setAttribute("data-choreo-hide", "1")
-                        }
+
+                    // ── Determine pin section and scroll range ──
+                    var triggerEl = (scrollPin && pinSectionEl) ? pinSectionEl : wrapper
+
+                    // Map scrollStart to GSAP start/end strings
+                    var gsapStart: string
+                    if (scrollStart === "top") {
+                        gsapStart = "top top"
+                    } else if (scrollStart === "center") {
+                        gsapStart = "center center"
+                    } else {
+                        // "bottom" (default): animation begins when section
+                        // top reaches the viewport bottom
+                        gsapStart = "top bottom"
                     }
 
-                } else {
-                    // ── AFTER PIN ──
-                    // Only the owner holds the final transform.
-                    if (isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
-                        pinSectionEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
+                    // Compute the scroll distance for this PC
+                    var animOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
+                    var totalScrollDist = scrollLength + animOffset
+
+                    // If this PC pins, check if other PCs on the same section
+                    // need more scroll distance (via data attributes).
+                    if (scrollPin && pinSectionEl) {
+                        pinSectionEl.setAttribute("data-choreo-pin-need-" + baseId, totalScrollDist.toString())
+                        // Read all pin-need attributes and use the MAX
+                        var pinNeedAttrs = pinSectionEl.attributes
+                        for (var pna = 0; pna < pinNeedAttrs.length; pna++) {
+                            if (pinNeedAttrs[pna].name.indexOf("data-choreo-pin-need-") === 0) {
+                                var pnaVal = parseInt(pinNeedAttrs[pna].value) || 0
+                                if (pnaVal > totalScrollDist) totalScrollDist = pnaVal
+                            }
+                        }
+                        pinSectionEl.setAttribute("data-choreo-gsap-pin", baseId)
                     }
-                    if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "after") {
-                        console.log("[ZONE] → after-pin | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinEnd:", Math.round(pinEnd), "wasAfterPin:", scrollPinState.afterPin)
-                    }
-                    scrollPinState._dbgPrevZone = "after"
-                    if (!scrollPinState.afterPin) {
-                        scrollPinState.afterPin = true
-                        scrollPinState.pinned = false
-                        animDone = true
-                        updateAnimProgress(1)
-                        releaseAnimatedElements()
-                        // Notify child PCs when scroll animation completes via after-pin
-                        if (!choreoDoneDispatched && parent) {
-                            choreoDoneDispatched = true
-                            parent.dispatchEvent(new CustomEvent("choreo-done", {
-                                bubbles: true,
-                                detail: { groupId: baseId },
-                            }))
-                            var afterPinStore = getStore()
-                            if (afterPinStore) {
-                                var afterPinGps = afterPinStore.getGroupParents(baseId)
-                                if (afterPinGps) {
-                                    for (var apgp = 0; apgp < afterPinGps.length; apgp++) {
-                                        afterPinGps[apgp].dispatchEvent(new CustomEvent("choreo-done", {
-                                            bubbles: true,
-                                            detail: { groupId: baseId },
-                                        }))
+
+                    // Whether this PC actually pins the section.
+                    // If another ScrollTrigger already pins the same element,
+                    // GSAP handles the deduplication — we just create ours.
+                    var shouldPin = scrollPin
+
+                    // ── Create the ScrollTrigger ──
+                    gsapScrollTrigger = ST.create({
+                        trigger: triggerEl,
+                        pin: shouldPin,
+                        pinSpacing: shouldPin,
+                        anticipatePin: shouldPin ? 1 : 0,
+                        start: gsapStart,
+                        end: "+=" + totalScrollDist,
+                        onUpdate: function (self: any) {
+                            if (!gsapMounted) return
+                            var progress = self.progress
+
+                            // Apply animation offset: the first portion of
+                            // scroll is "dead zone" before this PC's animation
+                            // starts (allows staggered PCs within a shared pin).
+                            var localProgress: number
+                            if (animOffset > 0 && totalScrollDist > 0) {
+                                var offsetFraction = animOffset / totalScrollDist
+                                if (progress <= offsetFraction) {
+                                    localProgress = 0
+                                } else {
+                                    localProgress = (progress - offsetFraction) / (1 - offsetFraction)
+                                }
+                            } else {
+                                localProgress = progress
+                            }
+                            localProgress = Math.max(0, Math.min(1, localProgress))
+
+                            revealIfNeeded(localProgress)
+                            updateAnimProgress(localProgress)
+                            updateViewportClip()
+
+                            animDone = localProgress >= 1
+
+                            // Dispatch choreo-done when animation completes
+                            if (animDone && !choreoDoneDispatched && parent) {
+                                choreoDoneDispatched = true
+                                parent.dispatchEvent(new CustomEvent("choreo-done", {
+                                    bubbles: true,
+                                    detail: { groupId: baseId },
+                                }))
+                                var doneStore = getStore()
+                                if (doneStore) {
+                                    var gps = doneStore.getGroupParents(baseId)
+                                    if (gps) {
+                                        for (var gpi = 0; gpi < gps.length; gpi++) {
+                                            gps[gpi].dispatchEvent(new CustomEvent("choreo-done", {
+                                                bubbles: true,
+                                                detail: { groupId: baseId },
+                                            }))
+                                        }
                                     }
                                 }
+                                releaseAnimatedElements()
                             }
+
+                            if (scrollOnce && localProgress >= 1) {
+                                releaseAnimatedElements()
+                                if (gsapScrollTrigger) {
+                                    gsapScrollTrigger.kill()
+                                    gsapScrollTrigger = null
+                                }
+                            }
+                        },
+                        onLeaveBack: function () {
+                            if (!gsapMounted) return
+                            // Scrolled back before the trigger — re-hide
+                            animDone = false
+                            choreoDoneDispatched = false
+                            blockAnimatedPointerEvents()
+                            updateAnimProgress(0)
+                            if (wrapper) {
+                                wrapper.style.removeProperty("transition")
+                                wrapper.style.removeProperty("clip-path")
+                            }
+                        },
+                        onEnter: function () {
+                            if (!gsapMounted) return
+                            revealIfNeeded(0)
+                        },
+                    })
+
+                    // Safety fallback: if elements are still hidden after 500ms,
+                    // force-reveal them.
+                    scrollSafetyTimer = setTimeout(function () {
+                        if (!visibilityRevealed && preHiddenEls.length > 0) {
+                            revealIfNeeded(0)
                         }
-                        if (scrollOnce) {
-                            scrollPinState.completed = true
-                        }
-                    }
-                    updateViewportClip()
+                    }, 500) as unknown as number
+
+                }, parent) // end gsap.context scope
+            }).catch(function (err) {
+                console.warn("[Choreo] GSAP load failed:", err)
+                // Fallback: just reveal everything
+                for (var fb = 0; fb < preHiddenEls.length; fb++) {
+                    preHiddenEls[fb].removeAttribute("data-choreo-hide")
+                    preHiddenEls[fb].style.removeProperty("visibility")
                 }
-            }
-
-            scrollHandler = handleScroll
-            window.addEventListener("scroll", handleScroll, { passive: true })
-
-            // ── Deferred follow-pin re-check ──
-            // Run for any non-follower: another PC may create a pin
-            // container in a later rAF. Walk UP the tree from the
-            // wrapper to find any ancestor pin container.  This handles:
-            //   - scrollPin=false instances that should follow
-            //   - scrollPin=true instances that ran before the real owner
-            if (!isFollower && pinSectionEl) {
-                requestAnimationFrame(function () {
-                    if (!wrapper) return
-                    var lateNode: HTMLElement | null = wrapper
-                    while (lateNode && lateNode !== document.documentElement) {
-                        if (lateNode.hasAttribute("data-choreo-pin-container")) {
-                            var lateOwner = lateNode.getAttribute("data-choreo-pin-container")
-                            if (lateOwner !== baseId) {
-                                isFollower = true
-                                isOwner = false
-                                // If we created our own pin infrastructure,
-                                // clean it up — we're now a follower
-                                if (scrollSpacer && scrollSpacer.parentElement) {
-                                    scrollSpacer.parentElement.removeChild(scrollSpacer)
-                                    scrollSpacer = null
-                                }
-                                // Adopt the owner's section for measurement
-                                var lateOwnerSection = lateNode.querySelector("[data-choreo-pin-owner]") as HTMLElement
-                                if (lateOwnerSection) {
-                                    pinSectionEl = lateOwnerSection
-                                    scrollSectionEl = pinSectionEl
-                                }
-                                var lateSpacer = lateNode.querySelector("[data-choreo-spacer]") as HTMLElement
-                                if (lateSpacer) {
-                                    ownerScrollLength = parseInt(lateSpacer.style.height) || scrollLength
-                                    pinScrollLength = ownerScrollLength
-                                }
-                                // Recalculate pin range with owner's values
-                                var lateRect = pinSectionEl.getBoundingClientRect()
-                                pinStart = Math.max(0, lateRect.top + window.scrollY)
-                                totalPinLength = pinScrollLength
-                                pinEnd = pinStart + totalPinLength
-                                // Recalculate own animation range
-                                animOffset = (scrollStartOffset / 100) * pinScrollLength
-                                animStart = pinStart + animOffset
-                                availableRange = Math.max(1, pinEnd - animStart)
-                                animLength = Math.min(scrollLength, availableRange)
-                                handleScroll()
-                                break
-                            }
-                        }
-                        lateNode = lateNode.parentElement
-                    }
-                })
-            }
-
-            // ── Resize handler ──
-            var lastResizeW = window.innerWidth
-            var lastResizeH = window.innerHeight
-            var handleResize = function () {
-                clearTimeout(scrollResizeTimer)
-                scrollResizeTimer = window.setTimeout(function () {
-                    if (!wrapper || !parent) return
-
-                    // ── Guard: only recalculate if the viewport actually
-                    // changed size.  Framer's preview iframe fires spurious
-                    // resize events during scroll (layout shifts from spacers/
-                    // overflow:visible propagation trigger them).  Those
-                    // events corrupt pinStart because OTHER sections still
-                    // have after-pin transforms that shift the measured rect.
-                    var newW = window.innerWidth
-                    var newH = window.innerHeight
-                    if (newW === lastResizeW && newH === lastResizeH) {
-                        return // spurious resize — skip
-                    }
-                    lastResizeW = newW
-                    lastResizeH = newH
-
-                    // Re-measure all dimensions
-                    parentHeight = parent.offsetHeight
-                    parentWidth = parent.offsetWidth
-
-                    var wp = wrapper.parentElement
-                    if (wp) {
-                        parentWidth = wp.clientWidth
-                    }
-                    // Update wrapper width to match new layout —
-                    // only override if the wrapper has a fixed pixel width.
-                    // Fill wrappers (100% or flex-only) resize automatically.
-                    if (scrollWrapper) {
-                        var curWrapW = scrollWrapper.style.width
-                        if (curWrapW && /^\d/.test(curWrapW) && !/^100%/.test(curWrapW)) {
-                            scrollWrapper.style.setProperty("width", parentWidth + "px")
-                        }
-                    }
-                    // wrapper height is auto — content sizes it
-                    pinElWidth = parentWidth
-                    pinElHeight = parentHeight
-
-                    // Update spacer height (owner only — followers don't have spacers)
-                    // Include animation offset so pin lasts until animation finishes
-                    if (scrollSpacer && !isFollower) {
-                        // Re-read ALL pin-need attributes to use the MAX,
-                        // just like during setup.  Without this, the resize
-                        // handler would shrink the spacer back to just this
-                        // PC's own scrollLength, losing the extra room needed
-                        // by followers with larger pin-need.
-                        var resizeAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
-                        var newSpacerH = scrollLength + resizeAnimOffset
-                        if (pinSectionEl) {
-                            var resizePinAttrs = pinSectionEl.attributes
-                            for (var rpa = 0; rpa < resizePinAttrs.length; rpa++) {
-                                if (resizePinAttrs[rpa].name.indexOf("data-choreo-pin-need-") === 0) {
-                                    var rpaVal = parseInt(resizePinAttrs[rpa].value) || 0
-                                    if (rpaVal > newSpacerH) newSpacerH = rpaVal
-                                }
-                            }
-                        }
-                        scrollSpacer.style.setProperty("height", newSpacerH + "px")
-                    }
-
-                    // Followers: re-read owner's spacer in case it resized
-                    if (isFollower && pinSectionEl) {
-                        var rPinCtr = pinSectionEl.parentElement
-                        if (rPinCtr && rPinCtr.hasAttribute("data-choreo-pin-container")) {
-                            var rSpacer = rPinCtr.querySelector("[data-choreo-spacer]") as HTMLElement
-                            if (rSpacer) {
-                                ownerScrollLength = parseInt(rSpacer.style.height) || ownerScrollLength
-                                pinScrollLength = ownerScrollLength
-                            }
-                        }
-                    }
-
-                    // Recalculate pin range (include owner's anim offset)
-                    // For owners, also re-read pin-need attributes to use the
-                    // MAX, matching the spacer height calculation above.
-                    totalPinLength = pinScrollLength + (isFollower ? 0 : Math.max(0, (scrollStartOffset / 100) * scrollLength))
-                    if (!isFollower && pinSectionEl) {
-                        var resizePinAttrs2 = pinSectionEl.attributes
-                        for (var rpa2 = 0; rpa2 < resizePinAttrs2.length; rpa2++) {
-                            if (resizePinAttrs2[rpa2].name.indexOf("data-choreo-pin-need-") === 0) {
-                                var rpa2Val = parseInt(resizePinAttrs2[rpa2].value) || 0
-                                if (rpa2Val > totalPinLength) totalPinLength = rpa2Val
-                            }
-                        }
-                    }
-                    // pinStart / pinEnd are NOT recalculated here.
-                    // Framer's preview iframe fires spurious resize events
-                    // during scroll (scrollbar appearance changes innerWidth).
-                    // Recalculating pinStart via getBoundingClientRect during
-                    // scroll is fundamentally broken: other sections still
-                    // have after-pin transforms that shift measured rects,
-                    // causing progressive corruption (+70px per section).
-                    // pinStart was set correctly during setup at scrollY=0
-                    // and remains valid.  pinEnd is derived from pinStart +
-                    // totalPinLength which was already updated above.
-                    pinEnd = pinStart + totalPinLength
-
-                    // Force animation recreation — resize invalidates
-                    // measurements that animations depend on.
-                    cancelScrollAnims()
-
-                    // Reset afterPin so handleScroll re-evaluates state
-                    scrollPinState.afterPin = false
-
-                    // Re-run scroll handler
-                    handleScroll()
-                }, 150) as unknown as number
-            }
-            scrollResizeHandler = handleResize
-            window.addEventListener("resize", handleResize)
-
-            // Always run the initial scroll check.  The before-pin zone
-            // handles itself harmlessly when animations don't exist yet.
-            // Previously gated on scrollY >= pinStart, but that blocked
-            // sections whose pinStart was miscalculated (layout not yet
-            // settled) from ever revealing.
-            handleScroll()
-
-            // Safety fallback: if elements are still hidden after 500ms
-            // (e.g. due to layout timing, scroll position edge cases, or
-            // Framer preview quirks), force-reveal them.  The WAAPI first
-            // keyframe keeps them visually hidden even without the
-            // data-choreo-hide attribute.
-            scrollSafetyTimer = setTimeout(function () {
-                if (!visibilityRevealed && preHiddenEls.length > 0) {
-                    revealIfNeeded(0)
-                }
-            }, 500) as unknown as number
-
-            }) // end inner rAF
-            }) // end outer rAF
+            })
         }
 
         return function () {
             clearTimeout(rescanTimer)
+            gsapMounted = false
             if (scrollSafetyTimer) {
                 clearTimeout(scrollSafetyTimer)
             }
-            // Remove pre-hide attributes from elements this instance hid
+            // Remove pre-hide attributes
             for (var rph = 0; rph < preHiddenEls.length; rph++) {
                 try { preHiddenEls[rph].removeAttribute("data-choreo-hide") } catch (e) {}
             }
-            // Remove hide tag only if no other elements still need it
             if (preHideStyleTag && preHideStyleTag.parentNode &&
                 !document.querySelector("[data-choreo-hide]")) {
                 preHideStyleTag.parentNode.removeChild(preHideStyleTag)
@@ -3334,31 +2538,31 @@ export default function PageChoreographer(props: any) {
             if (parentResetHandler) {
                 document.removeEventListener("choreo-reset", parentResetHandler)
             }
-            // Cancel any pending batch play and unregister group parent
             var cleanupStore = getStore()
             if (cleanupStore) cleanupStore.cancelPendingGroup(baseId)
             if (cleanupStore && parent) {
                 cleanupStore.unregisterGroupParent(baseId, parent)
             }
-            // Clean up scroll-scrub
-            if (scrollSetupRaf) {
-                cancelAnimationFrame(scrollSetupRaf)
+            // ── GSAP cleanup ──
+            // gsap.context().revert() kills all ScrollTriggers created
+            // within the context, removes spacers, restores pinned
+            // element styles, and cleans up event listeners.
+            if (gsapCtx) {
+                gsapCtx.revert()
+                gsapCtx = null
             }
-            if (scrollResizeHandler) {
-                window.removeEventListener("resize", scrollResizeHandler)
-                clearTimeout(scrollResizeTimer)
+            if (gsapScrollTrigger) {
+                gsapScrollTrigger.kill()
+                gsapScrollTrigger = null
             }
-            if (scrollHandler) {
-                window.removeEventListener("scroll", scrollHandler)
-            }
+            // Cancel WAAPI animations (not tracked by gsap.context)
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
             }
-            // Remove scrubbing attributes from this PC's elements
+            // Remove scrubbing attributes
             for (var pe = 0; pe < scrollAnimFinalStyles.length; pe++) {
                 try { scrollAnimFinalStyles[pe].el.removeAttribute("data-choreo-scrubbing") } catch (e) {}
             }
-            // Remove scrub style tag only if no elements still reference it
             if (scrubStyleTag && scrubStyleTag.parentNode &&
                 !document.querySelector("[data-choreo-scrubbing]")) {
                 scrubStyleTag.parentNode.removeChild(scrubStyleTag)
@@ -3368,43 +2572,20 @@ export default function PageChoreographer(props: any) {
                 scrollOverflowAncestors[oc].el.style.setProperty("overflow", scrollOverflowAncestors[oc].orig)
             }
             scrollOverflowAncestors = []
-            // Remove spacer
-            if (scrollSpacer && scrollSpacer.parentElement) {
-                scrollSpacer.parentElement.removeChild(scrollSpacer)
-            }
-            scrollSpacer = null
-            pinParentEl = null
-            // Clean section styles and release claim (owner only —
-            // followers don't own sticky positioning)
-            if (scrollSectionEl && !isFollower) {
-                scrollSectionEl.style.removeProperty("position")
-                scrollSectionEl.style.removeProperty("top")
-                scrollSectionEl.style.removeProperty("transform")
-                scrollSectionEl.style.removeProperty("z-index")
-                scrollSectionEl.style.removeProperty("overflow-anchor")
-                scrollSectionEl.style.removeProperty("background")
-                if (scrollSectionEl.parentElement) {
-                    scrollSectionEl.parentElement.style.removeProperty("overflow-anchor")
+            // Clean pin-need attributes
+            if (pinSectionEl) {
+                pinSectionEl.removeAttribute("data-choreo-pin-need-" + baseId)
+                if (pinSectionEl.getAttribute("data-choreo-gsap-pin") === baseId) {
+                    pinSectionEl.removeAttribute("data-choreo-gsap-pin")
                 }
-                if (scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
-                    scrollSectionEl.removeAttribute("data-choreo-pin-owner")
-                    scrollSectionEl.removeAttribute("data-choreo-pin-priority")
-                }
-                // Clean up our pin-need attribute
-                scrollSectionEl.removeAttribute("data-choreo-pin-need-" + baseId)
             }
-            // Followers also need to clean up their pin-need attribute
-            if (scrollSectionEl && isFollower) {
-                scrollSectionEl.removeAttribute("data-choreo-pin-need-" + baseId)
-            }
-            // Restore parent's overflow and remove wrapper attribute
+            // Restore parent overflow
             if (parent) {
                 parent.removeAttribute("data-choreo-wrapper")
                 if (parentOrigOverflow) { parent.style.setProperty("overflow", parentOrigOverflow) } else { parent.style.removeProperty("overflow") }
                 parent.style.removeProperty("clip-path")
                 parent.style.removeProperty("transition")
             }
-            scrollPinEl = null
             unregisterAll(getStore())
         }
     }, [
