@@ -2279,6 +2279,16 @@ export default function PageChoreographer(props: any) {
                     pinSectionEl.setAttribute("data-choreo-gsap-pin", baseId)
                     isPinOwner = true
                 }
+                // Pin Priority leaders mark their pin section so
+                // non-leader PCs in child elements can find it.
+                // This attribute persists across the synchronous
+                // effect phase — by the time the batch callback
+                // runs (setTimeout(0)), all PCs have finished
+                // their effects, so non-leaders can walk up to
+                // find this marker.
+                if (pinPriority) {
+                    pinSectionEl.setAttribute("data-choreo-priority-pin", baseId)
+                }
             }
 
             // ── Load GSAP and create ScrollTrigger ──
@@ -2533,6 +2543,43 @@ export default function PageChoreographer(props: any) {
                     // ── Determine pin section and scroll range ──
                     var triggerEl = (scrollPin && pinSectionEl) ? pinSectionEl : wrapper
 
+                    // ── Pin Priority ancestor search ──
+                    // Non-leader PCs (pinPriority=false) may be nested
+                    // inside sub-containers (e.g. "02", "03") within a
+                    // shared section.  findPinSection returns the sub-
+                    // container, not the shared section.  If a priority
+                    // leader exists, it will have marked the shared
+                    // section with data-choreo-priority-pin during its
+                    // synchronous effect phase.  By the time this batch
+                    // callback runs, all effects are done, so we can
+                    // walk up to find the leader's pin section and
+                    // defer to it.
+                    var _deferredToLeader = false
+                    if (scrollPin && !pinPriority && triggerEl) {
+                        var _ancestorSearch: HTMLElement | null = triggerEl.parentElement
+                        while (_ancestorSearch && _ancestorSearch !== document.body) {
+                            if (_ancestorSearch.hasAttribute("data-choreo-priority-pin")) {
+                                console.log("[Choreo] PIN PRIORITY: " + baseId + " deferring to leader on", _ancestorSearch.tagName + "." + (_ancestorSearch.getAttribute("data-framer-name") || _ancestorSearch.className.toString().slice(0, 30)))
+                                triggerEl = _ancestorSearch
+                                isPinOwner = false
+                                _deferredToLeader = true
+                                // Copy this PC's pin-need to the leader's
+                                // section so the leader pins long enough
+                                // for all animations.  Non-leader batch
+                                // callbacks run before the leader's (tree
+                                // order), so the leader will see this.
+                                _ancestorSearch.setAttribute("data-choreo-pin-need-" + baseId, myScrollDist.toString())
+                                break
+                            }
+                            // Also skip GSAP pin-spacers during ancestor walk
+                            if (_ancestorSearch.classList && _ancestorSearch.classList.contains("pin-spacer")) {
+                                _ancestorSearch = _ancestorSearch.parentElement
+                                continue
+                            }
+                            _ancestorSearch = _ancestorSearch.parentElement
+                        }
+                    }
+
                     // Map scrollStart to GSAP start/end strings
                     var gsapStart: string
                     if (scrollStart === "top") {
@@ -2554,8 +2601,11 @@ export default function PageChoreographer(props: any) {
                     // Read MAX of ALL pin-need attributes on this section.
                     // All pin-need attrs were set synchronously before GSAP
                     // loaded, so every PC's need is already present.
-                    if (pinSectionEl) {
-                        var pinNeedAttrs = pinSectionEl.attributes
+                    // When deferred to a leader, read from the leader's
+                    // pin section instead of our own.
+                    var _pinNeedSource = _deferredToLeader ? triggerEl : pinSectionEl
+                    if (_pinNeedSource) {
+                        var pinNeedAttrs = _pinNeedSource.attributes
                         for (var pna = 0; pna < pinNeedAttrs.length; pna++) {
                             if (pinNeedAttrs[pna].name.indexOf("data-choreo-pin-need-") === 0) {
                                 var pnaVal = parseInt(pinNeedAttrs[pna].value) || 0
@@ -2851,6 +2901,9 @@ export default function PageChoreographer(props: any) {
                 pinSectionEl.removeAttribute("data-choreo-pin-need-" + baseId)
                 if (pinSectionEl.getAttribute("data-choreo-gsap-pin") === baseId) {
                     pinSectionEl.removeAttribute("data-choreo-gsap-pin")
+                }
+                if (pinSectionEl.getAttribute("data-choreo-priority-pin") === baseId) {
+                    pinSectionEl.removeAttribute("data-choreo-priority-pin")
                 }
             }
             // Restore parent overflow
