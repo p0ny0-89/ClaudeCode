@@ -2125,6 +2125,7 @@ export default function PageChoreographer(props: any) {
         var scrollOverflowAncestors: Array<{ el: HTMLElement; orig: string }> = []
         var parentOrigOverflow = ""
         var gsapMounted = true
+        var _scrollGateCleanup: (() => void) | null = null
 
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
 
@@ -2448,12 +2449,21 @@ export default function PageChoreographer(props: any) {
                     var triggerName = triggerEl.getAttribute("data-framer-name") || triggerEl.className.toString().slice(0, 40) || "(unnamed)"
                     var triggerRect = triggerEl.getBoundingClientRect()
                     console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "." + triggerName, "size:", Math.round(triggerRect.width) + "x" + Math.round(triggerRect.height), "top:", Math.round(triggerRect.top), "pin:", shouldPin, "isPinOwner:", isPinOwner, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset)
-                    // Track whether the user has actually scrolled.
-                    // On ultrawide / tall viewports a section can already
-                    // be inside the trigger zone on page load.  We record
-                    // the initial progress and only reveal once the scroll
-                    // position actually changes (real user interaction).
-                    var _initialProgress: number | null = null
+                    // Gate reveals on actual user scroll.  GSAP fires
+                    // onUpdate during trigger creation and ST.refresh(),
+                    // which can have different progress values — so
+                    // comparing deltas is unreliable.  Instead, listen
+                    // for a real scroll event to flip the gate.
+                    var _userHasScrolled = false
+                    var _scrollGateHandler = function () {
+                        _userHasScrolled = true
+                        window.removeEventListener("scroll", _scrollGateHandler, true)
+                    }
+                    window.addEventListener("scroll", _scrollGateHandler, true)
+                    _scrollGateCleanup = function () {
+                        window.removeEventListener("scroll", _scrollGateHandler, true)
+                    }
+
                     gsapScrollTrigger = ST.create({
                         id: baseId,
                         trigger: triggerEl,
@@ -2483,20 +2493,11 @@ export default function PageChoreographer(props: any) {
                             }
                             localProgress = Math.max(0, Math.min(1, localProgress))
 
-                            if (_initialProgress === null) {
-                                // First callback — record baseline, set anim
-                                // state silently (no reveal).
-                                _initialProgress = progress
-                                console.log("[Choreo] FIRST UPDATE:", baseId, "progress:", progress.toFixed(3), "isActive:", self.isActive, "direction:", self.direction, "start:", self.start, "end:", self.end)
-                                updateAnimProgress(localProgress)
-                                return
-                            }
-
-                            // Only reveal once scroll has moved from its
-                            // initial position (meaning the user actually
-                            // scrolled).  Threshold avoids float jitter.
-                            var scrollMoved = Math.abs(progress - _initialProgress) > 0.001
-                            if (scrollMoved) {
+                            // Only reveal after a real scroll event has
+                            // occurred.  This prevents GSAP's initial
+                            // onUpdate and ST.refresh() from revealing
+                            // sections that happen to be in range on load.
+                            if (_userHasScrolled) {
                                 revealIfNeeded(progress)
                             }
                             updateAnimProgress(localProgress)
@@ -2580,6 +2581,10 @@ export default function PageChoreographer(props: any) {
         return function () {
             clearTimeout(rescanTimer)
             gsapMounted = false
+            if (_scrollGateCleanup) {
+                _scrollGateCleanup()
+                _scrollGateCleanup = null
+            }
             if (scrollSafetyTimer) {
                 clearTimeout(scrollSafetyTimer)
             }
