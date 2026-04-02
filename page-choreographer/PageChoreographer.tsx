@@ -2174,6 +2174,15 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
+            // ── Above-fold detection (early) ──
+            // Check BEFORE pre-hiding: if the section is already in
+            // the viewport at page load, do NOT hide its targets.
+            // Hiding above-fold content causes a blank screen because
+            // the WAAPI animations at progress 0 also make elements
+            // invisible (opacity:0, translateY, etc.).
+            var triggerCheckEl = (scrollPin && earlyPinSection) ? earlyPinSection : parent
+            var earlyAboveFold = triggerCheckEl.getBoundingClientRect().top < window.innerHeight
+
             // ── Pre-hiding ──
             var existingScrub = document.querySelector("style[data-choreo-style='scrub']") as HTMLStyleElement
             if (existingScrub) {
@@ -2185,7 +2194,7 @@ export default function PageChoreographer(props: any) {
                 document.head.appendChild(scrubStyleTag)
             }
 
-            if (enterEnabled) {
+            if (enterEnabled && !earlyAboveFold) {
                 var existingHide = document.querySelector("style[data-choreo-style='hide']") as HTMLStyleElement
                 if (existingHide) {
                     preHideStyleTag = existingHide
