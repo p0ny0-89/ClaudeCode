@@ -3170,10 +3170,26 @@ export default function PageChoreographer(props: any) {
             }
 
             // ── Resize handler ──
+            var lastResizeW = window.innerWidth
+            var lastResizeH = window.innerHeight
             var handleResize = function () {
                 clearTimeout(scrollResizeTimer)
                 scrollResizeTimer = window.setTimeout(function () {
                     if (!wrapper || !parent) return
+
+                    // ── Guard: only recalculate if the viewport actually
+                    // changed size.  Framer's preview iframe fires spurious
+                    // resize events during scroll (layout shifts from spacers/
+                    // overflow:visible propagation trigger them).  Those
+                    // events corrupt pinStart because OTHER sections still
+                    // have after-pin transforms that shift the measured rect.
+                    var newW = window.innerWidth
+                    var newH = window.innerHeight
+                    if (newW === lastResizeW && newH === lastResizeH) {
+                        return // spurious resize — skip
+                    }
+                    lastResizeW = newW
+                    lastResizeH = newH
 
                     // Clear ANY active transform for accurate measurement.
                     // getBoundingClientRect includes transforms, so if the
