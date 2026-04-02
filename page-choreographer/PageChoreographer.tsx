@@ -2398,9 +2398,15 @@ export default function PageChoreographer(props: any) {
                                 if (shouldDiag && a === 0) {
                                     var el = anim.effect && (anim.effect as any).target
                                     var computedOp = el ? window.getComputedStyle(el).opacity : "?"
-                                    var computedTr = el ? window.getComputedStyle(el).transform : "?"
                                     var playState = anim.playState
-                                    console.log("[Choreo] ANIM SCRUB:", baseId, "progress:", progress.toFixed(4), "timelineDur:", timelineDuration, "targetTime:", targetTime.toFixed(1), "currentTime:", anim.currentTime, "playState:", playState, "computedOpacity:", computedOp, "computedTransform:", computedTr && computedTr.slice(0, 60), "elConnected:", el ? el.isConnected : "?")
+                                    // Check what's causing opacity
+                                    var inlineOp = el ? el.style.opacity : "?"
+                                    var hideAttr = el ? el.getAttribute("data-choreo-hide") : "?"
+                                    var parentOp = (el && el.parentElement) ? window.getComputedStyle(el.parentElement).opacity : "?"
+                                    var parentHide = (el && el.parentElement) ? el.parentElement.getAttribute("data-choreo-hide") : "?"
+                                    var grandOp = (el && el.parentElement && el.parentElement.parentElement) ? window.getComputedStyle(el.parentElement.parentElement).opacity : "?"
+                                    var grandHide = (el && el.parentElement && el.parentElement.parentElement) ? el.parentElement.parentElement.getAttribute("data-choreo-hide") : "?"
+                                    console.log("[Choreo] ANIM SCRUB:", baseId, "progress:", progress.toFixed(4), "targetTime:", targetTime.toFixed(1), "currentTime:", anim.currentTime, "playState:", playState, "computedOp:", computedOp, "inlineOp:", JSON.stringify(inlineOp), "hideAttr:", JSON.stringify(hideAttr), "parentOp:", parentOp, "parentHide:", JSON.stringify(parentHide), "grandOp:", grandOp, "grandHide:", JSON.stringify(grandHide), "elTag:", el ? el.tagName + "." + (el.getAttribute("data-framer-name") || el.className.toString().slice(0, 30)) : "?")
                                 }
                             } catch (e) {
                                 if (shouldDiag) console.error("[Choreo] ANIM SCRUB ERROR:", baseId, e)
