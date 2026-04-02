@@ -2176,17 +2176,6 @@ export default function PageChoreographer(props: any) {
                 }
             }
 
-            // ── Above-fold detection (early) ──
-            // Check BEFORE pre-hiding: if the section is already in
-            // the viewport at page load, do NOT hide its targets.
-            // Hiding above-fold content causes a blank screen because
-            // the WAAPI animations at progress 0 also make elements
-            // invisible (opacity:0, translateY, etc.).
-            var triggerCheckEl = (scrollPin && earlyPinSection) ? earlyPinSection : parent
-            var triggerCheckRect = triggerCheckEl.getBoundingClientRect()
-            var earlyAboveFold = triggerCheckRect.top < window.innerHeight
-            console.log("[Choreo] ABOVE-FOLD CHECK:", baseId, "el:", triggerCheckEl.tagName + "." + (triggerCheckEl.getAttribute("data-framer-name") || triggerCheckEl.className.toString().slice(0, 30)), "top:", Math.round(triggerCheckRect.top), "vh:", window.innerHeight, "aboveFold:", earlyAboveFold, "enterEnabled:", enterEnabled, "preHideSkipped:", earlyAboveFold)
-
             // ── Pre-hiding ──
             var existingScrub = document.querySelector("style[data-choreo-style='scrub']") as HTMLStyleElement
             if (existingScrub) {
@@ -2198,7 +2187,7 @@ export default function PageChoreographer(props: any) {
                 document.head.appendChild(scrubStyleTag)
             }
 
-            if (enterEnabled && !earlyAboveFold) {
+            if (enterEnabled) {
                 var existingHide = document.querySelector("style[data-choreo-style='hide']") as HTMLStyleElement
                 if (existingHide) {
                     preHideStyleTag = existingHide
@@ -2422,11 +2411,10 @@ export default function PageChoreographer(props: any) {
                     var visibilityRevealed = false
                     var revealIfNeeded = function (progress: number) {
                         if (visibilityRevealed) return
-                        // Above-fold sections and maskPreview reveal
-                        // immediately — the user can already see them.
-                        // Below-fold sections require progress > 0 so
-                        // they don't flash before the user scrolls.
-                        if (!maskPreview && !_aboveFold && progress <= 0) return
+                        // maskPreview reveals immediately.  All other
+                        // sections require progress > 0 so they don't
+                        // flash before the user scrolls into range.
+                        if (!maskPreview && progress <= 0) return
                         visibilityRevealed = true
                         // Remove the data-choreo-hide attribute from THIS PC's
                         // elements only.  Do NOT remove the shared <style> tag —
@@ -2481,20 +2469,12 @@ export default function PageChoreographer(props: any) {
                     }
 
                     // ── Create animations ──
-                    // For below-fold sections: create eagerly, set to
-                    // progress 0 (elements hidden in "from" state).
-                    // For above-fold sections: defer creation until the
-                    // trigger enters — creating a WAAPI animation with
-                    // fill:"both" immediately applies the "from" keyframe
-                    // (opacity:0 etc.), making visible content disappear.
-                    var _animsCreated = false
-                    console.log("[Choreo] ANIM INIT:", baseId, "earlyAboveFold:", earlyAboveFold, "willCreateAnims:", !earlyAboveFold, "preHiddenEls:", preHiddenEls.length)
-                    if (!earlyAboveFold) {
-                        createScrollAnims()
-                        blockAnimatedPointerEvents()
-                        updateAnimProgress(0)
-                        _animsCreated = true
-                    }
+                    // Create WAAPI animations eagerly.  fill:"both" applies
+                    // the "from" keyframe immediately (opacity:0 etc.),
+                    // keeping elements hidden until scroll progress > 0.
+                    createScrollAnims()
+                    blockAnimatedPointerEvents()
+                    updateAnimProgress(0)
 
                     // ── Determine pin section and scroll range ──
                     var triggerEl = (scrollPin && pinSectionEl) ? pinSectionEl : wrapper
@@ -2542,26 +2522,21 @@ export default function PageChoreographer(props: any) {
                     var triggerRect = triggerEl.getBoundingClientRect()
                     console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "." + triggerName, "size:", Math.round(triggerRect.width) + "x" + Math.round(triggerRect.height), "top:", Math.round(triggerRect.top), "pin:", shouldPin, "isPinOwner:", isPinOwner, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset)
                     // ── Reveal gating ──
-                    // Determine whether the trigger element is "above
-                    // the fold" — i.e. its top is within the first
-                    // viewport height at page load.  Above-fold
-                    // sections should reveal immediately.  Below-fold
-                    // sections wait for actual user scroll to avoid
-                    // flash-of-content on ultrawide/tall viewports.
-                    var _aboveFold = triggerRect.top < window.innerHeight
-                    var _userHasScrolled = _aboveFold // above-fold: pretend user already scrolled
+                    // Wait for actual user scroll before allowing
+                    // reveals.  This prevents flash-of-content on
+                    // ultrawide/tall viewports where ScrollTrigger
+                    // fires onUpdate with mid-range progress on load.
+                    var _userHasScrolled = false
                     var _progressBaseline = 0
                     var _scrollGateHandler: (() => void) | null = null
-                    if (!_aboveFold) {
-                        _scrollGateHandler = function () {
-                            _userHasScrolled = true
-                            window.removeEventListener("scroll", _scrollGateHandler!, true)
-                        }
-                        window.addEventListener("scroll", _scrollGateHandler, true)
-                        _scrollGateCleanup = function () {
-                            if (_scrollGateHandler) {
-                                window.removeEventListener("scroll", _scrollGateHandler, true)
-                            }
+                    _scrollGateHandler = function () {
+                        _userHasScrolled = true
+                        window.removeEventListener("scroll", _scrollGateHandler!, true)
+                    }
+                    window.addEventListener("scroll", _scrollGateHandler, true)
+                    _scrollGateCleanup = function () {
+                        if (_scrollGateHandler) {
+                            window.removeEventListener("scroll", _scrollGateHandler, true)
                         }
                     }
 
@@ -2579,10 +2554,10 @@ export default function PageChoreographer(props: any) {
                             var progress = self.progress
 
                             // ── Rebase progress on first real scroll ──
-                            // Below-fold sections on ultrawide/tall
-                            // viewports can be mid-range on load.  Record
-                            // baseline and remap so animation starts at 0.
-                            // Above-fold sections skip this (gate is open).
+                            // On ultrawide/tall viewports, ScrollTrigger
+                            // can fire onUpdate with mid-range progress on
+                            // load.  Record baseline and remap so the
+                            // animation starts at 0 on first real scroll.
                             if (!_userHasScrolled) {
                                 _progressBaseline = progress
                                 updateAnimProgress(0)
@@ -2612,19 +2587,8 @@ export default function PageChoreographer(props: any) {
                             }
                             localProgress = Math.max(0, Math.min(1, localProgress))
 
-                            // Deferred animation creation for above-fold:
-                            // Create WAAPI anims on first real progress so
-                            // elements stay visible until scroll reaches them.
-                            if (!_animsCreated && rebased > 0) {
-                                createScrollAnims()
-                                blockAnimatedPointerEvents()
-                                _animsCreated = true
-                            }
-
                             revealIfNeeded(rebased)
-                            if (_animsCreated) {
-                                updateAnimProgress(localProgress)
-                            }
+                            updateAnimProgress(localProgress)
                             updateViewportClip()
 
                             animDone = localProgress >= 1
@@ -2673,15 +2637,6 @@ export default function PageChoreographer(props: any) {
                             }
                         },
                     })
-
-                    // Above-fold sections: reveal immediately.
-                    // onUpdate only fires when scroll is between start
-                    // and end, but above-fold content with start:
-                    // "center center" doesn't trigger until scroll ~200.
-                    // Content must be visible before that.
-                    if (_aboveFold) {
-                        revealIfNeeded(1)
-                    }
 
                     // Defer sort/refresh until ALL PCs have created their
                     // ScrollTriggers.  All .then() callbacks fire in the
