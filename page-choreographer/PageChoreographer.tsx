@@ -2382,7 +2382,9 @@ export default function PageChoreographer(props: any) {
                         }
                     }
 
+                    var _animDiagCount = 0
                     var updateAnimProgress = function (progress: number) {
+                        var shouldDiag = _animDiagCount < 5 && progress > 0.01
                         for (var a = 0; a < scrollAnims.length; a++) {
                             try {
                                 var anim = scrollAnims[a]
@@ -2391,9 +2393,20 @@ export default function PageChoreographer(props: any) {
                                 var animDelay = timing ? (timing.delay || 0) : 0
                                 var animDur = timing ? (timing.duration || 600) : 600
                                 var time = progress * timelineDuration
-                                anim.currentTime = Math.max(0, Math.min(time, animDelay + (animDur as number)))
-                            } catch (e) {}
+                                var targetTime = Math.max(0, Math.min(time, animDelay + (animDur as number)))
+                                anim.currentTime = targetTime
+                                if (shouldDiag && a === 0) {
+                                    var el = anim.effect && (anim.effect as any).target
+                                    var computedOp = el ? window.getComputedStyle(el).opacity : "?"
+                                    var computedTr = el ? window.getComputedStyle(el).transform : "?"
+                                    var playState = anim.playState
+                                    console.log("[Choreo] ANIM SCRUB:", baseId, "progress:", progress.toFixed(4), "timelineDur:", timelineDuration, "targetTime:", targetTime.toFixed(1), "currentTime:", anim.currentTime, "playState:", playState, "computedOpacity:", computedOp, "computedTransform:", computedTr && computedTr.slice(0, 60), "elConnected:", el ? el.isConnected : "?")
+                                }
+                            } catch (e) {
+                                if (shouldDiag) console.error("[Choreo] ANIM SCRUB ERROR:", baseId, e)
+                            }
                         }
+                        if (shouldDiag) _animDiagCount++
                     }
 
                     var blockAnimatedPointerEvents = function () {
@@ -2665,6 +2678,7 @@ export default function PageChoreographer(props: any) {
                         onEnterBack: function () {
                             console.log("[Choreo] onEnterBack:", baseId)
                             _reentryLogCount = 3
+                            _animDiagCount = 0 // reset anim scrub diagnostics on re-entry
                         },
                         onLeave: function () {
                             console.log("[Choreo] onLeave:", baseId)
