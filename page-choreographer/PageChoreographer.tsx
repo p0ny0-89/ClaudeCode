@@ -2270,7 +2270,9 @@ export default function PageChoreographer(props: any) {
                 // DEBUG: log what the walk starts with
                 console.log("[Choreo] OWNER WALK start:", baseId, "pinSectionEl:", pinSectionEl.tagName + "#" + pinSectionEl.id + "." + (pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.className.slice(0, 30)), "hasPinOwner:", pinSectionEl.hasAttribute("data-choreo-pin-owner"), "pinOwnerVal:", pinSectionEl.getAttribute("data-choreo-pin-owner"))
                 while (pinSearchNode && pinSearchNode !== document.documentElement) {
+                    console.log("[Choreo] WALK STEP:", baseId, "node:", pinSearchNode.tagName + "." + (pinSearchNode.className || "").toString().slice(0, 30), "hasContainer:", pinSearchNode.hasAttribute("data-choreo-pin-container"), "hasOwner:", pinSearchNode.hasAttribute("data-choreo-pin-owner"), "ownerVal:", pinSearchNode.getAttribute("data-choreo-pin-owner"))
                     if (pinSearchNode.hasAttribute("data-choreo-pin-container")) {
+                        console.log("[Choreo] WALK HIT CONTAINER:", baseId, "containerVal:", pinSearchNode.getAttribute("data-choreo-pin-container"))
                         var pinCtrOwner = pinSearchNode.getAttribute("data-choreo-pin-container")
                         if (pinCtrOwner !== baseId) {
                             // Another PC already owns the pin.
@@ -2305,8 +2307,10 @@ export default function PageChoreographer(props: any) {
                     }
                     if (pinSearchNode.hasAttribute("data-choreo-pin-owner")) {
                         var existingOwner = pinSearchNode.getAttribute("data-choreo-pin-owner")
+                        console.log("[Choreo] WALK HIT OWNER:", baseId, "existingOwner:", existingOwner, "isSelf:", existingOwner === baseId, "pinPriority:", pinPriority)
                         if (existingOwner !== baseId) {
                             var ownerHasPri = pinSearchNode.getAttribute("data-choreo-pin-priority") === "true"
+                            console.log("[Choreo] WALK OWNER CHECK:", baseId, "ownerHasPri:", ownerHasPri, "pinPriority:", pinPriority)
                             // Read the existing owner's spacer height.
                             // The spacer is a sibling of pinSectionEl.
                             var ownerSpLen = 0
@@ -2316,7 +2320,9 @@ export default function PageChoreographer(props: any) {
                                 if (ownerSpSpacer2) ownerSpLen = parseInt(ownerSpSpacer2.style.height) || 0
                             }
                             // Priority-based takeover (original behavior)
+                            console.log("[Choreo] WALK TAKEOVER CHECK:", baseId, "pinPriority:", pinPriority, "ownerHasPri:", ownerHasPri, "scrollLength:", scrollLength, "ownerSpLen:", ownerSpLen, "wouldTakeOver:", (pinPriority && !ownerHasPri) || (pinPriority && ownerHasPri && scrollLength > ownerSpLen))
                             if ((pinPriority && !ownerHasPri) || (pinPriority && ownerHasPri && scrollLength > ownerSpLen)) {
+                                console.log("[Choreo] WALK TAKEOVER BREAK:", baseId, "taking over from:", existingOwner)
                                 break // take over
                             }
                             console.log("[Choreo] BECAME FOLLOWER:", baseId, "owner:", existingOwner, "ownerSpLen:", ownerSpLen)
@@ -2344,6 +2350,7 @@ export default function PageChoreographer(props: any) {
                     }
                     pinSearchNode = pinSearchNode.parentElement
                 }
+                console.log("[Choreo] WALK DONE:", baseId, "isOwner:", isOwner, "isFollower:", isFollower, "walkExitedAt:", pinSearchNode ? pinSearchNode.tagName + "." + (pinSearchNode.className || "").toString().slice(0, 30) : "null/docEl")
             }
 
 
