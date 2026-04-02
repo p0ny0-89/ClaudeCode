@@ -2588,7 +2588,10 @@ export default function PageChoreographer(props: any) {
                     // defer to it.
                     var _deferredToLeader = false
                     if (scrollPin && !pinPriority && triggerEl) {
-                        var _ancestorSearch: HTMLElement | null = triggerEl.parentElement
+                        // Start from triggerEl itself, not .parentElement —
+                        // when findPinSection returns the same element the
+                        // leader is pinning, the marker is ON triggerEl.
+                        var _ancestorSearch: HTMLElement | null = triggerEl
                         while (_ancestorSearch && _ancestorSearch !== document.body) {
                             if (_ancestorSearch.hasAttribute("data-choreo-priority-pin")) {
                                 console.log("[Choreo] PIN PRIORITY: " + baseId + " deferring to leader on", _ancestorSearch.tagName + "." + (_ancestorSearch.getAttribute("data-framer-name") || _ancestorSearch.className.toString().slice(0, 30)))
