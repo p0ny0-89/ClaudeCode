@@ -1686,7 +1686,8 @@ function collectTargets(
 
 // ─── GSAP CDN Loader ─────────────────────────────────────────────────────────
 // Loads gsap + ScrollTrigger from CDN (standard license).
-// Returns a promise that resolves with the gsap global.
+// Uses fetch + new Function to bypass CSP script-src restrictions
+// in Framer's sandboxed preview iframe (script tags are blocked).
 // Multiple callers share a single load promise.
 
 var GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.12/dist/gsap.min.js"
@@ -1696,28 +1697,43 @@ function loadGSAP(): Promise<{ gsap: any; ScrollTrigger: any }> {
     var key = "__choreoGsapLoad"
     if ((window as any)[key]) return (window as any)[key]
     ;(window as any)[key] = new Promise<{ gsap: any; ScrollTrigger: any }>(function (resolve, reject) {
-        // If already loaded (another plugin, etc.), skip script tags
+        // If already loaded (another plugin, etc.), skip fetch
         if ((window as any).gsap && (window as any).ScrollTrigger) {
             resolve({ gsap: (window as any).gsap, ScrollTrigger: (window as any).ScrollTrigger })
             return
         }
-        var s1 = document.createElement("script")
-        s1.src = GSAP_CDN
-        s1.onload = function () {
-            var s2 = document.createElement("script")
-            s2.src = ST_CDN
-            s2.onload = function () {
+        console.log("[Choreo] Loading GSAP from CDN...")
+        // fetch + new Function bypasses CSP script-src restrictions
+        // that block <script> tag injection in Framer's preview iframe
+        fetch(GSAP_CDN)
+            .then(function (r) {
+                if (!r.ok) throw new Error("GSAP fetch failed: " + r.status)
+                return r.text()
+            })
+            .then(function (gsapCode) {
+                new Function(gsapCode)()
+                return fetch(ST_CDN)
+            })
+            .then(function (r) {
+                if (!r.ok) throw new Error("ScrollTrigger fetch failed: " + r.status)
+                return r.text()
+            })
+            .then(function (stCode) {
+                new Function(stCode)()
                 var g = (window as any).gsap
                 var ST = (window as any).ScrollTrigger
-                if (!g || !ST) { reject(new Error("GSAP load failed")); return }
+                if (!g || !ST) {
+                    reject(new Error("GSAP globals not found after eval"))
+                    return
+                }
                 g.registerPlugin(ST)
+                console.log("[Choreo] GSAP + ScrollTrigger loaded successfully")
                 resolve({ gsap: g, ScrollTrigger: ST })
-            }
-            s2.onerror = reject
-            document.head.appendChild(s2)
-        }
-        s1.onerror = reject
-        document.head.appendChild(s1)
+            })
+            .catch(function (err) {
+                console.error("[Choreo] GSAP CDN load failed:", err)
+                reject(err)
+            })
     })
     return (window as any)[key]
 }
@@ -2113,6 +2129,7 @@ export default function PageChoreographer(props: any) {
         var isPreview = RenderTarget.current() !== RenderTarget.canvas
 
         if (trigger === "onScroll" && parent && isPreview && targets.length > 0) {
+            console.log("[Choreo] SCROLL SETUP:", baseId, "trigger:", trigger, "scrollPin:", scrollPin, "targets:", targets.length, "parent:", parent.tagName + "#" + parent.id)
 
             // ── CMS bail-out ──
             var earlyPinSection = findPinSection(parent)
@@ -2411,6 +2428,7 @@ export default function PageChoreographer(props: any) {
                     var shouldPin = scrollPin
 
                     // ── Create the ScrollTrigger ──
+                    console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "#" + triggerEl.id, "pin:", shouldPin, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset)
                     gsapScrollTrigger = ST.create({
                         trigger: triggerEl,
                         pin: shouldPin,
