@@ -2691,13 +2691,16 @@ export default function PageChoreographer(props: any) {
                         },
                         onLeaveBack: function () {
                             if (!gsapMounted) return
-                            console.log("[Choreo] onLeaveBack:", baseId, "visibilityRevealed:", visibilityRevealed, "animDone:", animDone)
-                            // Scrolled back before the trigger — re-hide
+                            console.log("[Choreo] onLeaveBack:", baseId)
+                            // Scrolled back before the trigger — reset to start
                             animDone = false
                             choreoDoneDispatched = false
                             blockAnimatedPointerEvents()
                             updateAnimProgress(0)
-                            rehideIfNeeded()
+                            // Do NOT call rehideIfNeeded() — WAAPI from-state
+                            // already hides elements.  rehideIfNeeded sets
+                            // data-choreo-hide which can cross-contaminate
+                            // elements shared between multiple PCs.
                             if (wrapper) {
                                 wrapper.style.removeProperty("transition")
                                 wrapper.style.removeProperty("clip-path")
