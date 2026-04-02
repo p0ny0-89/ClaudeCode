@@ -2299,8 +2299,12 @@ export default function PageChoreographer(props: any) {
                     pinSectionEl.setAttribute("data-choreo-priority-pin", baseId)
                     var _ppWalk: HTMLElement | null = pinSectionEl.parentElement
                     while (_ppWalk && _ppWalk !== document.body && _ppWalk !== document.documentElement) {
-                        _ppWalk.setAttribute("data-choreo-priority-pin", baseId)
+                        // Stop BEFORE marking page-level containers —
+                        // marking them would cause every PC on the page
+                        // to defer to this leader, not just siblings
+                        // within the shared section.
                         if (_ppWalk.offsetHeight >= window.innerHeight * 0.5) break
+                        _ppWalk.setAttribute("data-choreo-priority-pin", baseId)
                         _ppWalk = _ppWalk.parentElement
                     }
                 }
