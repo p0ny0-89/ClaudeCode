@@ -1104,12 +1104,14 @@ function findPinSection(el: HTMLElement): HTMLElement {
             var parentKids = node.parentElement.children.length
             if (parentKids >= 2) {
                 best = node
-                // Stop at the FIRST valid section — the lowest
-                // ancestor whose parent has ≥2 children.  Climbing
-                // higher risks landing on a shared page-level
-                // container, causing PCs in separate stacks to
-                // resolve to the same pin section.
-                break
+                // If this node is viewport-height or taller, it's
+                // likely a page-level section — stop here.  Smaller
+                // nodes (cards, wrappers) continue climbing to find
+                // the actual section.  This prevents separate stacks
+                // from resolving to the same page container while
+                // still allowing multi-PC sections to find their
+                // correct section ancestor.
+                if (h >= vh * 0.5) break
             }
         }
         // Stop climbing if we've gone past 3x viewport
@@ -2479,7 +2481,13 @@ export default function PageChoreographer(props: any) {
                     // ── Create animations eagerly ──
                     createScrollAnims()
                     blockAnimatedPointerEvents()
-                    updateAnimProgress(0)
+                    // Only set animations to "from" state for below-fold
+                    // sections.  Above-fold sections must stay in their
+                    // natural visible state until the trigger activates —
+                    // setting progress(0) forces opacity:0/translateY/etc.
+                    if (!earlyAboveFold) {
+                        updateAnimProgress(0)
+                    }
 
                     // ── Determine pin section and scroll range ──
                     var triggerEl = (scrollPin && pinSectionEl) ? pinSectionEl : wrapper
