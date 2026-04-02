@@ -2279,31 +2279,50 @@ export default function PageChoreographer(props: any) {
                     pinSectionEl.setAttribute("data-choreo-gsap-pin", baseId)
                     isPinOwner = true
                 }
-                // Pin Priority leaders mark their pin section so
-                // non-leader PCs in child elements can find it.
-                // This attribute persists across the synchronous
-                // effect phase — by the time the batch callback
-                // runs (setTimeout(0)), all PCs have finished
-                // their effects, so non-leaders can walk up to
-                // find this marker.
+                // Pin Priority leaders mark their pin section AND
+                // ancestors so non-leader sibling PCs can find it.
+                // The leader may be in a sub-container (e.g. "03")
+                // while non-leaders are in sibling containers ("01",
+                // "02").  Walking up only works if the marker is on
+                // a COMMON ancestor.  We mark from the pin section
+                // up to the first viewport-height section boundary.
                 if (pinPriority) {
                     pinSectionEl.setAttribute("data-choreo-priority-pin", baseId)
+                    var _ppWalk: HTMLElement | null = pinSectionEl.parentElement
+                    while (_ppWalk && _ppWalk !== document.body && _ppWalk !== document.documentElement) {
+                        _ppWalk.setAttribute("data-choreo-priority-pin", baseId)
+                        if (_ppWalk.offsetHeight >= window.innerHeight * 0.5) break
+                        _ppWalk = _ppWalk.parentElement
+                    }
                 }
             }
 
             // ── Load GSAP and create ScrollTrigger ──
-            // If GSAP is already loaded (cached), create triggers
-            // synchronously so they survive React re-render cycles.
-            //
-            // For the first load (async path), we queue creation
-            // functions into a global batch and process them all in
-            // a single setTimeout(0).  This prevents one trigger's
-            // pin-spacer DOM mutation from invalidating another
-            // trigger's element references mid-microtask.
+            // ALWAYS use the batch queue for trigger creation, even
+            // when GSAP is already loaded.  This ensures ALL PC effects
+            // finish setting their synchronous attributes (pin-need,
+            // gsap-pin, priority-pin) before ANY ScrollTrigger is
+            // created.  Without batching, the synchronous path would
+            // create triggers mid-effect-cycle, breaking pin priority
+            // coordination (non-leaders run _createScrollTrigger before
+            // the leader has set data-choreo-priority-pin).
             var _existingGsap = (window as any).gsap
             var _existingST = (window as any).ScrollTrigger
             if (_existingGsap && _existingST) {
-                _createScrollTrigger(_existingGsap, _existingST)
+                // GSAP already loaded — queue for batch creation
+                var q2: Array<() => void> = (window as any).__choreoCreateQueue = (window as any).__choreoCreateQueue || []
+                q2.push(function () {
+                    _createScrollTrigger(_existingGsap, _existingST)
+                })
+                clearTimeout((window as any).__choreoCreateBatchTimer)
+                ;(window as any).__choreoCreateBatchTimer = setTimeout(function () {
+                    var fns: Array<() => void> = (window as any).__choreoCreateQueue || []
+                    ;(window as any).__choreoCreateQueue = []
+                    console.log("[Choreo] Batch-creating", fns.length, "ScrollTriggers")
+                    for (var bi = 0; bi < fns.length; bi++) {
+                        fns[bi]()
+                    }
+                }, 0)
             } else {
                 loadGSAP().then(function (libs) {
                     // Queue creation instead of running immediately.
@@ -2904,6 +2923,14 @@ export default function PageChoreographer(props: any) {
                 }
                 if (pinSectionEl.getAttribute("data-choreo-priority-pin") === baseId) {
                     pinSectionEl.removeAttribute("data-choreo-priority-pin")
+                    // Also clean ancestor priority markers
+                    var _ppClean: HTMLElement | null = pinSectionEl.parentElement
+                    while (_ppClean && _ppClean !== document.body) {
+                        if (_ppClean.getAttribute("data-choreo-priority-pin") === baseId) {
+                            _ppClean.removeAttribute("data-choreo-priority-pin")
+                        }
+                        _ppClean = _ppClean.parentElement
+                    }
                 }
             }
             // Restore parent overflow
