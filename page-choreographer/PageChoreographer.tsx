@@ -2387,32 +2387,19 @@ export default function PageChoreographer(props: any) {
                     scrollSpacer = spacer
                 }
 
-                // ── Expand parent height so the spacer creates scroll room ──
-                // The spacer is a flex child of pinSectionEl's parent.
-                // Framer Stacks set explicit height via inline styles, so
-                // the spacer may not contribute to the parent's size.
-                // Override height to (section + spacer) to guarantee the
-                // page is tall enough for the scroll-scrub range.
-                if (pinSectionEl.parentElement) {
-                    pinParentEl = pinSectionEl.parentElement
-                    pinParentOrigMinHeight = pinParentEl.style.minHeight || ""
-                    pinParentOrigHeight = pinParentEl.style.height || ""
-                    var sectionNaturalH = pinSectionEl.offsetHeight
-                    var neededHeight = sectionNaturalH + totalSpacerHeight
-                    pinParentEl.style.setProperty("min-height", neededHeight + "px", "important")
-                    pinParentEl.style.setProperty("height", neededHeight + "px", "important")
-                }
-
                 // ── Transform-based pinning ──
-                // position:sticky is fragile in Framer's flex Stacks
-                // (overflow:hidden on ancestors, explicit heights, etc.).
-                // Instead, the scroll handler applies translateY to
-                // counteract natural scroll, keeping the section visually
-                // pinned.  No position change needed — just transform.
-                // Ensure the section has position:relative so transform
-                // works reliably and it paints above the spacer.
+                // The spacer (inserted above) provides scroll room by
+                // overflowing the parent.  The overflow walk (below) sets
+                // overflow:visible on all ancestors, so the spacer's
+                // overflow contributes to the document's scroll height.
+                //
+                // We do NOT expand the parent's height — doing so
+                // corrupts multi-section layouts where multiple PCs
+                // share a parent (each overwriting the height).
+                //
+                // The scroll handler applies translateY to counteract
+                // natural scroll, keeping the section visually pinned.
                 pinSectionEl.style.setProperty("position", "relative", "important")
-                pinSectionEl.style.setProperty("z-index", "1", "important")
 
                 // ── Background fix for pinned sections ──
                 // The section's background is often on a parent frame.
@@ -3123,13 +3110,6 @@ export default function PageChoreographer(props: any) {
                         var resizeAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
                         var newSpacerH = scrollLength + resizeAnimOffset
                         scrollSpacer.style.setProperty("height", newSpacerH + "px")
-                        // Update parent height to match
-                        if (pinParentEl && pinSectionEl) {
-                            var resizeSectionH = pinSectionEl.offsetHeight
-                            var resizeNeeded = resizeSectionH + newSpacerH
-                            pinParentEl.style.setProperty("min-height", resizeNeeded + "px", "important")
-                            pinParentEl.style.setProperty("height", resizeNeeded + "px", "important")
-                        }
                     }
 
                     // Followers: re-read owner's spacer in case it resized
@@ -3265,20 +3245,7 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer.parentElement.removeChild(scrollSpacer)
             }
             scrollSpacer = null
-            // Restore parent min-height and height
-            if (pinParentEl) {
-                if (pinParentOrigMinHeight) {
-                    pinParentEl.style.setProperty("min-height", pinParentOrigMinHeight)
-                } else {
-                    pinParentEl.style.removeProperty("min-height")
-                }
-                if (pinParentOrigHeight) {
-                    pinParentEl.style.setProperty("height", pinParentOrigHeight)
-                } else {
-                    pinParentEl.style.removeProperty("height")
-                }
-                pinParentEl = null
-            }
+            pinParentEl = null
             // Clean section styles and release claim (owner only —
             // followers don't own sticky positioning)
             if (scrollSectionEl && !isFollower) {
