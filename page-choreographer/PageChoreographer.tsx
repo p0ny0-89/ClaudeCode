@@ -2253,18 +2253,35 @@ export default function PageChoreographer(props: any) {
             // ── Load GSAP and create ScrollTrigger ──
             // If GSAP is already loaded (cached), create triggers
             // synchronously so they survive React re-render cycles.
-            // With async .then(), useLayoutEffect cleanup kills the
-            // old trigger, and the new trigger isn't created until
-            // the next microtask — by which time another re-render
-            // may have already killed it.  Synchronous creation
-            // means cleanup + recreation happens in the same tick.
+            //
+            // For the first load (async path), we queue creation
+            // functions into a global batch and process them all in
+            // a single setTimeout(0).  This prevents one trigger's
+            // pin-spacer DOM mutation from invalidating another
+            // trigger's element references mid-microtask.
             var _existingGsap = (window as any).gsap
             var _existingST = (window as any).ScrollTrigger
             if (_existingGsap && _existingST) {
                 _createScrollTrigger(_existingGsap, _existingST)
             } else {
                 loadGSAP().then(function (libs) {
-                    _createScrollTrigger(libs.gsap, libs.ScrollTrigger)
+                    // Queue creation instead of running immediately.
+                    // All .then() callbacks fire in the same microtask,
+                    // so the queue collects ALL components.  The
+                    // setTimeout(0) then creates them all at once.
+                    var q: Array<() => void> = (window as any).__choreoCreateQueue = (window as any).__choreoCreateQueue || []
+                    q.push(function () {
+                        _createScrollTrigger(libs.gsap, libs.ScrollTrigger)
+                    })
+                    clearTimeout((window as any).__choreoCreateBatchTimer)
+                    ;(window as any).__choreoCreateBatchTimer = setTimeout(function () {
+                        var fns: Array<() => void> = (window as any).__choreoCreateQueue || []
+                        ;(window as any).__choreoCreateQueue = []
+                        console.log("[Choreo] Batch-creating", fns.length, "ScrollTriggers")
+                        for (var bi = 0; bi < fns.length; bi++) {
+                            fns[bi]()
+                        }
+                    }, 0)
                 }).catch(function (err) {
                     console.warn("[Choreo] GSAP load failed:", err)
                     // Fallback: just reveal everything
@@ -2276,7 +2293,10 @@ export default function PageChoreographer(props: any) {
             }
 
             function _createScrollTrigger(gsap: any, ST: any) {
-                if (!gsapMounted || !parent) return
+                if (!parent || !parent.isConnected) {
+                    console.log("[Choreo] Skipping trigger creation for", baseId, "— parent not in DOM")
+                    return
+                }
 
                 gsapCtx = gsap.context(function () {
                     var store = getStore()
