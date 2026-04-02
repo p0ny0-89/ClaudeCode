@@ -2137,18 +2137,36 @@ export default function PageChoreographer(props: any) {
             console.log("[Choreo] SCROLL SETUP:", baseId, "trigger:", trigger, "scrollPin:", scrollPin, "targets:", targets.length, "parent:", parent.tagName + "#" + parent.id)
 
             // ── CMS bail-out ──
+            // When multiple PCs live inside the same parent (CMS
+            // collection items that duplicate a template), only one
+            // should create a pin trigger.  But PCs in DIFFERENT
+            // parents (e.g. two separate stacks on the page) must
+            // each get their own trigger, even if findPinSection()
+            // resolves to the same high-level ancestor.
+            //
+            // Check: does the pin section already have an owner AND
+            // is there another PC marker in MY immediate parent?
+            // Both must be true for CMS bail-out.
             var earlyPinSection = findPinSection(parent)
             if (scrollPin && earlyPinSection && earlyPinSection.hasAttribute("data-choreo-gsap-pin") && !pinPriority) {
-                var otherMarkers = parent.querySelectorAll("[data-choreo-marker]")
-                var isCmsDuplicate = false
-                for (var om = 0; om < otherMarkers.length; om++) {
-                    if (otherMarkers[om] !== marker && !otherMarkers[om].hasAttribute("data-choreo-wait")) {
-                        isCmsDuplicate = true
+                // Only bail if there's another PC in the SAME parent
+                var sameParentMarkers = parent.querySelectorAll("[data-choreo-marker]")
+                var hasSiblingPC = false
+                for (var om = 0; om < sameParentMarkers.length; om++) {
+                    if (sameParentMarkers[om] !== marker && !sameParentMarkers[om].hasAttribute("data-choreo-wait")) {
+                        hasSiblingPC = true
                         break
                     }
                 }
-                if (isCmsDuplicate) {
-                    // Another PC in the same parent already handles scroll
+                // Also verify the existing pin owner is NOT in our
+                // parent — if it is, we're a CMS duplicate.  If it's
+                // in a different parent, we're a separate section.
+                var existingOwner = earlyPinSection.getAttribute("data-choreo-gsap-pin") || ""
+                var ownerMarker = earlyPinSection.querySelector("[data-choreo-marker='" + existingOwner + "']") ||
+                                  document.querySelector("[data-choreo-marker='" + existingOwner + "']")
+                var ownerInSameParent = ownerMarker ? parent.contains(ownerMarker) : false
+                if (hasSiblingPC && ownerInSameParent) {
+                    console.log("[Choreo] CMS bail-out:", baseId, "— another PC in same parent already owns pin")
                     return function () { unregisterAll(getStore()) }
                 }
             }
