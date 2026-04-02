@@ -2326,41 +2326,16 @@ export default function PageChoreographer(props: any) {
             }
 
 
-            // ── Clean up stale pin containers ──
-            // When a PC re-renders (prop change), only THAT PC's cleanup
-            // runs.  Pin containers from previous render cycles of OTHER
-            // PCs (different baseIds) persist and nest, breaking sticky
-            // positioning.  Walk up from pinSectionEl and unwrap ALL
-            // pin containers — this runs BEFORE pin creation so any
-            // pin container above us is necessarily stale.
-            if (isOwner && pinSectionEl) {
-                var staleNode: HTMLElement | null = pinSectionEl.parentElement
-                while (staleNode && staleNode !== document.documentElement) {
-                    var nextUp: HTMLElement | null = staleNode.parentElement
-                    if (staleNode.hasAttribute("data-choreo-pin-container")) {
-                        // Unwrap: move children back, remove container
-                        var staleOwner = staleNode.getAttribute("data-choreo-pin-container")
-                        // Remove spacer first
-                        var staleSpacer = staleNode.querySelector("[data-choreo-spacer]") as HTMLElement
-                        if (staleSpacer) staleSpacer.parentElement!.removeChild(staleSpacer)
-                        // Remove pin-owner attribute from the section
-                        var stalePinOwner = staleNode.querySelector("[data-choreo-pin-owner]") as HTMLElement
-                        if (stalePinOwner) {
-                            stalePinOwner.removeAttribute("data-choreo-pin-owner")
-                            stalePinOwner.removeAttribute("data-choreo-pin-priority")
-                            stalePinOwner.style.removeProperty("position")
-                            stalePinOwner.style.removeProperty("top")
-                            stalePinOwner.style.removeProperty("overflow-anchor")
-                        }
-                        // Unwrap: move all children out, remove container
-                        if (staleNode.parentElement) {
-                            while (staleNode.firstChild) {
-                                staleNode.parentElement.insertBefore(staleNode.firstChild, staleNode)
-                            }
-                            staleNode.parentElement.removeChild(staleNode)
-                        }
+            // ── Clean up stale spacers and pin attributes ──
+            // When a PC re-renders, stale spacers from previous cycles
+            // may persist.  Remove them before creating new ones.
+            if (isOwner && pinSectionEl && pinSectionEl.parentElement) {
+                var staleSpacers = pinSectionEl.parentElement.querySelectorAll("[data-choreo-spacer]")
+                for (var ssi = 0; ssi < staleSpacers.length; ssi++) {
+                    var ss = staleSpacers[ssi] as HTMLElement
+                    if (ss.getAttribute("data-choreo-spacer") !== baseId) {
+                        ss.parentElement!.removeChild(ss)
                     }
-                    staleNode = nextUp
                 }
             }
 
@@ -2375,67 +2350,34 @@ export default function PageChoreographer(props: any) {
 
                 // Total spacer height must accommodate the animation offset
                 // so the pin stays active until the animation finishes.
-                // E.g. scrollLength=1000 + 30% offset = 1300px total pin.
                 var ownerAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
                 var totalSpacerHeight = scrollLength + ownerAnimOffset
 
-                // ── Pin container ──
-                var existingPinCtr = pinSectionEl.parentElement
-                var pinContainer: HTMLElement
-                if (existingPinCtr && existingPinCtr.hasAttribute("data-choreo-pin-container")) {
-                    // Reuse existing pin container — just update ownership
-                    pinContainer = existingPinCtr
-                    pinContainer.setAttribute("data-choreo-pin-container", baseId)
-                    if (pinPriority) {
-                        pinContainer.setAttribute("data-choreo-pin-priority", "true")
-                    }
-                    // Update spacer to our total pin duration
-                    var existingSpacer = pinContainer.querySelector("[data-choreo-spacer]") as HTMLElement
-                    if (existingSpacer) {
-                        existingSpacer.style.setProperty("height", totalSpacerHeight + "px")
-                        existingSpacer.setAttribute("data-choreo-spacer", baseId)
-                        scrollSpacer = existingSpacer
-                    }
+                // ── Spacer (no pin container — avoid reparenting) ──
+                // Instead of creating a wrapper container and moving the
+                // section into it (which breaks React's DOM tracking),
+                // insert the spacer as a sibling right after the section.
+                // The section gets position:sticky directly.  The spacer
+                // creates the scroll distance needed for the pin.
+                var existingSpacer = pinSectionEl.parentElement
+                    ? pinSectionEl.parentElement.querySelector("[data-choreo-spacer='" + baseId + "']") as HTMLElement
+                    : null
+                if (existingSpacer) {
+                    existingSpacer.style.setProperty("height", totalSpacerHeight + "px")
+                    scrollSpacer = existingSpacer
                 } else {
-                    // Create new pin container wrapping the PIN SECTION
-                    pinContainer = document.createElement("div")
-                    pinContainer.setAttribute("data-choreo-pin-container", baseId)
-                    if (pinPriority) {
-                        pinContainer.setAttribute("data-choreo-pin-priority", "true")
-                    }
-                    pinContainer.style.setProperty("overflow-anchor", "none")
-                    if (pinSectionEl.parentElement) {
-                        var secCS = window.getComputedStyle(pinSectionEl)
-                        pinContainer.style.setProperty("align-self", secCS.alignSelf)
-                        pinContainer.style.setProperty("justify-self", secCS.justifySelf)
-                        pinContainer.style.setProperty("order", secCS.order)
-                        pinContainer.style.setProperty("grid-column", secCS.gridColumn)
-                        pinContainer.style.setProperty("grid-row", secCS.gridRow)
-                        pinContainer.style.setProperty("flex-grow", secCS.flexGrow)
-                        pinContainer.style.setProperty("flex-shrink", secCS.flexShrink)
-                        pinContainer.style.setProperty("flex-basis", secCS.flexBasis)
-                        // Preserve the section's width mode:
-                        // - Framer "fill" sections stretch via the parent's
-                        //   align-items:stretch default. The section's inline
-                        //   style.width is either "" (empty) or "100%".
-                        // - Framer "fixed" sections have an explicit pixel
-                        //   value like "500px" in their inline style.
-                        // Only use the computed pixel width for truly fixed
-                        // sections; everything else should fill (100%).
-                        var secInlineW = pinSectionEl.style.width
-                        var isFixedWidth = secInlineW && /^\d/.test(secInlineW) && secInlineW !== "100%"
-                        pinContainer.style.setProperty("width", isFixedWidth ? secInlineW : "100%")
-                        pinSectionEl.parentElement.insertBefore(pinContainer, pinSectionEl)
-                        pinContainer.appendChild(pinSectionEl)
-                    }
-
                     var spacer = document.createElement("div")
                     spacer.style.setProperty("height", totalSpacerHeight + "px")
                     spacer.style.setProperty("width", "100%")
                     spacer.style.setProperty("pointer-events", "none")
                     spacer.style.setProperty("flex-shrink", "0")
                     spacer.setAttribute("data-choreo-spacer", baseId)
-                    pinContainer.appendChild(spacer)
+                    // Insert spacer right after the section
+                    if (pinSectionEl.nextSibling) {
+                        pinSectionEl.parentElement!.insertBefore(spacer, pinSectionEl.nextSibling)
+                    } else {
+                        pinSectionEl.parentElement!.appendChild(spacer)
+                    }
                     scrollSpacer = spacer
                 }
 
@@ -2456,7 +2398,7 @@ export default function PageChoreographer(props: any) {
                 var pinSectionBg = window.getComputedStyle(pinSectionEl).backgroundColor
                 var pinSectionHasBg = pinSectionBg && pinSectionBg !== "rgba(0, 0, 0, 0)" && pinSectionBg !== "transparent"
                 if (!pinSectionHasBg) {
-                    var bgWalk: HTMLElement | null = pinContainer.parentElement
+                    var bgWalk: HTMLElement | null = pinSectionEl.parentElement
                     while (bgWalk && bgWalk !== document.documentElement) {
                         var ancestorBg = window.getComputedStyle(bgWalk).backgroundColor
                         if (ancestorBg && ancestorBg !== "rgba(0, 0, 0, 0)" && ancestorBg !== "transparent") {
@@ -2888,29 +2830,11 @@ export default function PageChoreographer(props: any) {
                     scrollPinState._dbgPrevZone = "pinned"
 
                     revealIfNeeded(clampedProgress)
-                    // Re-hide when progress returns to 0 on reverse
-                    // scroll.  This matches the initial-load state where
-                    // elements are hidden until progress > 0.  Prevents
-                    // partially-visible elements leaking through
-                    // overflow:visible containers.
-                    if (clampedProgress <= 0 && visibilityRevealed && preHiddenEls.length > 0) {
-                        visibilityRevealed = false
-                        if (!preHideStyleTag) {
-                            var existRehide2 = document.querySelector("style[data-choreo-style='hide']") as HTMLStyleElement
-                            if (existRehide2) {
-                                preHideStyleTag = existRehide2
-                            } else {
-                                var rehideTag2 = document.createElement("style")
-                                rehideTag2.setAttribute("data-choreo-style", "hide")
-                                rehideTag2.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
-                                document.head.appendChild(rehideTag2)
-                                preHideStyleTag = rehideTag2
-                            }
-                        }
-                        for (var rh2 = 0; rh2 < preHiddenEls.length; rh2++) {
-                            preHiddenEls[rh2].setAttribute("data-choreo-hide", "1")
-                        }
-                    }
+                    // No re-hide in the pinned zone — the WAAPI animation's
+                    // first keyframe handles visual hiding at progress=0
+                    // (opacity=0, clip-path, etc.).  The before-pin zone
+                    // below handles re-hiding when scrolling completely
+                    // before the section.
                     updateAnimProgress(clampedProgress)
                     // DEBUG: log first target's clip-path on early scrub frames
                     if (clampedProgress < 0.15 && preHiddenEls.length > 0) {
@@ -3283,7 +3207,7 @@ export default function PageChoreographer(props: any) {
             }
             scrollSpacer = null
             // Clean section styles and release claim (owner only —
-            // followers don't own the pin container or sticky positioning)
+            // followers don't own sticky positioning)
             if (scrollSectionEl && !isFollower) {
                 scrollSectionEl.style.removeProperty("position")
                 scrollSectionEl.style.removeProperty("top")
@@ -3291,15 +3215,7 @@ export default function PageChoreographer(props: any) {
                 scrollSectionEl.style.removeProperty("z-index")
                 scrollSectionEl.style.removeProperty("overflow-anchor")
                 scrollSectionEl.style.removeProperty("background")
-                // Unwrap from pin container — move section back to its
-                // original position and remove the container
-                var pinCtr = scrollSectionEl.parentElement
-                if (pinCtr && pinCtr.hasAttribute("data-choreo-pin-container")) {
-                    if (pinCtr.parentElement) {
-                        pinCtr.parentElement.insertBefore(scrollSectionEl, pinCtr)
-                        pinCtr.parentElement.removeChild(pinCtr)
-                    }
-                } else if (scrollSectionEl.parentElement) {
+                if (scrollSectionEl.parentElement) {
                     scrollSectionEl.parentElement.style.removeProperty("overflow-anchor")
                 }
                 if (scrollSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
