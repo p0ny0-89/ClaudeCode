@@ -2431,6 +2431,15 @@ export default function PageChoreographer(props: any) {
                         bgWalk = bgWalk.parentElement
                     }
                 }
+
+                console.log("[Choreo] PIN SETUP:", {
+                    pinSectionEl: pinSectionEl.tagName + "#" + pinSectionEl.id + "." + (pinSectionEl.getAttribute("data-framer-name") || "") + " cls:" + pinSectionEl.className.slice(0, 40),
+                    pinSectionH: pinSectionEl.offsetHeight,
+                    pinParent: pinParentEl ? pinParentEl.tagName + "#" + pinParentEl.id + "." + (pinParentEl.getAttribute("data-framer-name") || "") : "null",
+                    pinParentH: pinParentEl ? pinParentEl.offsetHeight : "n/a",
+                    spacerH: totalSpacerHeight,
+                    parentIsWrapper: pinParentEl === wrapper,
+                })
             }
 
             // Structural DOM changes complete — re-enable MutationObservers
@@ -2851,12 +2860,14 @@ export default function PageChoreographer(props: any) {
                     // Counteract scroll by translating the section down
                     // by the same amount it has scrolled up.
                     if (pinSectionEl) {
-                        pinSectionEl.style.setProperty("transform", "translateY(" + (scrollY - pinStart) + "px)", "important")
+                        var pinTranslateY = scrollY - pinStart
+                        pinSectionEl.style.setProperty("transform", "translateY(" + pinTranslateY + "px)", "important")
                     }
 
-                    // DEBUG: log zone transitions and progress
+                    // DEBUG: log zone transitions, progress, and pin verification
                     if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "pinned") {
-                        console.log("[ZONE] → pinned | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinStart:", Math.round(pinStart), "pinEnd:", Math.round(pinEnd), "animStart:", Math.round(animStart), "animLength:", Math.round(animLength), "progress:", clampedProgress.toFixed(3), "animsCreated:", scrollAnimsCreated, "animCount:", scrollAnims.length, "visRevealed:", visibilityRevealed)
+                        var pinRect = pinSectionEl ? pinSectionEl.getBoundingClientRect() : null
+                        console.log("[ZONE] → pinned | baseId:", baseId, "scrollY:", Math.round(scrollY), "pinStart:", Math.round(pinStart), "pinEnd:", Math.round(pinEnd), "progress:", clampedProgress.toFixed(3), "pinSectionTag:", pinSectionEl ? pinSectionEl.tagName + "." + (pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.className.slice(0, 30)) : "null", "rectTop:", pinRect ? Math.round(pinRect.top) : "n/a", "translateY:", pinTranslateY)
                     }
                     scrollPinState._dbgPrevZone = "pinned"
 
