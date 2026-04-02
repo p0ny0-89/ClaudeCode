@@ -2183,7 +2183,9 @@ export default function PageChoreographer(props: any) {
             // the WAAPI animations at progress 0 also make elements
             // invisible (opacity:0, translateY, etc.).
             var triggerCheckEl = (scrollPin && earlyPinSection) ? earlyPinSection : parent
-            var earlyAboveFold = triggerCheckEl.getBoundingClientRect().top < window.innerHeight
+            var triggerCheckRect = triggerCheckEl.getBoundingClientRect()
+            var earlyAboveFold = triggerCheckRect.top < window.innerHeight
+            console.log("[Choreo] ABOVE-FOLD CHECK:", baseId, "el:", triggerCheckEl.tagName + "." + (triggerCheckEl.getAttribute("data-framer-name") || triggerCheckEl.className.toString().slice(0, 30)), "top:", Math.round(triggerCheckRect.top), "vh:", window.innerHeight, "aboveFold:", earlyAboveFold, "enterEnabled:", enterEnabled, "preHideSkipped:", earlyAboveFold)
 
             // ── Pre-hiding ──
             var existingScrub = document.querySelector("style[data-choreo-style='scrub']") as HTMLStyleElement
@@ -2486,6 +2488,7 @@ export default function PageChoreographer(props: any) {
                     // fill:"both" immediately applies the "from" keyframe
                     // (opacity:0 etc.), making visible content disappear.
                     var _animsCreated = false
+                    console.log("[Choreo] ANIM INIT:", baseId, "earlyAboveFold:", earlyAboveFold, "willCreateAnims:", !earlyAboveFold, "preHiddenEls:", preHiddenEls.length)
                     if (!earlyAboveFold) {
                         createScrollAnims()
                         blockAnimatedPointerEvents()
