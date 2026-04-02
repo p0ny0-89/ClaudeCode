@@ -2409,13 +2409,21 @@ export default function PageChoreographer(props: any) {
                     }
 
                     var visibilityRevealed = false
+                    var _revealCount = 0
                     var revealIfNeeded = function (progress: number) {
                         if (visibilityRevealed) return
                         // maskPreview reveals immediately.  All other
                         // sections require progress > 0 so they don't
                         // flash before the user scrolls into range.
-                        if (!maskPreview && progress <= 0) return
+                        if (!maskPreview && progress <= 0) {
+                            if (_revealCount < 3) {
+                                _revealCount++
+                                console.log("[Choreo] revealIfNeeded SKIP:", baseId, "progress:", progress, "maskPreview:", maskPreview)
+                            }
+                            return
+                        }
                         visibilityRevealed = true
+                        console.log("[Choreo] REVEALING:", baseId, "progress:", progress, "preHiddenEls:", preHiddenEls.length)
                         // Remove the data-choreo-hide attribute from THIS PC's
                         // elements only.  Do NOT remove the shared <style> tag —
                         // other PCs still rely on it for their hidden elements.
@@ -2642,8 +2650,18 @@ export default function PageChoreographer(props: any) {
                                 }
                             }
                         },
+                        onEnter: function () {
+                            console.log("[Choreo] onEnter:", baseId)
+                        },
+                        onEnterBack: function () {
+                            console.log("[Choreo] onEnterBack:", baseId)
+                        },
+                        onLeave: function () {
+                            console.log("[Choreo] onLeave:", baseId)
+                        },
                         onLeaveBack: function () {
                             if (!gsapMounted) return
+                            console.log("[Choreo] onLeaveBack:", baseId, "visibilityRevealed:", visibilityRevealed, "animDone:", animDone)
                             // Scrolled back before the trigger — re-hide
                             animDone = false
                             choreoDoneDispatched = false
