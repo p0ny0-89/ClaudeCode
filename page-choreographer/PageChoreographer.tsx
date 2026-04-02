@@ -2468,13 +2468,14 @@ export default function PageChoreographer(props: any) {
                         }
                     }
 
-                    // ── Create animations ──
-                    // Create WAAPI animations eagerly.  fill:"both" applies
-                    // the "from" keyframe immediately (opacity:0 etc.),
-                    // keeping elements hidden until scroll progress > 0.
-                    createScrollAnims()
-                    blockAnimatedPointerEvents()
-                    updateAnimProgress(0)
+                    // ── WAAPI animations are deferred until after ST.refresh() ──
+                    // fill:"both" immediately applies the from-keyframe
+                    // (which may include transforms like translate(2000px,
+                    // -1500px)).  If applied BEFORE ST.refresh(), GSAP
+                    // reads the wrong getBoundingClientRect → negative
+                    // start positions → pin never activates.  Elements
+                    // stay hidden via data-choreo-hide CSS until then.
+                    var _animsReady = false
 
                     // ── Determine pin section and scroll range ──
                     var triggerEl = (scrollPin && pinSectionEl) ? pinSectionEl : wrapper
@@ -2559,9 +2560,16 @@ export default function PageChoreographer(props: any) {
                             // One-time pin-spacer diagnostic
                             if (!_pinDiagDone) {
                                 _pinDiagDone = true
-                                var spacer = self.spacer || (self.pin && self.pin.parentElement)
-                                var hasPinSpacer = spacer ? spacer.classList.contains("pin-spacer") : false
-                                console.log("[Choreo] PIN DIAG:", baseId, "hasPinSpacer:", hasPinSpacer, "spacer:", spacer, "self.pin:", self.pin, "self.start:", self.start, "self.end:", self.end, "isActive:", self.isActive, "progress:", progress, "gsapMounted:", gsapMounted, "_userHasScrolled:", _userHasScrolled)
+                                console.log("[Choreo] PIN DIAG:", baseId, "self.start:", self.start, "self.end:", self.end, "isActive:", self.isActive, "progress:", progress, "_animsReady:", _animsReady, "_userHasScrolled:", _userHasScrolled)
+                            }
+
+                            // Wait for WAAPI anims to be created (after ST.refresh)
+                            if (!_animsReady) {
+                                // Still record baseline while waiting
+                                if (!_userHasScrolled) {
+                                    _progressBaseline = progress
+                                }
+                                return
                             }
 
                             // ── Rebase progress on first real scroll ──
@@ -2572,7 +2580,6 @@ export default function PageChoreographer(props: any) {
                             if (!_userHasScrolled) {
                                 _progressBaseline = progress
                                 updateAnimProgress(0)
-                                console.log("[Choreo] GATE BLOCKED:", baseId, "progress:", progress, "baseline:", _progressBaseline)
                                 return
                             }
 
@@ -2599,9 +2606,6 @@ export default function PageChoreographer(props: any) {
                             }
                             localProgress = Math.max(0, Math.min(1, localProgress))
 
-                            if (!visibilityRevealed) {
-                                console.log("[Choreo] PRE-REVEAL:", baseId, "rebased:", rebased, "localProgress:", localProgress, "baseline:", _progressBaseline, "raw:", progress, "visibilityRevealed:", visibilityRevealed, "preHiddenEls:", preHiddenEls.length, "scrollAnims:", scrollAnims.length)
-                            }
                             revealIfNeeded(rebased)
                             updateAnimProgress(localProgress)
                             updateViewportClip()
@@ -2666,6 +2670,15 @@ export default function PageChoreographer(props: any) {
                         if (!gsapMounted) return
                         ST.sort()
                         ST.refresh()
+
+                        // NOW create WAAPI animations — AFTER GSAP has
+                        // measured natural element positions.  fill:"both"
+                        // transforms won't interfere with position calc.
+                        createScrollAnims()
+                        blockAnimatedPointerEvents()
+                        updateAnimProgress(0)
+                        _animsReady = true
+
                         var allTriggers = ST.getAll()
                         console.log("[Choreo] ScrollTrigger.sort() + refresh() — total triggers:", allTriggers.length)
                         for (var dti = 0; dti < allTriggers.length; dti++) {
