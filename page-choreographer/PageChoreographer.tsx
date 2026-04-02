@@ -2076,6 +2076,7 @@ export default function PageChoreographer(props: any) {
         var scrollResizeTimer = 0
         var pinParentEl: HTMLElement | null = null
         var pinParentOrigMinHeight = ""
+        var pinParentOrigHeight = ""
         var scrollPinState = { pinned: false, afterPin: false, completed: false, origStyles: "" }
         var isFollower = false
 
@@ -2392,8 +2393,29 @@ export default function PageChoreographer(props: any) {
                 if (pinSectionEl.parentElement) {
                     pinParentEl = pinSectionEl.parentElement
                     pinParentOrigMinHeight = pinParentEl.style.minHeight || ""
+                    pinParentOrigHeight = pinParentEl.style.height || ""
                     var sectionNaturalH = pinSectionEl.offsetHeight
-                    pinParentEl.style.setProperty("min-height", (sectionNaturalH + totalSpacerHeight) + "px", "important")
+                    var neededHeight = sectionNaturalH + totalSpacerHeight
+                    // Debug: log parent state before and after
+                    console.log("[Choreo] pinParent BEFORE:", {
+                        tagName: pinParentEl.tagName,
+                        id: pinParentEl.id,
+                        className: pinParentEl.className,
+                        inlineStyle: pinParentEl.getAttribute("style"),
+                        offsetHeight: pinParentEl.offsetHeight,
+                        sectionNaturalH: sectionNaturalH,
+                        totalSpacerHeight: totalSpacerHeight,
+                        neededHeight: neededHeight,
+                    })
+                    // Framer sets explicit `height` on Stack elements via inline
+                    // style.  An explicit height overrides min-height, so we must
+                    // also override height itself.
+                    pinParentEl.style.setProperty("min-height", neededHeight + "px", "important")
+                    pinParentEl.style.setProperty("height", neededHeight + "px", "important")
+                    console.log("[Choreo] pinParent AFTER:", {
+                        inlineStyle: pinParentEl.getAttribute("style"),
+                        offsetHeight: pinParentEl.offsetHeight,
+                    })
                 }
 
                 // Apply sticky positioning on the pin section.
@@ -3087,10 +3109,12 @@ export default function PageChoreographer(props: any) {
                         var resizeAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
                         var newSpacerH = scrollLength + resizeAnimOffset
                         scrollSpacer.style.setProperty("height", newSpacerH + "px")
-                        // Update parent min-height to match
+                        // Update parent height to match
                         if (pinParentEl && pinSectionEl) {
                             var resizeSectionH = pinSectionEl.offsetHeight
-                            pinParentEl.style.setProperty("min-height", (resizeSectionH + newSpacerH) + "px", "important")
+                            var resizeNeeded = resizeSectionH + newSpacerH
+                            pinParentEl.style.setProperty("min-height", resizeNeeded + "px", "important")
+                            pinParentEl.style.setProperty("height", resizeNeeded + "px", "important")
                         }
                     }
 
@@ -3227,12 +3251,17 @@ export default function PageChoreographer(props: any) {
                 scrollSpacer.parentElement.removeChild(scrollSpacer)
             }
             scrollSpacer = null
-            // Restore parent min-height
+            // Restore parent min-height and height
             if (pinParentEl) {
                 if (pinParentOrigMinHeight) {
                     pinParentEl.style.setProperty("min-height", pinParentOrigMinHeight)
                 } else {
                     pinParentEl.style.removeProperty("min-height")
+                }
+                if (pinParentOrigHeight) {
+                    pinParentEl.style.setProperty("height", pinParentOrigHeight)
+                } else {
+                    pinParentEl.style.removeProperty("height")
                 }
                 pinParentEl = null
             }
