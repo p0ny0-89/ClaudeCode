@@ -2450,9 +2450,11 @@ export default function PageChoreographer(props: any) {
                         trigger: triggerEl,
                         pin: shouldPin,
                         pinSpacing: shouldPin,
+                        pinType: "transform",
                         anticipatePin: shouldPin ? 1 : 0,
                         start: gsapStart,
                         end: "+=" + totalScrollDist,
+                        markers: true, // DEBUG: visual markers for trigger start/end
                         onUpdate: function (self: any) {
                             if (!gsapMounted) return
                             var progress = self.progress
@@ -2527,11 +2529,18 @@ export default function PageChoreographer(props: any) {
                         },
                     })
 
-                    // Ensure correct ordering when multiple ScrollTriggers
-                    // share the same pinned element.  sort() recalculates
-                    // start/end positions accounting for pin offsets.
-                    ST.sort()
-                    ST.refresh()
+                    // Defer sort/refresh until ALL PCs have created their
+                    // ScrollTriggers.  All .then() callbacks fire in the
+                    // same microtask (shared promise), so setTimeout(0)
+                    // runs after all of them.  This ensures sort/refresh
+                    // sees the complete set of triggers.
+                    clearTimeout((window as any).__choreoRefreshTimer)
+                    ;(window as any).__choreoRefreshTimer = setTimeout(function () {
+                        if (!gsapMounted) return
+                        ST.sort()
+                        ST.refresh()
+                        console.log("[Choreo] ScrollTrigger.sort() + refresh() — total triggers:", ST.getAll().length)
+                    }, 0)
 
                     // Safety fallback: if elements are still hidden after 500ms,
                     // force-reveal them.
