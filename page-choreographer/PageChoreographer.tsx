@@ -2211,30 +2211,19 @@ export default function PageChoreographer(props: any) {
 
             var pinSectionEl = earlyPinSection
 
-            // ── Overflow fix for Framer containers ──
-            // Framer containers often have overflow:hidden/clip or
-            // contain:paint that prevents ScrollTrigger from working.
-            // Walk up and fix these.
-            var overflowRoot: HTMLElement | null = pinSectionEl || parent
-            var overflowNode: HTMLElement | null = overflowRoot
+            // ── Contain fix for Framer containers ──
+            // GSAP ScrollTrigger handles overflow on its own via
+            // pin-spacers.  We only need to fix `contain:paint/strict/
+            // content` which creates a new stacking context that breaks
+            // transform-based pinning.  Do NOT touch overflow — that
+            // would interfere with GSAP's spacer mechanism.
+            var overflowNode: HTMLElement | null = pinSectionEl || parent
             while (overflowNode && overflowNode !== document.documentElement) {
-                if (overflowNode.hasAttribute("data-choreo-wrapper")) {
-                    overflowNode = overflowNode.parentElement
-                    continue
-                }
                 var ovCS = window.getComputedStyle(overflowNode)
-                var ov = ovCS.overflow
                 var ovContain = ovCS.contain || ""
-                var needsFix = ov === "clip" || ov === "hidden" ||
-                    ovCS.overflowX === "clip" || ovCS.overflowX === "hidden" ||
-                    ovCS.overflowY === "clip" || ovCS.overflowY === "hidden" ||
-                    /paint|strict|content/.test(ovContain)
-                if (needsFix) {
-                    scrollOverflowAncestors.push({ el: overflowNode, orig: ov })
-                    overflowNode.style.setProperty("overflow", "visible", "important")
-                    if (/paint|strict|content/.test(ovContain)) {
-                        overflowNode.style.setProperty("contain", "none", "important")
-                    }
+                if (/paint|strict|content/.test(ovContain)) {
+                    scrollOverflowAncestors.push({ el: overflowNode, orig: ovContain })
+                    overflowNode.style.setProperty("contain", "none", "important")
                 }
                 overflowNode = overflowNode.parentElement
             }
@@ -2445,7 +2434,9 @@ export default function PageChoreographer(props: any) {
                     var shouldPin = isPinOwner
 
                     // ── Create the ScrollTrigger ──
-                    console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "#" + triggerEl.id, "pin:", shouldPin, "isPinOwner:", isPinOwner, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset, "myScrollDist:", myScrollDist)
+                    var triggerName = triggerEl.getAttribute("data-framer-name") || triggerEl.className.toString().slice(0, 40) || "(unnamed)"
+                    var triggerRect = triggerEl.getBoundingClientRect()
+                    console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "." + triggerName, "size:", Math.round(triggerRect.width) + "x" + Math.round(triggerRect.height), "top:", Math.round(triggerRect.top), "pin:", shouldPin, "isPinOwner:", isPinOwner, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset)
                     gsapScrollTrigger = ST.create({
                         trigger: triggerEl,
                         pin: shouldPin,
@@ -2617,9 +2608,9 @@ export default function PageChoreographer(props: any) {
                 !document.querySelector("[data-choreo-scrubbing]")) {
                 scrubStyleTag.parentNode.removeChild(scrubStyleTag)
             }
-            // Restore overflow on ancestors
+            // Restore contain on ancestors
             for (var oc = 0; oc < scrollOverflowAncestors.length; oc++) {
-                scrollOverflowAncestors[oc].el.style.setProperty("overflow", scrollOverflowAncestors[oc].orig)
+                scrollOverflowAncestors[oc].el.style.setProperty("contain", scrollOverflowAncestors[oc].orig)
             }
             scrollOverflowAncestors = []
             // Clean pin-need attributes
