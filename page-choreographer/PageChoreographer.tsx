@@ -2451,6 +2451,17 @@ export default function PageChoreographer(props: any) {
                     overflowNode = overflowNode.parentElement
                     continue
                 }
+                // NEVER force overflow:visible on the pinSectionEl itself.
+                // The pinSectionEl is the viewport-height block (e.g. a
+                // 720px section in a Stack).  Removing its overflow clip
+                // makes its content visually expand beyond its intended
+                // height, breaking the "viewport height" contract.
+                // Its PARENT still needs overflow:visible so the spacer
+                // (a sibling of pinSectionEl) contributes to scroll height.
+                if (pinSectionEl && overflowNode === pinSectionEl) {
+                    overflowNode = overflowNode.parentElement
+                    continue
+                }
                 var ovCS = window.getComputedStyle(overflowNode)
                 var ov = ovCS.overflow
                 var ovX = ovCS.overflowX
@@ -2480,6 +2491,11 @@ export default function PageChoreographer(props: any) {
                     // Skip our own wrapper and pin containers
                     if (tFixNode.hasAttribute("data-choreo-wrapper") ||
                         tFixNode.hasAttribute("data-choreo-pin-container")) {
+                        tFixNode = tFixNode.parentElement
+                        continue
+                    }
+                    // Skip pinSectionEl (preserve viewport clipping)
+                    if (pinSectionEl && tFixNode === pinSectionEl) {
                         tFixNode = tFixNode.parentElement
                         continue
                     }
