@@ -1899,7 +1899,11 @@ export default function PageChoreographer(props: any) {
         }
     }
 
-    React.useEffect(function () {
+    // useLayoutEffect ensures GSAP pin-spacer cleanup runs
+    // synchronously BEFORE React reconciles the DOM.  With
+    // useEffect, React tries removeChild on elements that GSAP
+    // has reparented into pin-spacers, causing a crash.
+    React.useLayoutEffect(function () {
         var store = getStore()
         var marker = markerRef.current
         if (!store || !marker) return
