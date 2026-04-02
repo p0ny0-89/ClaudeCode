@@ -2309,23 +2309,21 @@ export default function PageChoreographer(props: any) {
                         var existingOwner = pinSearchNode.getAttribute("data-choreo-pin-owner")
                         console.log("[Choreo] WALK HIT OWNER:", baseId, "existingOwner:", existingOwner, "isSelf:", existingOwner === baseId, "pinPriority:", pinPriority)
                         if (existingOwner !== baseId) {
-                            var ownerHasPri = pinSearchNode.getAttribute("data-choreo-pin-priority") === "true"
-                            console.log("[Choreo] WALK OWNER CHECK:", baseId, "ownerHasPri:", ownerHasPri, "pinPriority:", pinPriority)
-                            // Read the existing owner's spacer height.
-                            // The spacer is a sibling of pinSectionEl.
+                            // ALWAYS become a follower — never take over.
+                            // Takeover creates a "deposed owner" whose closure
+                            // is permanently stale (wrong pinEnd, stale spacer
+                            // ref).  Instead, followers store their pin-need as
+                            // a data attribute and the owner picks it up via
+                            // dynamic pin extend every frame.  pinPriority is
+                            // now only used to ensure the pin-need is stored
+                            // (all followers do this anyway).
                             var ownerSpLen = 0
                             var ownerSpSpacer2: HTMLElement | null = null
                             if (pinSearchNode.parentElement) {
                                 ownerSpSpacer2 = pinSearchNode.parentElement.querySelector("[data-choreo-spacer]") as HTMLElement
                                 if (ownerSpSpacer2) ownerSpLen = parseInt(ownerSpSpacer2.style.height) || 0
                             }
-                            // Priority-based takeover (original behavior)
-                            console.log("[Choreo] WALK TAKEOVER CHECK:", baseId, "pinPriority:", pinPriority, "ownerHasPri:", ownerHasPri, "scrollLength:", scrollLength, "ownerSpLen:", ownerSpLen, "wouldTakeOver:", (pinPriority && !ownerHasPri) || (pinPriority && ownerHasPri && scrollLength > ownerSpLen))
-                            if ((pinPriority && !ownerHasPri) || (pinPriority && ownerHasPri && scrollLength > ownerSpLen)) {
-                                console.log("[Choreo] WALK TAKEOVER BREAK:", baseId, "taking over from:", existingOwner)
-                                break // take over
-                            }
-                            console.log("[Choreo] BECAME FOLLOWER:", baseId, "owner:", existingOwner, "ownerSpLen:", ownerSpLen)
+                            console.log("[Choreo] BECAME FOLLOWER:", baseId, "owner:", existingOwner, "ownerSpLen:", ownerSpLen, "pinPriority:", pinPriority)
                             isFollower = true
                             isOwner = false
                             pinSectionEl = pinSearchNode
@@ -3211,8 +3209,22 @@ export default function PageChoreographer(props: any) {
                     // Update spacer height (owner only — followers don't have spacers)
                     // Include animation offset so pin lasts until animation finishes
                     if (scrollSpacer && !isFollower) {
+                        // Re-read ALL pin-need attributes to use the MAX,
+                        // just like during setup.  Without this, the resize
+                        // handler would shrink the spacer back to just this
+                        // PC's own scrollLength, losing the extra room needed
+                        // by followers with larger pin-need.
                         var resizeAnimOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
                         var newSpacerH = scrollLength + resizeAnimOffset
+                        if (pinSectionEl) {
+                            var resizePinAttrs = pinSectionEl.attributes
+                            for (var rpa = 0; rpa < resizePinAttrs.length; rpa++) {
+                                if (resizePinAttrs[rpa].name.indexOf("data-choreo-pin-need-") === 0) {
+                                    var rpaVal = parseInt(resizePinAttrs[rpa].value) || 0
+                                    if (rpaVal > newSpacerH) newSpacerH = rpaVal
+                                }
+                            }
+                        }
                         scrollSpacer.style.setProperty("height", newSpacerH + "px")
                     }
 
@@ -3229,7 +3241,18 @@ export default function PageChoreographer(props: any) {
                     }
 
                     // Recalculate pin range (include owner's anim offset)
+                    // For owners, also re-read pin-need attributes to use the
+                    // MAX, matching the spacer height calculation above.
                     totalPinLength = pinScrollLength + (isFollower ? 0 : Math.max(0, (scrollStartOffset / 100) * scrollLength))
+                    if (!isFollower && pinSectionEl) {
+                        var resizePinAttrs2 = pinSectionEl.attributes
+                        for (var rpa2 = 0; rpa2 < resizePinAttrs2.length; rpa2++) {
+                            if (resizePinAttrs2[rpa2].name.indexOf("data-choreo-pin-need-") === 0) {
+                                var rpa2Val = parseInt(resizePinAttrs2[rpa2].value) || 0
+                                if (rpa2Val > totalPinLength) totalPinLength = rpa2Val
+                            }
+                        }
+                    }
                     var resizeMeasureEl = ((scrollPin || isFollower) && pinSectionEl) ? pinSectionEl : wrapper
                     var resizeRect = resizeMeasureEl.getBoundingClientRect()
                     var resizeVh = window.innerHeight
