@@ -2452,6 +2452,24 @@ export default function PageChoreographer(props: any) {
                             preHiddenEls[ph].style.removeProperty("opacity")
                             preHiddenEls[ph].style.removeProperty("pointer-events")
                             preHiddenEls[ph].style.removeProperty("clip-path")
+                            // Also clear data-choreo-hide from ancestors.
+                            // When multiple PCs share a section, a later PC's
+                            // pre-hide may have marked an ancestor of this PC's
+                            // targets.  Walk up and clear so this PC's elements
+                            // are actually visible.
+                            var ancestor: HTMLElement | null = preHiddenEls[ph].parentElement
+                            while (ancestor && ancestor !== document.documentElement) {
+                                if (ancestor.hasAttribute("data-choreo-hide")) {
+                                    ancestor.removeAttribute("data-choreo-hide")
+                                    ancestor.style.removeProperty("visibility")
+                                    ancestor.style.removeProperty("opacity")
+                                    ancestor.style.removeProperty("pointer-events")
+                                    ancestor.style.removeProperty("clip-path")
+                                }
+                                // Stop at wrapper or pin section — no need to go higher
+                                if (ancestor === wrapper || ancestor === pinSectionEl) break
+                                ancestor = ancestor.parentElement
+                            }
                         }
                     }
                     var rehideIfNeeded = function () {
