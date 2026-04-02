@@ -2551,6 +2551,7 @@ export default function PageChoreographer(props: any) {
 
                     // Log pin-spacer creation check
                     var _pinDiagDone = false
+                    var _reentryLogCount = 3 // log first 3 updates on initial entry
 
                     gsapScrollTrigger = ST.create({
                         id: baseId,
@@ -2618,6 +2619,13 @@ export default function PageChoreographer(props: any) {
                             updateAnimProgress(localProgress)
                             updateViewportClip()
 
+                            // Periodic diagnostic: log first 3 updates after
+                            // each re-entry (triggered by onEnterBack/onEnter)
+                            if (_reentryLogCount > 0) {
+                                _reentryLogCount--
+                                console.log("[Choreo] onUpdate:", baseId, "raw:", progress.toFixed(4), "rebased:", rebased.toFixed(4), "local:", localProgress.toFixed(4), "baseline:", _progressBaseline.toFixed(6), "scrollAnims:", scrollAnims.length, "visRevealed:", visibilityRevealed)
+                            }
+
                             animDone = localProgress >= 1
 
                             // Dispatch choreo-done when animation completes
@@ -2652,9 +2660,11 @@ export default function PageChoreographer(props: any) {
                         },
                         onEnter: function () {
                             console.log("[Choreo] onEnter:", baseId)
+                            _reentryLogCount = 3
                         },
                         onEnterBack: function () {
                             console.log("[Choreo] onEnterBack:", baseId)
+                            _reentryLogCount = 3
                         },
                         onLeave: function () {
                             console.log("[Choreo] onLeave:", baseId)
