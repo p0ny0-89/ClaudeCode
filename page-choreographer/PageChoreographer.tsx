@@ -2540,6 +2540,9 @@ export default function PageChoreographer(props: any) {
                         }
                     }
 
+                    // Log pin-spacer creation check
+                    var _pinDiagDone = false
+
                     gsapScrollTrigger = ST.create({
                         id: baseId,
                         trigger: triggerEl,
@@ -2553,6 +2556,14 @@ export default function PageChoreographer(props: any) {
                             if (!gsapMounted) return
                             var progress = self.progress
 
+                            // One-time pin-spacer diagnostic
+                            if (!_pinDiagDone) {
+                                _pinDiagDone = true
+                                var spacer = self.spacer || (self.pin && self.pin.parentElement)
+                                var hasPinSpacer = spacer ? spacer.classList.contains("pin-spacer") : false
+                                console.log("[Choreo] PIN DIAG:", baseId, "hasPinSpacer:", hasPinSpacer, "spacer:", spacer, "self.pin:", self.pin, "self.start:", self.start, "self.end:", self.end, "isActive:", self.isActive, "progress:", progress, "gsapMounted:", gsapMounted, "_userHasScrolled:", _userHasScrolled)
+                            }
+
                             // ── Rebase progress on first real scroll ──
                             // On ultrawide/tall viewports, ScrollTrigger
                             // can fire onUpdate with mid-range progress on
@@ -2561,6 +2572,7 @@ export default function PageChoreographer(props: any) {
                             if (!_userHasScrolled) {
                                 _progressBaseline = progress
                                 updateAnimProgress(0)
+                                console.log("[Choreo] GATE BLOCKED:", baseId, "progress:", progress, "baseline:", _progressBaseline)
                                 return
                             }
 
@@ -2587,6 +2599,9 @@ export default function PageChoreographer(props: any) {
                             }
                             localProgress = Math.max(0, Math.min(1, localProgress))
 
+                            if (!visibilityRevealed) {
+                                console.log("[Choreo] PRE-REVEAL:", baseId, "rebased:", rebased, "localProgress:", localProgress, "baseline:", _progressBaseline, "raw:", progress, "visibilityRevealed:", visibilityRevealed, "preHiddenEls:", preHiddenEls.length, "scrollAnims:", scrollAnims.length)
+                            }
                             revealIfNeeded(rebased)
                             updateAnimProgress(localProgress)
                             updateViewportClip()
@@ -2638,6 +2653,9 @@ export default function PageChoreographer(props: any) {
                         },
                     })
 
+                    // Log immediate post-create state
+                    console.log("[Choreo] ST created:", baseId, "gsapScrollTrigger:", !!gsapScrollTrigger, "pin:", gsapScrollTrigger && gsapScrollTrigger.pin, "spacer:", gsapScrollTrigger && gsapScrollTrigger.spacer, "isActive:", gsapScrollTrigger && gsapScrollTrigger.isActive)
+
                     // Defer sort/refresh until ALL PCs have created their
                     // ScrollTriggers.  All .then() callbacks fire in the
                     // same microtask (shared promise), so setTimeout(0)
@@ -2648,7 +2666,12 @@ export default function PageChoreographer(props: any) {
                         if (!gsapMounted) return
                         ST.sort()
                         ST.refresh()
-                        console.log("[Choreo] ScrollTrigger.sort() + refresh() — total triggers:", ST.getAll().length)
+                        var allTriggers = ST.getAll()
+                        console.log("[Choreo] ScrollTrigger.sort() + refresh() — total triggers:", allTriggers.length)
+                        for (var dti = 0; dti < allTriggers.length; dti++) {
+                            var dt = allTriggers[dti]
+                            console.log("[Choreo]   trigger[" + dti + "]:", dt.vars.id, "pin:", !!dt.pin, "isActive:", dt.isActive, "start:", dt.start, "end:", dt.end, "progress:", dt.progress)
+                        }
                     }, 0)
 
                     // No safety timer — elements stay hidden until the
@@ -2660,6 +2683,7 @@ export default function PageChoreographer(props: any) {
         }
 
         return function () {
+            console.log("[Choreo] CLEANUP:", baseId, "gsapScrollTrigger:", !!gsapScrollTrigger, "gsapCtx:", !!gsapCtx)
             clearTimeout(rescanTimer)
             gsapMounted = false
             if (_scrollGateCleanup) {
