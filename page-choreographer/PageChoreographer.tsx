@@ -1843,6 +1843,31 @@ export default function PageChoreographer(props: any) {
     }
 
     React.useEffect(function () {
+        // ── Orphaned hide cleanup ──
+        // On Framer live-preview reload, the previous effect's cleanup
+        // removes the <style> tag but data-choreo-hide attributes can
+        // survive on DOM elements (React reconciliation preserves them).
+        // The new effect then re-creates the style rule, making those
+        // elements invisible with no scroll handler to reveal them →
+        // blank page.  Clean up any orphaned attributes immediately.
+        var orphanHidden = document.querySelectorAll("[data-choreo-hide]")
+        for (var oh = 0; oh < orphanHidden.length; oh++) {
+            orphanHidden[oh].removeAttribute("data-choreo-hide")
+            ;(orphanHidden[oh] as HTMLElement).style.removeProperty("visibility")
+            ;(orphanHidden[oh] as HTMLElement).style.removeProperty("opacity")
+            ;(orphanHidden[oh] as HTMLElement).style.removeProperty("pointer-events")
+        }
+        // Also remove any orphaned choreo style tags (hide + scrub)
+        var orphanStyles = document.querySelectorAll("style[data-choreo-style]")
+        for (var os = 0; os < orphanStyles.length; os++) {
+            orphanStyles[os].parentNode?.removeChild(orphanStyles[os])
+        }
+        // Clean up orphaned scrubbing attributes
+        var orphanScrub = document.querySelectorAll("[data-choreo-scrubbing]")
+        for (var osc = 0; osc < orphanScrub.length; osc++) {
+            orphanScrub[osc].removeAttribute("data-choreo-scrubbing")
+        }
+
         var store = getStore()
         var marker = markerRef.current
         if (!store || !marker) return
@@ -2152,11 +2177,13 @@ export default function PageChoreographer(props: any) {
             // React reconciliation — the attribute + stylesheet approach
             // survives those re-renders.
             var scrubStyleTag = document.createElement("style")
+            scrubStyleTag.setAttribute("data-choreo-style", "scrub")
             scrubStyleTag.textContent = "[data-choreo-scrubbing] { transition: none !important; pointer-events: none !important; }"
             document.head.appendChild(scrubStyleTag)
 
             if (enterEnabled) {
                 var styleTag = document.createElement("style")
+                styleTag.setAttribute("data-choreo-style", "hide")
                 styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
                 document.head.appendChild(styleTag)
                 preHideStyleTag = styleTag
@@ -3005,6 +3032,7 @@ export default function PageChoreographer(props: any) {
                         visibilityRevealed = false
                         if (!preHideStyleTag) {
                             var rehideTag2 = document.createElement("style")
+                            rehideTag2.setAttribute("data-choreo-style", "hide")
                             rehideTag2.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
                             document.head.appendChild(rehideTag2)
                             preHideStyleTag = rehideTag2
@@ -3099,6 +3127,7 @@ export default function PageChoreographer(props: any) {
                         // Re-add the hide style tag if it was removed
                         if (!preHideStyleTag) {
                             var rehideTag = document.createElement("style")
+                            rehideTag.setAttribute("data-choreo-style", "hide")
                             rehideTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
                             document.head.appendChild(rehideTag)
                             preHideStyleTag = rehideTag
@@ -3302,21 +3331,21 @@ export default function PageChoreographer(props: any) {
 
         return function () {
             clearTimeout(rescanTimer)
-            // For onScroll, keep visibility:hidden — the scroll handler
-            // removes it when progress > 0. Removing it here would cause
-            // a flash between cleanup and re-render. For other triggers,
-            // the animation itself manages visibility.
-            if (trigger !== "onScroll") {
-                for (var rph = 0; rph < preHiddenEls.length; rph++) {
-                    try {
-                        preHiddenEls[rph].style.removeProperty("visibility")
-                    } catch (e) {}
-                }
+            // Remove data-choreo-hide from all elements this instance hid.
+            // The new effect's orphan cleanup runs BEFORE setup, so there's
+            // no window where elements are invisible with no handler.
+            for (var rph = 0; rph < preHiddenEls.length; rph++) {
+                try {
+                    preHiddenEls[rph].removeAttribute("data-choreo-hide")
+                    preHiddenEls[rph].style.removeProperty("visibility")
+                    preHiddenEls[rph].style.removeProperty("opacity")
+                    preHiddenEls[rph].style.removeProperty("pointer-events")
+                } catch (e) {}
             }
-            // Clean up style tag on unmount (but NOT on re-render
-            // for onScroll — the new effect will create a fresh one)
+            // Remove the hide style tag
             if (preHideStyleTag && preHideStyleTag.parentNode) {
                 preHideStyleTag.parentNode.removeChild(preHideStyleTag)
+                preHideStyleTag = null
             }
             if (mutObs) {
                 try { mutObs.disconnect() } catch (e) {}
