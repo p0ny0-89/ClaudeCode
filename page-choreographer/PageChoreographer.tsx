@@ -1843,31 +1843,6 @@ export default function PageChoreographer(props: any) {
     }
 
     React.useEffect(function () {
-        // ── Orphaned hide cleanup ──
-        // On Framer live-preview reload, the previous effect's cleanup
-        // removes the <style> tag but data-choreo-hide attributes can
-        // survive on DOM elements (React reconciliation preserves them).
-        // The new effect then re-creates the style rule, making those
-        // elements invisible with no scroll handler to reveal them →
-        // blank page.  Clean up any orphaned attributes immediately.
-        var orphanHidden = document.querySelectorAll("[data-choreo-hide]")
-        for (var oh = 0; oh < orphanHidden.length; oh++) {
-            orphanHidden[oh].removeAttribute("data-choreo-hide")
-            ;(orphanHidden[oh] as HTMLElement).style.removeProperty("visibility")
-            ;(orphanHidden[oh] as HTMLElement).style.removeProperty("opacity")
-            ;(orphanHidden[oh] as HTMLElement).style.removeProperty("pointer-events")
-        }
-        // Also remove any orphaned choreo style tags (hide + scrub)
-        var orphanStyles = document.querySelectorAll("style[data-choreo-style]")
-        for (var os = 0; os < orphanStyles.length; os++) {
-            orphanStyles[os].parentNode?.removeChild(orphanStyles[os])
-        }
-        // Clean up orphaned scrubbing attributes
-        var orphanScrub = document.querySelectorAll("[data-choreo-scrubbing]")
-        for (var osc = 0; osc < orphanScrub.length; osc++) {
-            orphanScrub[osc].removeAttribute("data-choreo-scrubbing")
-        }
-
         var store = getStore()
         var marker = markerRef.current
         if (!store || !marker) return
@@ -2086,7 +2061,10 @@ export default function PageChoreographer(props: any) {
         // scroll event. On Framer canvas, scroll never fires, so the DOM is
         // never modified and elements render naturally.
         var scrollAnims: Animation[] = []
+        var scrollAnimFinalStyles: Array<{ el: HTMLElement; to: Record<string, string> }> = []
+        var scrubStyleTag: HTMLStyleElement | null = null
         var scrollHandler: (() => void) | null = null
+        var scrollSafetyTimer = 0
         var scrollResizeHandler: (() => void) | null = null
         var scrollWrapper: HTMLElement | null = null
         var parentOrigWidth = ""
@@ -2176,17 +2154,30 @@ export default function PageChoreographer(props: any) {
             // preview re-renders can strip inline transition:none via
             // React reconciliation — the attribute + stylesheet approach
             // survives those re-renders.
-            var scrubStyleTag = document.createElement("style")
-            scrubStyleTag.setAttribute("data-choreo-style", "scrub")
-            scrubStyleTag.textContent = "[data-choreo-scrubbing] { transition: none !important; pointer-events: none !important; }"
-            document.head.appendChild(scrubStyleTag)
+            // Singleton style tags: reuse if already in DOM from
+            // another PC instance (or a stale soft-refresh orphan).
+            // This prevents duplicates and ensures cleanup works.
+            var existingScrub = document.querySelector("style[data-choreo-style='scrub']") as HTMLStyleElement
+            if (existingScrub) {
+                scrubStyleTag = existingScrub
+            } else {
+                scrubStyleTag = document.createElement("style")
+                scrubStyleTag.setAttribute("data-choreo-style", "scrub")
+                scrubStyleTag.textContent = "[data-choreo-scrubbing] { transition: none !important; pointer-events: none !important; }"
+                document.head.appendChild(scrubStyleTag)
+            }
 
             if (enterEnabled) {
-                var styleTag = document.createElement("style")
-                styleTag.setAttribute("data-choreo-style", "hide")
-                styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
-                document.head.appendChild(styleTag)
-                preHideStyleTag = styleTag
+                var existingHide = document.querySelector("style[data-choreo-style='hide']") as HTMLStyleElement
+                if (existingHide) {
+                    preHideStyleTag = existingHide
+                } else {
+                    var styleTag = document.createElement("style")
+                    styleTag.setAttribute("data-choreo-style", "hide")
+                    styleTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
+                    document.head.appendChild(styleTag)
+                    preHideStyleTag = styleTag
+                }
 
                 // Compute initial clip-path for maskPreview mode
                 var previewClip = ""
@@ -2745,7 +2736,7 @@ export default function PageChoreographer(props: any) {
                 window.matchMedia("(prefers-reduced-motion: reduce)").matches
             var mobile = window.innerWidth < 768
 
-            var scrollAnimFinalStyles: Array<{ el: HTMLElement; to: Record<string, string> }> = []
+            scrollAnimFinalStyles = []
 
             var createScrollAnims = function () {
                 for (var ca = 0; ca < scrollAnims.length; ca++) {
@@ -2866,9 +2857,14 @@ export default function PageChoreographer(props: any) {
 
             var revealIfNeeded = function (progress: number) {
                 // For maskPreview, elements are already visible — skip the
-                // scrollY/progress gate since there's nothing to "reveal"
+                // progress gate since there's nothing to "reveal"
                 if (visibilityRevealed) return
-                if (!maskPreview && (progress <= 0 || window.scrollY <= 0)) return
+                // With WAAPI animations kept alive, the first keyframe
+                // handles visual hiding at progress=0 (clip-path, opacity).
+                // Safe to remove data-choreo-hide as soon as we're in the
+                // pinned zone.  The old scrollY<=0 guard blocked hero
+                // sections (pinStart=0) from ever revealing on reload.
+                if (!maskPreview && progress < 0) return
                 visibilityRevealed = true
                 for (var ph = 0; ph < preHiddenEls.length; ph++) {
                     preHiddenEls[ph].removeAttribute("data-choreo-hide")
@@ -3031,11 +3027,16 @@ export default function PageChoreographer(props: any) {
                     if (clampedProgress <= 0 && visibilityRevealed && preHiddenEls.length > 0) {
                         visibilityRevealed = false
                         if (!preHideStyleTag) {
-                            var rehideTag2 = document.createElement("style")
-                            rehideTag2.setAttribute("data-choreo-style", "hide")
-                            rehideTag2.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
-                            document.head.appendChild(rehideTag2)
-                            preHideStyleTag = rehideTag2
+                            var existRehide2 = document.querySelector("style[data-choreo-style='hide']") as HTMLStyleElement
+                            if (existRehide2) {
+                                preHideStyleTag = existRehide2
+                            } else {
+                                var rehideTag2 = document.createElement("style")
+                                rehideTag2.setAttribute("data-choreo-style", "hide")
+                                rehideTag2.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
+                                document.head.appendChild(rehideTag2)
+                                preHideStyleTag = rehideTag2
+                            }
                         }
                         for (var rh2 = 0; rh2 < preHiddenEls.length; rh2++) {
                             preHiddenEls[rh2].setAttribute("data-choreo-hide", "1")
@@ -3126,11 +3127,16 @@ export default function PageChoreographer(props: any) {
                         visibilityRevealed = false
                         // Re-add the hide style tag if it was removed
                         if (!preHideStyleTag) {
-                            var rehideTag = document.createElement("style")
-                            rehideTag.setAttribute("data-choreo-style", "hide")
-                            rehideTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
-                            document.head.appendChild(rehideTag)
-                            preHideStyleTag = rehideTag
+                            var existRehide = document.querySelector("style[data-choreo-style='hide']") as HTMLStyleElement
+                            if (existRehide) {
+                                preHideStyleTag = existRehide
+                            } else {
+                                var rehideTag = document.createElement("style")
+                                rehideTag.setAttribute("data-choreo-style", "hide")
+                                rehideTag.textContent = "[data-choreo-hide] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }"
+                                document.head.appendChild(rehideTag)
+                                preHideStyleTag = rehideTag
+                            }
                         }
                         for (var rh = 0; rh < preHiddenEls.length; rh++) {
                             preHiddenEls[rh].setAttribute("data-choreo-hide", "1")
@@ -3319,11 +3325,23 @@ export default function PageChoreographer(props: any) {
             scrollResizeHandler = handleResize
             window.addEventListener("resize", handleResize)
 
-            // Run initial scroll check — use >= so hero sections
-            // (pinStart=0) get pinned immediately on load
-            if (window.scrollY >= pinStart) {
-                handleScroll()
-            }
+            // Always run the initial scroll check.  The before-pin zone
+            // handles itself harmlessly when animations don't exist yet.
+            // Previously gated on scrollY >= pinStart, but that blocked
+            // sections whose pinStart was miscalculated (layout not yet
+            // settled) from ever revealing.
+            handleScroll()
+
+            // Safety fallback: if elements are still hidden after 500ms
+            // (e.g. due to layout timing, scroll position edge cases, or
+            // Framer preview quirks), force-reveal them.  The WAAPI first
+            // keyframe keeps them visually hidden even without the
+            // data-choreo-hide attribute.
+            scrollSafetyTimer = setTimeout(function () {
+                if (!visibilityRevealed && preHiddenEls.length > 0) {
+                    revealIfNeeded(0)
+                }
+            }, 500) as unknown as number
 
             }) // end inner rAF
             }) // end outer rAF
@@ -3331,19 +3349,16 @@ export default function PageChoreographer(props: any) {
 
         return function () {
             clearTimeout(rescanTimer)
-            // Remove data-choreo-hide from all elements this instance hid.
-            // The new effect's orphan cleanup runs BEFORE setup, so there's
-            // no window where elements are invisible with no handler.
-            for (var rph = 0; rph < preHiddenEls.length; rph++) {
-                try {
-                    preHiddenEls[rph].removeAttribute("data-choreo-hide")
-                    preHiddenEls[rph].style.removeProperty("visibility")
-                    preHiddenEls[rph].style.removeProperty("opacity")
-                    preHiddenEls[rph].style.removeProperty("pointer-events")
-                } catch (e) {}
+            if (scrollSafetyTimer) {
+                clearTimeout(scrollSafetyTimer)
             }
-            // Remove the hide style tag
-            if (preHideStyleTag && preHideStyleTag.parentNode) {
+            // Remove pre-hide attributes from elements this instance hid
+            for (var rph = 0; rph < preHiddenEls.length; rph++) {
+                try { preHiddenEls[rph].removeAttribute("data-choreo-hide") } catch (e) {}
+            }
+            // Remove hide tag only if no other elements still need it
+            if (preHideStyleTag && preHideStyleTag.parentNode &&
+                !document.querySelector("[data-choreo-hide]")) {
                 preHideStyleTag.parentNode.removeChild(preHideStyleTag)
                 preHideStyleTag = null
             }
@@ -3379,13 +3394,13 @@ export default function PageChoreographer(props: any) {
             for (var sa = 0; sa < scrollAnims.length; sa++) {
                 try { scrollAnims[sa].cancel() } catch (e) {}
             }
-            // Remove scrubbing attribute + style tag
-            if (typeof scrollAnimFinalStyles !== "undefined") {
-                for (var pe = 0; pe < scrollAnimFinalStyles.length; pe++) {
-                    try { scrollAnimFinalStyles[pe].el.removeAttribute("data-choreo-scrubbing") } catch (e) {}
-                }
+            // Remove scrubbing attributes from this PC's elements
+            for (var pe = 0; pe < scrollAnimFinalStyles.length; pe++) {
+                try { scrollAnimFinalStyles[pe].el.removeAttribute("data-choreo-scrubbing") } catch (e) {}
             }
-            if (typeof scrubStyleTag !== "undefined" && scrubStyleTag && scrubStyleTag.parentNode) {
+            // Remove scrub style tag only if no elements still reference it
+            if (scrubStyleTag && scrubStyleTag.parentNode &&
+                !document.querySelector("[data-choreo-scrubbing]")) {
                 scrubStyleTag.parentNode.removeChild(scrubStyleTag)
             }
             // Restore overflow on ancestors
