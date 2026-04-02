@@ -2267,6 +2267,8 @@ export default function PageChoreographer(props: any) {
 
             if (pinSectionEl) {
                 var pinSearchNode: HTMLElement | null = pinSectionEl
+                // DEBUG: log what the walk starts with
+                console.log("[Choreo] OWNER WALK start:", baseId, "pinSectionEl:", pinSectionEl.tagName + "#" + pinSectionEl.id + "." + (pinSectionEl.getAttribute("data-framer-name") || pinSectionEl.className.slice(0, 30)), "hasPinOwner:", pinSectionEl.hasAttribute("data-choreo-pin-owner"), "pinOwnerVal:", pinSectionEl.getAttribute("data-choreo-pin-owner"))
                 while (pinSearchNode && pinSearchNode !== document.documentElement) {
                     if (pinSearchNode.hasAttribute("data-choreo-pin-container")) {
                         var pinCtrOwner = pinSearchNode.getAttribute("data-choreo-pin-container")
@@ -2317,6 +2319,7 @@ export default function PageChoreographer(props: any) {
                             if ((pinPriority && !ownerHasPri) || (pinPriority && ownerHasPri && scrollLength > ownerSpLen)) {
                                 break // take over
                             }
+                            console.log("[Choreo] BECAME FOLLOWER:", baseId, "owner:", existingOwner, "ownerSpLen:", ownerSpLen)
                             isFollower = true
                             isOwner = false
                             pinSectionEl = pinSearchNode
@@ -2334,6 +2337,7 @@ export default function PageChoreographer(props: any) {
                             if (ourNeededPinLen > ownerSpLen && ownerSpSpacer2) {
                                 ownerSpSpacer2.style.setProperty("height", ourNeededPinLen + "px")
                                 ownerScrollLength = ourNeededPinLen
+                                console.log("[Choreo] EXPANDED SPACER:", baseId, "to:", ourNeededPinLen)
                             }
                             break
                         }
