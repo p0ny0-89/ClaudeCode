@@ -2239,6 +2239,23 @@ export default function PageChoreographer(props: any) {
                 overflowNode = overflowNode.parentElement
             }
 
+            // ── Synchronous pin coordination ──
+            // Store this PC's pin-need BEFORE GSAP loads.  All PC effects
+            // run synchronously in the same React commit, so by the time
+            // any .then() callback fires, ALL PCs' pin-need attributes are
+            // already present on the DOM.  This lets the first .then() to
+            // create a ScrollTrigger read the MAX of all needs.
+            var myScrollDist = scrollLength + Math.max(0, (scrollStartOffset / 100) * scrollLength)
+            var isPinOwner = false
+            if (scrollPin && pinSectionEl) {
+                pinSectionEl.setAttribute("data-choreo-pin-need-" + baseId, myScrollDist.toString())
+                // First PC to reach here claims pin ownership
+                if (!pinSectionEl.hasAttribute("data-choreo-gsap-pin")) {
+                    pinSectionEl.setAttribute("data-choreo-gsap-pin", baseId)
+                    isPinOwner = true
+                }
+            }
+
             // ── Load GSAP and create ScrollTrigger ──
             loadGSAP().then(function (libs) {
                 if (!gsapMounted || !parent) return
@@ -2407,11 +2424,10 @@ export default function PageChoreographer(props: any) {
                     var animOffset = Math.max(0, (scrollStartOffset / 100) * scrollLength)
                     var totalScrollDist = scrollLength + animOffset
 
-                    // If this PC pins, check if other PCs on the same section
-                    // need more scroll distance (via data attributes).
-                    if (scrollPin && pinSectionEl) {
-                        pinSectionEl.setAttribute("data-choreo-pin-need-" + baseId, totalScrollDist.toString())
-                        // Read all pin-need attributes and use the MAX
+                    // Read MAX of ALL pin-need attributes on this section.
+                    // All pin-need attrs were set synchronously before GSAP
+                    // loaded, so every PC's need is already present.
+                    if (pinSectionEl) {
                         var pinNeedAttrs = pinSectionEl.attributes
                         for (var pna = 0; pna < pinNeedAttrs.length; pna++) {
                             if (pinNeedAttrs[pna].name.indexOf("data-choreo-pin-need-") === 0) {
@@ -2419,16 +2435,17 @@ export default function PageChoreographer(props: any) {
                                 if (pnaVal > totalScrollDist) totalScrollDist = pnaVal
                             }
                         }
-                        pinSectionEl.setAttribute("data-choreo-gsap-pin", baseId)
                     }
 
-                    // Whether this PC actually pins the section.
-                    // If another ScrollTrigger already pins the same element,
-                    // GSAP handles the deduplication — we just create ours.
-                    var shouldPin = scrollPin
+                    // Only the pin OWNER creates a pinning ScrollTrigger.
+                    // isPinOwner was determined synchronously: the first PC
+                    // with scrollPin=true to set data-choreo-gsap-pin wins.
+                    // Other PCs use pin:false — they just scrub animations
+                    // within the shared pin's scroll range.
+                    var shouldPin = isPinOwner
 
                     // ── Create the ScrollTrigger ──
-                    console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "#" + triggerEl.id, "pin:", shouldPin, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset)
+                    console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "#" + triggerEl.id, "pin:", shouldPin, "isPinOwner:", isPinOwner, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset, "myScrollDist:", myScrollDist)
                     gsapScrollTrigger = ST.create({
                         trigger: triggerEl,
                         pin: shouldPin,
@@ -2509,6 +2526,12 @@ export default function PageChoreographer(props: any) {
                             revealIfNeeded(0)
                         },
                     })
+
+                    // Ensure correct ordering when multiple ScrollTriggers
+                    // share the same pinned element.  sort() recalculates
+                    // start/end positions accounting for pin offsets.
+                    ST.sort()
+                    ST.refresh()
 
                     // Safety fallback: if elements are still hidden after 500ms,
                     // force-reveal them.
