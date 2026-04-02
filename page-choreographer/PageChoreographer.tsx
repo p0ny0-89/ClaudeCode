@@ -2448,7 +2448,12 @@ export default function PageChoreographer(props: any) {
                     var triggerName = triggerEl.getAttribute("data-framer-name") || triggerEl.className.toString().slice(0, 40) || "(unnamed)"
                     var triggerRect = triggerEl.getBoundingClientRect()
                     console.log("[Choreo] Creating ScrollTrigger:", baseId, "trigger:", triggerEl.tagName + "." + triggerName, "size:", Math.round(triggerRect.width) + "x" + Math.round(triggerRect.height), "top:", Math.round(triggerRect.top), "pin:", shouldPin, "isPinOwner:", isPinOwner, "start:", gsapStart, "end: +=" + totalScrollDist, "animOffset:", animOffset)
-                    var _firstUpdate = true
+                    // Track whether the user has actually scrolled.
+                    // On ultrawide / tall viewports a section can already
+                    // be inside the trigger zone on page load.  We record
+                    // the initial progress and only reveal once the scroll
+                    // position actually changes (real user interaction).
+                    var _initialProgress: number | null = null
                     gsapScrollTrigger = ST.create({
                         id: baseId,
                         trigger: triggerEl,
@@ -2478,20 +2483,22 @@ export default function PageChoreographer(props: any) {
                             }
                             localProgress = Math.max(0, Math.min(1, localProgress))
 
-                            if (_firstUpdate) {
-                                _firstUpdate = false
+                            if (_initialProgress === null) {
+                                // First callback — record baseline, set anim
+                                // state silently (no reveal).
+                                _initialProgress = progress
                                 console.log("[Choreo] FIRST UPDATE:", baseId, "progress:", progress.toFixed(3), "isActive:", self.isActive, "direction:", self.direction, "start:", self.start, "end:", self.end)
-                                // On the very first onUpdate (fired during
-                                // trigger creation / ST.refresh()), set the
-                                // animation to the correct frame but do NOT
-                                // reveal.  This keeps elements hidden on page
-                                // load even if the trigger is already active.
-                                // Real scroll-driven updates will reveal.
                                 updateAnimProgress(localProgress)
                                 return
                             }
 
-                            revealIfNeeded(progress)
+                            // Only reveal once scroll has moved from its
+                            // initial position (meaning the user actually
+                            // scrolled).  Threshold avoids float jitter.
+                            var scrollMoved = Math.abs(progress - _initialProgress) > 0.001
+                            if (scrollMoved) {
+                                revealIfNeeded(progress)
+                            }
                             updateAnimProgress(localProgress)
                             updateViewportClip()
 
