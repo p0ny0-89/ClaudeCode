@@ -2900,7 +2900,7 @@ export default function PageChoreographer(props: any) {
                 // set up AFTER the owner store their needs as attributes;
                 // the owner picks them up here so pinEnd extends to cover
                 // all animations.  Also update the spacer to match.
-                if (isOwner && pinSectionEl) {
+                if (isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                     var maxNeeded = totalPinLength
                     var dynAttrs = pinSectionEl.attributes
                     for (var da = 0; da < dynAttrs.length; da++) {
@@ -2944,9 +2944,14 @@ export default function PageChoreographer(props: any) {
                     // Only the OWNER applies translateY — followers just
                     // scrub their animations.  Without this guard, multiple
                     // PCs sharing a section would each overwrite the transform.
+                    // CRITICAL: Also check the DOM attribute — another PC with
+                    // pinPriority may have taken over ownership AFTER our
+                    // closure captured isOwner=true.  The attribute is the
+                    // source of truth; our closure variable is stale.
                     var pinTranslateY = scrollY - pinStart
-                    if (isOwner && pinSectionEl) {
-                        pinSectionEl.style.setProperty("transform", "translateY(" + pinTranslateY + "px)", "important")
+                    var stillOwner = isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId
+                    if (stillOwner) {
+                        pinSectionEl!.style.setProperty("transform", "translateY(" + pinTranslateY + "px)", "important")
                     }
 
                     // DEBUG: log zone transitions, progress, and pin verification
@@ -3011,7 +3016,7 @@ export default function PageChoreographer(props: any) {
                     scrollPinState.pinned = false
                     animDone = false
                     // Only the owner clears the transform
-                    if (isOwner && pinSectionEl) {
+                    if (isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                         pinSectionEl.style.removeProperty("transform")
                     }
                     if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "before") {
@@ -3070,7 +3075,7 @@ export default function PageChoreographer(props: any) {
                 } else {
                     // ── AFTER PIN ──
                     // Only the owner holds the final transform.
-                    if (isOwner && pinSectionEl) {
+                    if (isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                         pinSectionEl.style.setProperty("transform", "translateY(" + totalPinLength + "px)", "important")
                     }
                     if (!scrollPinState._dbgPrevZone || scrollPinState._dbgPrevZone !== "after") {
@@ -3178,7 +3183,7 @@ export default function PageChoreographer(props: any) {
                     // measured docTop would be wrong → stale pinStart.
                     // The scroll handler (called at the end of resize)
                     // will reapply the correct transform.
-                    if (isOwner && pinSectionEl) {
+                    if (isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
                         pinSectionEl.style.removeProperty("transform")
                     }
 
