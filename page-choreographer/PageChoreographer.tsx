@@ -2455,6 +2455,7 @@ export default function PageChoreographer(props: any) {
                     // comparing deltas is unreliable.  Instead, listen
                     // for a real scroll event to flip the gate.
                     var _userHasScrolled = false
+                    var _progressBaseline = 0
                     var _scrollGateHandler = function () {
                         _userHasScrolled = true
                         window.removeEventListener("scroll", _scrollGateHandler, true)
@@ -2477,29 +2478,45 @@ export default function PageChoreographer(props: any) {
                             if (!gsapMounted) return
                             var progress = self.progress
 
+                            // ── Rebase progress on first real scroll ──
+                            // On ultrawide/tall viewports a trigger can
+                            // already be mid-range on load (e.g. 42%).
+                            // We record that as a baseline and remap so
+                            // the animation starts from 0 when the user
+                            // first scrolls, using the remaining range.
+                            if (!_userHasScrolled) {
+                                // Before any scroll: keep recording the
+                                // latest progress as baseline and hold
+                                // animation at 0.
+                                _progressBaseline = progress
+                                updateAnimProgress(0)
+                                return
+                            }
+
+                            // Remap: baseline→1 becomes 0→1
+                            var rebased = progress
+                            if (_progressBaseline > 0.001 && _progressBaseline < 0.999) {
+                                rebased = (progress - _progressBaseline) / (1 - _progressBaseline)
+                                rebased = Math.max(0, Math.min(1, rebased))
+                            }
+
                             // Apply animation offset: the first portion of
                             // scroll is "dead zone" before this PC's animation
                             // starts (allows staggered PCs within a shared pin).
                             var localProgress: number
                             if (animOffset > 0 && totalScrollDist > 0) {
                                 var offsetFraction = animOffset / totalScrollDist
-                                if (progress <= offsetFraction) {
+                                if (rebased <= offsetFraction) {
                                     localProgress = 0
                                 } else {
-                                    localProgress = (progress - offsetFraction) / (1 - offsetFraction)
+                                    localProgress = (rebased - offsetFraction) / (1 - offsetFraction)
                                 }
                             } else {
-                                localProgress = progress
+                                localProgress = rebased
                             }
                             localProgress = Math.max(0, Math.min(1, localProgress))
 
-                            // Only reveal after a real scroll event has
-                            // occurred.  This prevents GSAP's initial
-                            // onUpdate and ST.refresh() from revealing
-                            // sections that happen to be in range on load.
-                            if (_userHasScrolled) {
-                                revealIfNeeded(progress)
-                            }
+                            revealIfNeeded(rebased)
                             updateAnimProgress(localProgress)
                             updateViewportClip()
 
