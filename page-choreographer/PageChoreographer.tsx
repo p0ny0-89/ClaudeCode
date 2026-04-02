@@ -3191,16 +3191,6 @@ export default function PageChoreographer(props: any) {
                     lastResizeW = newW
                     lastResizeH = newH
 
-                    // Clear ANY active transform for accurate measurement.
-                    // getBoundingClientRect includes transforms, so if the
-                    // section has a pinned or after-pin translateY, the
-                    // measured docTop would be wrong → stale pinStart.
-                    // The scroll handler (called at the end of resize)
-                    // will reapply the correct transform.
-                    if (isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId) {
-                        pinSectionEl.style.removeProperty("transform")
-                    }
-
                     // Re-measure all dimensions
                     parentHeight = parent.offsetHeight
                     parentWidth = parent.offsetWidth
@@ -3269,26 +3259,17 @@ export default function PageChoreographer(props: any) {
                             }
                         }
                     }
-                    var resizeMeasureEl = ((scrollPin || isFollower) && pinSectionEl) ? pinSectionEl : wrapper
-                    var resizeRect = resizeMeasureEl.getBoundingClientRect()
-                    var resizeVh = window.innerHeight
-                    var resizeOffset = 0
-                    if (!isFollower) {
-                        if (scrollStart === "top") {
-                            resizeOffset = -resizeVh
-                        } else if (scrollStart === "center") {
-                            resizeOffset = -(resizeVh / 2) + (resizeRect.height / 2)
-                        }
-                    }
-                    var oldPinStart = pinStart
-                    pinStart = Math.max(0, resizeRect.top + window.scrollY + resizeOffset)
+                    // pinStart / pinEnd are NOT recalculated here.
+                    // Framer's preview iframe fires spurious resize events
+                    // during scroll (scrollbar appearance changes innerWidth).
+                    // Recalculating pinStart via getBoundingClientRect during
+                    // scroll is fundamentally broken: other sections still
+                    // have after-pin transforms that shift measured rects,
+                    // causing progressive corruption (+70px per section).
+                    // pinStart was set correctly during setup at scrollY=0
+                    // and remains valid.  pinEnd is derived from pinStart +
+                    // totalPinLength which was already updated above.
                     pinEnd = pinStart + totalPinLength
-                    if (Math.abs(pinStart - oldPinStart) > 10) {
-                        console.log("[Choreo] RESIZE pinStart SHIFT:", baseId, "from:", oldPinStart, "to:", pinStart, "rectTop:", resizeRect.top, "scrollY:", window.scrollY, "resizeOffset:", resizeOffset, "totalPinLength:", totalPinLength, "scrollStart:", scrollStart, "isOwner:", isOwner, "isFollower:", isFollower, "transformCleared:", isOwner && pinSectionEl && pinSectionEl.getAttribute("data-choreo-pin-owner") === baseId)
-                    }
-                    // Recalculate own animation range
-                    animOffset = (scrollStartOffset / 100) * pinScrollLength
-                    animStart = pinStart + animOffset
 
                     // Force animation recreation — resize invalidates
                     // measurements that animations depend on.
