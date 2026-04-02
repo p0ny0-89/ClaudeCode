@@ -2274,8 +2274,17 @@ export default function PageChoreographer(props: any) {
             var isPinOwner = false
             if (scrollPin && pinSectionEl) {
                 pinSectionEl.setAttribute("data-choreo-pin-need-" + baseId, myScrollDist.toString())
-                // First PC to reach here claims pin ownership
-                if (!pinSectionEl.hasAttribute("data-choreo-gsap-pin")) {
+                if (pinPriority) {
+                    // Pin Priority leaders ALWAYS own the pin, regardless
+                    // of whether a non-leader's effect ran first and
+                    // already set data-choreo-gsap-pin.  This overwrite
+                    // is safe because non-leaders will defer to the leader
+                    // in the batch callback via data-choreo-priority-pin.
+                    pinSectionEl.setAttribute("data-choreo-gsap-pin", baseId)
+                    isPinOwner = true
+                } else if (!pinSectionEl.hasAttribute("data-choreo-gsap-pin")) {
+                    // First non-leader PC to reach here claims pin ownership
+                    // (will be overridden if a priority leader exists)
                     pinSectionEl.setAttribute("data-choreo-gsap-pin", baseId)
                     isPinOwner = true
                 }
