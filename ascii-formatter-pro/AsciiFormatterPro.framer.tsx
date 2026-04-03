@@ -2114,6 +2114,7 @@ addPropertyControls(AsciiFormatterPro, {
   text: {
     type: ControlType.String,
     title: "Single Frame",
+    description: "Paste a single ASCII frame here. Replace the default example with your own manually written or pasted ASCII text.",
     defaultValue: DEFAULT_TEXT,
     displayTextArea: true,
     placeholder: "Paste your ASCII art here...",
@@ -2122,7 +2123,7 @@ addPropertyControls(AsciiFormatterPro, {
   frames: {
     type: ControlType.Array,
     title: "Sequence Frames",
-    description: "Enter multiple ASCII frames in order for sequence playback.",
+    description: "Enter multiple ASCII frames in order for sequence playback. Paste each frame as plain ASCII text.",
     defaultValue: [],
     maxCount: 15,
     control: {
