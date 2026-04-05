@@ -648,28 +648,24 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Sync transforms to DOM
+        // Sync physics to DOM using individual CSS transform properties.
+        // This leaves el.style.transform free for Framer's hover variants
+        // (scale, skew, etc.) to work without being overwritten.
         for (const m of managed) {
             if (m.role === "static") continue
 
             const dx = Math.round((m.body.position.x - m.homeCenter.x) * 100) / 100
             const dy = Math.round((m.body.position.y - m.homeCenter.y) * 100) / 100
-            const dAngle = m.body.angle - m.homeAngle
-            const dAngleDeg = Math.round((dAngle * 180) / Math.PI * 100) / 100
 
-            let transform: string
-            if (pp.rotationEnabled && Math.abs(dAngleDeg) > 0.01) {
-                transform = m.originalTransform
-                    ? `translate(${dx}px, ${dy}px) ${m.originalTransform} rotate(${dAngleDeg}deg)`
-                    : `translate(${dx}px, ${dy}px) rotate(${dAngleDeg}deg)`
-            } else {
-                transform = m.originalTransform
-                    ? `translate(${dx}px, ${dy}px) ${m.originalTransform}`
-                    : `translate(${dx}px, ${dy}px)`
+            m.el.style.translate = `${dx}px ${dy}px`
+
+            if (pp.rotationEnabled) {
+                const dAngle = m.body.angle - m.homeAngle
+                const dAngleDeg = Math.round((dAngle * 180) / Math.PI * 100) / 100
+                m.el.style.rotate = `${dAngleDeg}deg`
             }
 
-            m.el.style.transform = transform
-            m.el.style.willChange = "transform"
+            m.el.style.willChange = "translate, rotate"
         }
 
         rafRef.current = requestAnimationFrame(animate)
@@ -817,7 +813,8 @@ export default function Drift(props: DriftProps) {
             }
 
             for (const m of managedRef.current) {
-                m.el.style.transform = m.originalTransform || ""
+                m.el.style.translate = ""
+                m.el.style.rotate = ""
                 m.el.style.willChange = ""
                 m.el.style.cursor = ""
             }
