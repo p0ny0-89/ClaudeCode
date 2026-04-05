@@ -380,6 +380,15 @@ export default function Drift(props: DriftProps) {
 
         managedRef.current = managed
 
+        // Set grab cursor on draggable (dynamic) elements
+        if (pp.dragEnabled) {
+            for (const m of managed) {
+                if (m.role === "dynamic") {
+                    m.el.style.cursor = "grab"
+                }
+            }
+        }
+
         // Debug: log detected layers and their roles
         if (pp.debugView) {
             console.log(
@@ -771,6 +780,7 @@ export default function Drift(props: DriftProps) {
                 }
                 // Wake the body
                 Matter.Sleeping.set(m.body, false)
+                m.el.style.cursor = "grabbing"
                 e.preventDefault()
                 return
             }
@@ -832,6 +842,7 @@ export default function Drift(props: DriftProps) {
                 }
             }
         }
+        if (drag) drag.managed.el.style.cursor = "grab"
         dragRef.current = null
     }, [])
 
@@ -883,6 +894,7 @@ export default function Drift(props: DriftProps) {
             for (const m of managedRef.current) {
                 m.el.style.transform = m.originalTransform || ""
                 m.el.style.willChange = ""
+                m.el.style.cursor = ""
                 if ((m.el as any).__driftPinCleanup) {
                     ;(m.el as any).__driftPinCleanup()
                     delete (m.el as any).__driftPinCleanup
