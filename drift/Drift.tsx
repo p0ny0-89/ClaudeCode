@@ -82,6 +82,10 @@ interface Body {
     inertia: number // moment of inertia
     restitution: number
 
+    // Sleep system — bodies at rest skip integration to prevent jitter
+    sleeping: boolean
+    sleepCounter: number // frames below sleep threshold
+
     // State
     originalTransform: string
     isPinned: boolean
@@ -202,7 +206,8 @@ function resolveCollision(
     a: Body,
     b: Body,
     sat: SATResult,
-    restitution: number
+    restitution: number,
+    stickiness: number = 0
 ) {
     const aStatic = a.role === "static" || a.isPinned
     const bStatic = b.role === "static" || b.isPinned
@@ -221,20 +226,25 @@ function resolveCollision(
 
     if (totalInvMass === 0) return
 
-    const correction = overlap + 0.3
-    if (!aStatic) {
-        a.pos = vsub(a.pos, vscale(normal, correction * (invMassA / totalInvMass)))
-    }
-    if (!bStatic) {
-        b.pos = vadd(b.pos, vscale(normal, correction * (invMassB / totalInvMass)))
+    // Positional correction with slop tolerance to prevent jitter.
+    // Only correct penetration beyond the slop threshold, and apply
+    // gradually (Baumgarte stabilization) instead of full correction.
+    const slop = 0.5 // allow up to 0.5px overlap without correction
+    const baumgarte = 0.4 // correct 40% of penetration per iteration
+    const correctionMag = Math.max(overlap - slop, 0) * baumgarte
+    if (correctionMag > 0) {
+        if (!aStatic) {
+            a.pos = vsub(a.pos, vscale(normal, correctionMag * (invMassA / totalInvMass)))
+        }
+        if (!bStatic) {
+            b.pos = vadd(b.pos, vscale(normal, correctionMag * (invMassB / totalInvMass)))
+        }
     }
 
     // ── Velocity + angular impulse resolution ──
-    // Contact vectors from center to contact point
     const rA = vsub(contactPoint, ca)
     const rB = vsub(contactPoint, cb)
 
-    // Velocity at contact point (linear + angular contribution)
     const velA = aStatic
         ? vec()
         : vadd(a.vel, vscale(vperp(rA), a.angularVel))
@@ -245,10 +255,8 @@ function resolveCollision(
     const relVel = vsub(velA, velB)
     const velAlongNormal = vdot(relVel, normal)
 
-    // Only resolve if moving toward each other
     if (velAlongNormal > 0) return
 
-    // Effective mass at contact including rotational inertia
     const rACrossN = vcross(rA, normal)
     const rBCrossN = vcross(rB, normal)
     const effectiveMass =
@@ -259,7 +267,8 @@ function resolveCollision(
 
     if (effectiveMass === 0) return
 
-    const e = restitution
+    // Kill restitution at low velocities to prevent micro-bouncing
+    const e = Math.abs(velAlongNormal) < 40 ? 0 : restitution
     const j = -(1 + e) * velAlongNormal / effectiveMass
 
     const impulse = vscale(normal, j)
@@ -274,9 +283,10 @@ function resolveCollision(
     }
 
     // ── Friction impulse (tangential) ──
+    // Stickiness boosts contact friction from 0.3 up to 0.95
     const tangent = vnorm(vsub(relVel, vscale(normal, velAlongNormal)))
     const velAlongTangent = vdot(relVel, tangent)
-    const frictionCoeff = 0.3
+    const frictionCoeff = 0.3 + stickiness * 0.65
 
     const tEffectiveMass =
         invMassA +
@@ -552,6 +562,8 @@ export default function Drift(props: DriftProps) {
                 inertia: Math.max(inertia, 100), // minimum inertia to prevent jitter
                 restitution: propsRef.current.bounciness,
                 originalTransform,
+                sleeping: false,
+                sleepCounter: 0,
                 isPinned: false,
                 expandedHalfW: null,
                 expandedHalfH: null,
@@ -601,14 +613,38 @@ export default function Drift(props: DriftProps) {
         if (bodies.length === 0) return
         dt = Math.min(dt, 0.033)
 
+        // Sleep threshold: bodies below this speed for enough frames go to sleep.
+        // Sleeping bodies skip integration entirely, preventing gravity vs collision jitter.
+        const SLEEP_VEL_THRESHOLD = 8 // px/s
+        const SLEEP_ANG_THRESHOLD = 0.15 // rad/s
+        const SLEEP_FRAMES = 10 // frames below threshold before sleeping
+
         for (const body of bodies) {
             if (body.role === "static") continue
-            if (drag && drag.body === body) continue
+            if (drag && drag.body === body) {
+                body.sleeping = false
+                body.sleepCounter = 0
+                continue
+            }
 
             const isDynamic =
                 body.role === "dynamic" ||
                 (body.role === "pinpush" && !body.isPinned)
             if (!isDynamic) continue
+
+            // Wake check: cursor nearby or external forces can wake sleeping bodies
+            let shouldWake = false
+            if (cursor && pp.cursorInfluence !== "off") {
+                const center = getBodyCenter(body)
+                const dist = vlen(vsub(center, cursor))
+                if (dist < pp.cursorRadius) shouldWake = true
+            }
+
+            if (body.sleeping && !shouldWake) continue // skip entirely
+            if (shouldWake) {
+                body.sleeping = false
+                body.sleepCounter = 0
+            }
 
             // Gravity
             if (pp.motionMode === "gravity") {
@@ -640,7 +676,6 @@ export default function Drift(props: DriftProps) {
                             break
                     }
 
-                    // Cursor can also impart a slight torque
                     if (pp.rotationEnabled) {
                         const torque = vcross(diff, vscale(dir, strength * 0.1))
                         body.angularVel += torque / body.inertia
@@ -648,7 +683,7 @@ export default function Drift(props: DriftProps) {
                 }
             }
 
-            // Return-home spring (position + rotation)
+            // Return-home spring
             if (pp.returnHome) {
                 body.vel = vadd(body.vel, vscale(body.pos, -pp.returnStrength))
                 if (pp.rotationEnabled) {
@@ -662,22 +697,18 @@ export default function Drift(props: DriftProps) {
                 body.angularVel *= 1 - pp.angularDamping
             }
 
-            // Stickiness — snap to zero when velocity is below threshold.
-            // stickiness 0 = off, 1 = max (objects stop very quickly).
-            // Maps to a sleep threshold: higher stickiness = higher threshold.
+            // Stickiness — extra braking for slow objects
             if (pp.stickiness > 0) {
-                const sleepThreshold = pp.stickiness * 80 // 0–80 px/s
+                const stickyThreshold = pp.stickiness * 80
                 const speed = vlen(body.vel)
-                if (speed < sleepThreshold && speed > 0) {
-                    // Lerp toward zero — the higher stickiness, the harder the brake
+                if (speed < stickyThreshold && speed > 0) {
                     const brake = pp.stickiness * 0.3
                     body.vel = vscale(body.vel, 1 - brake)
-                    // Hard stop when very slow
-                    if (vlen(body.vel) < sleepThreshold * 0.1) {
+                    if (vlen(body.vel) < stickyThreshold * 0.1) {
                         body.vel = vec()
                     }
                 }
-                if (pp.rotationEnabled && Math.abs(body.angularVel) < sleepThreshold * 0.01) {
+                if (pp.rotationEnabled && Math.abs(body.angularVel) < stickyThreshold * 0.01) {
                     body.angularVel *= 1 - pp.stickiness * 0.3
                     if (Math.abs(body.angularVel) < 0.005) {
                         body.angularVel = 0
@@ -688,17 +719,29 @@ export default function Drift(props: DriftProps) {
             // Velocity cap
             body.vel = vclamp(body.vel, pp.velocityCap)
             if (pp.rotationEnabled) {
-                const maxAngular = 15 // ~2.5 revolutions/sec
-                body.angularVel = Math.max(
-                    -maxAngular,
-                    Math.min(body.angularVel, maxAngular)
-                )
+                const maxAngular = 15
+                body.angularVel = Math.max(-maxAngular, Math.min(body.angularVel, maxAngular))
             }
 
             // Integrate
             body.pos = vadd(body.pos, vscale(body.vel, dt))
             if (pp.rotationEnabled) {
                 body.angularPos += body.angularVel * dt
+            }
+
+            // Sleep evaluation: if velocity is below threshold, increment counter
+            const speed = vlen(body.vel)
+            const angSpeed = Math.abs(body.angularVel)
+            if (speed < SLEEP_VEL_THRESHOLD && angSpeed < SLEEP_ANG_THRESHOLD) {
+                body.sleepCounter++
+                if (body.sleepCounter >= SLEEP_FRAMES) {
+                    body.sleeping = true
+                    body.vel = vec()
+                    body.angularVel = 0
+                }
+            } else {
+                body.sleepCounter = 0
+                body.sleeping = false
             }
 
             // Bounds containment (approximate — use AABB of OBB for bounds check)
@@ -748,10 +791,23 @@ export default function Drift(props: DriftProps) {
                         const a = bodies[i]
                         const b = bodies[j]
                         if (a.role === "static" && b.role === "static") continue
+                        // Skip if both sleeping — they're already at rest
+                        if (a.sleeping && b.sleeping) continue
 
                         const result = satTest(a, b, pp.colliderPadding)
                         if (result) {
-                            resolveCollision(a, b, result, pp.bounciness)
+                            // Wake sleeping bodies on significant collision
+                            if (result.overlap > 1) {
+                                if (a.sleeping) {
+                                    a.sleeping = false
+                                    a.sleepCounter = 0
+                                }
+                                if (b.sleeping) {
+                                    b.sleeping = false
+                                    b.sleepCounter = 0
+                                }
+                            }
+                            resolveCollision(a, b, result, pp.bounciness, pp.stickiness)
                         }
                     }
                 }
@@ -826,6 +882,8 @@ export default function Drift(props: DriftProps) {
                 }
                 body.vel = vec()
                 body.angularVel = 0
+                body.sleeping = false
+                body.sleepCounter = 0
                 e.preventDefault()
                 return
             }
