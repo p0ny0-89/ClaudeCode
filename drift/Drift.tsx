@@ -563,30 +563,62 @@ export default function Drift(props: DriftProps) {
         }
 
         // ── Live collider sync ──────────────────────────────────────────
-        // Sync static colliders to their live DOM bounds every frame so hover
-        // animations physically push dynamic bodies.
-        // For pin-push: they're dynamic normally, but when hovered we temporarily
-        // make them static so the expanding body acts as a wall that pushes others.
         const parent = parentRef.current
         const hoveredPP = pinPushHoveredRef.current
         if (parent) {
             const parentRect = parent.getBoundingClientRect()
 
-            // Handle pin-push hover state transitions
+            // Pin-push hover transitions
             for (const m of managed) {
                 if (m.role !== "pinpush") continue
                 const isHovered = hoveredPP.has(m)
 
                 if (isHovered && !m.body.isStatic) {
-                    // Hover started → freeze in place so expansion pushes others
+                    // Hover started → freeze body, clear our transform override
+                    // so Framer's hover variant can control the visual freely
                     Body.setStatic(m.body, true)
+                    m.el.style.transform = ""
+                    m.el.style.willChange = ""
                 } else if (!isHovered && m.body.isStatic) {
-                    // Hover ended → restore to dynamic
-                    Body.setStatic(m.body, false)
+                    // Hover ended → recapture position from DOM as new home,
+                    // then restore to dynamic so physics resumes from here
+                    const rect = m.el.getBoundingClientRect()
+                    const newCx = rect.left + rect.width / 2 - parentRect.left
+                    const newCy = rect.top + rect.height / 2 - parentRect.top
+                    const newW = m.el.offsetWidth
+                    const newH = m.el.offsetHeight
+                    const angle = parseRotation(getComputedStyle(m.el).transform)
+
+                    // Update home to current position
+                    m.homeCenter = { x: newCx, y: newCy }
+                    m.homeAngle = angle
+                    m.originalTransform = getComputedStyle(m.el).transform || ""
+                    if (m.originalTransform === "none") m.originalTransform = ""
+
+                    // Rebuild body at original (non-expanded) size
+                    const engine = engineRef.current!
+                    const pad = pp.colliderPadding
+                    Composite.remove(engine.world, m.body)
+                    const newBody = Bodies.rectangle(
+                        newCx, newCy, newW + pad * 2, newH + pad * 2,
+                        {
+                            angle,
+                            isStatic: false,
+                            restitution: m.body.restitution,
+                            friction: m.body.friction,
+                            frictionStatic: m.body.frictionStatic,
+                            frictionAir: m.body.frictionAir,
+                            density: 0.001,
+                            slop: 0.005,
+                            label: m.body.label,
+                        }
+                    )
+                    Composite.add(engine.world, newBody)
+                    m.body = newBody
                 }
             }
 
-            // Sync bodies whose DOM might be animating (static colliders + hovered pin-push)
+            // Sync static colliders + hovered pin-push to their live DOM bounds
             for (const m of managed) {
                 const shouldSync =
                     m.role === "static" ||
@@ -603,11 +635,8 @@ export default function Drift(props: DriftProps) {
                 const oldH = Math.round(m.body.bounds.max.y - m.body.bounds.min.y)
                 const pad = pp.colliderPadding
 
-                // Rebuild body if size changed significantly
                 if (Math.abs((newW + pad * 2) - oldW) > 2 || Math.abs((newH + pad * 2) - oldH) > 2) {
                     const engine = engineRef.current!
-                    const vel = { x: m.body.velocity.x, y: m.body.velocity.y }
-                    const angVel = m.body.angularVelocity
                     Composite.remove(engine.world, m.body)
                     const angle = parseRotation(getComputedStyle(m.el).transform)
                     const newBody = Bodies.rectangle(
@@ -615,7 +644,7 @@ export default function Drift(props: DriftProps) {
                         newW + pad * 2, newH + pad * 2,
                         {
                             angle,
-                            isStatic: m.body.isStatic,
+                            isStatic: true,
                             restitution: m.body.restitution,
                             friction: m.body.friction,
                             frictionStatic: m.body.frictionStatic,
@@ -628,14 +657,12 @@ export default function Drift(props: DriftProps) {
                     Composite.add(engine.world, newBody)
                     m.body = newBody
 
-                    // Wake nearby dynamic bodies so they react
+                    // Wake nearby dynamics
                     for (const other of managed) {
-                        if (other === m) continue
-                        if (other.body.isStatic) continue
+                        if (other === m || other.body.isStatic) continue
                         const ddx = other.body.position.x - newCx
                         const ddy = other.body.position.y - newCy
-                        const dist = Math.sqrt(ddx * ddx + ddy * ddy)
-                        if (dist < Math.max(newW, newH) + 100) {
+                        if (Math.sqrt(ddx * ddx + ddy * ddy) < Math.max(newW, newH) + 100) {
                             Matter.Sleeping.set(other.body, false)
                         }
                     }
@@ -714,6 +741,8 @@ export default function Drift(props: DriftProps) {
         // Sync transforms to DOM
         for (const m of managed) {
             if (m.role === "static") continue
+            // Skip hovered pin-push — Framer's hover variant controls their visual
+            if (m.role === "pinpush" && pinPushHoveredRef.current.has(m)) continue
 
             const dx = Math.round((m.body.position.x - m.homeCenter.x) * 100) / 100
             const dy = Math.round((m.body.position.y - m.homeCenter.y) * 100) / 100
