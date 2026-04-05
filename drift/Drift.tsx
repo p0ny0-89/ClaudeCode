@@ -855,9 +855,11 @@ export default function Drift(props: DriftProps) {
 
             const parent = parentRef.current
             if (parent) {
-                parent.addEventListener("pointerdown", handlePointerDown)
-                parent.addEventListener("pointermove", handlePointerMove)
-                parent.addEventListener("pointerup", handlePointerUp)
+                // Use capture phase so we intercept events before child elements
+                // can stop propagation (needed for fast-moving bounce mode objects)
+                parent.addEventListener("pointerdown", handlePointerDown, true)
+                parent.addEventListener("pointermove", handlePointerMove, true)
+                parent.addEventListener("pointerup", handlePointerUp, true)
                 parent.addEventListener("pointerleave", handlePointerLeave)
             }
 
@@ -872,9 +874,9 @@ export default function Drift(props: DriftProps) {
 
             const parent = parentRef.current
             if (parent) {
-                parent.removeEventListener("pointerdown", handlePointerDown)
-                parent.removeEventListener("pointermove", handlePointerMove)
-                parent.removeEventListener("pointerup", handlePointerUp)
+                parent.removeEventListener("pointerdown", handlePointerDown, true)
+                parent.removeEventListener("pointermove", handlePointerMove, true)
+                parent.removeEventListener("pointerup", handlePointerUp, true)
                 parent.removeEventListener("pointerleave", handlePointerLeave)
             }
 
