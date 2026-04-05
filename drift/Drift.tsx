@@ -12,7 +12,7 @@ const { Engine, World, Bodies, Body, Events, Vector, Composite, Runner } =
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type BodyRole = "dynamic" | "static" | "pinpush"
+type BodyRole = "dynamic" | "static"
 
 interface ManagedBody {
     el: HTMLElement
@@ -201,8 +201,6 @@ interface DriftProps {
 
     staticColliders: string
     ignoredLayers: string
-    pinPushLayers: string
-
     collisionEnabled: boolean
     colliderPadding: number
 
@@ -232,7 +230,6 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     stickiness: 0.3,
     staticColliders: "",
     ignoredLayers: "",
-    pinPushLayers: "",
     collisionEnabled: true,
     colliderPadding: 0,
     debugView: false,
@@ -301,7 +298,6 @@ export default function Drift(props: DriftProps) {
 
         const staticSelectors = parseSelectorList(pp.staticColliders)
         const ignoredSelectors = parseSelectorList(pp.ignoredLayers)
-        const pinPushSelectors = parseSelectorList(pp.pinPushLayers)
 
         const managed: ManagedBody[] = []
         const selfEls = new Set<HTMLElement>()
@@ -331,7 +327,6 @@ export default function Drift(props: DriftProps) {
 
             let role: BodyRole = "dynamic"
             if (matchesSelectorList(child, ci, staticSelectors)) role = "static"
-            else if (matchesSelectorList(child, ci, pinPushSelectors)) role = "pinpush"
 
             const computedTransform = getComputedStyle(child).transform
             const originalTransform =
@@ -403,7 +398,7 @@ export default function Drift(props: DriftProps) {
                 }))
             )
             console.log(
-                "[Drift] Tip: Use #0, #1, etc. in Static Colliders / Ignored / Pin & Push fields to select layers by index."
+                "[Drift] Tip: Use #0, #1, etc. in Static Colliders / Ignored fields to select layers by index."
             )
         }
 
@@ -455,35 +450,6 @@ export default function Drift(props: DriftProps) {
         }
 
     }, [])
-
-    // ── Pin & Push hover listeners ─────────────────────────────────────
-    // Pin & Push layers are DYNAMIC (they fall, bounce, collide like normal).
-    // On hover, their Framer variant expands them — we sync the physics body
-    // to the new DOM size each frame so the growth physically pushes neighbors.
-
-    const pinPushHoveredRef = useRef<Set<ManagedBody>>(new Set())
-
-    const setupPinPush = useCallback(() => {
-        for (const m of managedRef.current) {
-            if (m.role !== "pinpush") continue
-
-            const onEnter = () => {
-                pinPushHoveredRef.current.add(m)
-            }
-            const onLeave = () => {
-                pinPushHoveredRef.current.delete(m)
-            }
-
-            m.el.addEventListener("pointerenter", onEnter)
-            m.el.addEventListener("pointerleave", onLeave)
-            ;(m.el as any).__driftPinCleanup = () => {
-                m.el.removeEventListener("pointerenter", onEnter)
-                m.el.removeEventListener("pointerleave", onLeave)
-                pinPushHoveredRef.current.delete(m)
-            }
-        }
-    }, [])
-
 
     // ── Animation loop ──────────────────────────────────────────────────
 
@@ -572,51 +538,13 @@ export default function Drift(props: DriftProps) {
         }
 
         // ── Live collider sync ──────────────────────────────────────────
+        // Sync static colliders to their live DOM bounds every frame so hover
+        // animations that resize them physically push dynamic bodies.
         const parent = parentRef.current
-        const hoveredPP = pinPushHoveredRef.current
         if (parent) {
             const parentRect = parent.getBoundingClientRect()
-
-            // Pin-push hover transitions
             for (const m of managed) {
-                if (m.role !== "pinpush") continue
-                const isHovered = hoveredPP.has(m)
-
-                if (isHovered && !m.body.isStatic) {
-                    // Hover started → freeze physics transform in place.
-                    // We keep our current translate/rotate so the element stays
-                    // exactly where physics put it. Framer's hover variant then
-                    // expands the element at that position along its own axes.
-                    Body.setStatic(m.body, true)
-                    // Don't touch el.style.transform — leave our physics offset frozen
-                } else if (!isHovered && m.body.isStatic) {
-                    // Hover ended → restore to dynamic, physics resumes.
-                    // If body is overlapping bounds (expanded past walls while static),
-                    // nudge it inward so it doesn't get stuck.
-                    const bds = boundsRef.current
-                    const pos = m.body.position
-                    const bw = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
-                    const bh = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
-                    let nx = pos.x, ny = pos.y
-                    if (pos.x - bw < 0) nx = bw + 2
-                    if (pos.x + bw > bds.width) nx = bds.width - bw - 2
-                    if (pos.y - bh < 0) ny = bh + 2
-                    if (pos.y + bh > bds.height) ny = bds.height - bh - 2
-                    if (nx !== pos.x || ny !== pos.y) {
-                        Body.setPosition(m.body, { x: nx, y: ny })
-                    }
-                    Body.setStatic(m.body, false)
-                }
-            }
-
-            // Sync static colliders + hovered pin-push to their live DOM bounds.
-            // Use setVertices() with exact rotated rectangle — no cumulative error,
-            // no axis distortion when rotated.
-            for (const m of managed) {
-                const shouldSync =
-                    m.role === "static" ||
-                    (m.role === "pinpush" && hoveredPP.has(m))
-                if (!shouldSync) continue
+                if (m.role !== "static") continue
 
                 const rect = m.el.getBoundingClientRect()
                 const newW = rect.width
@@ -631,7 +559,7 @@ export default function Drift(props: DriftProps) {
                 const cos = Math.cos(angle)
                 const sin = Math.sin(angle)
 
-                // Compute exact rotated rectangle vertices
+                // Set exact rotated rectangle vertices — no cumulative error
                 const verts = [
                     { x: newCx + (-hw * cos - -hh * sin), y: newCy + (-hw * sin + -hh * cos) },
                     { x: newCx + ( hw * cos - -hh * sin), y: newCy + ( hw * sin + -hh * cos) },
@@ -723,8 +651,6 @@ export default function Drift(props: DriftProps) {
         // Sync transforms to DOM
         for (const m of managed) {
             if (m.role === "static") continue
-            // Skip hovered pin-push — Framer's hover variant controls their visual
-            if (m.role === "pinpush" && pinPushHoveredRef.current.has(m)) continue
 
             const dx = Math.round((m.body.position.x - m.homeCenter.x) * 100) / 100
             const dy = Math.round((m.body.position.y - m.homeCenter.y) * 100) / 100
@@ -862,7 +788,6 @@ export default function Drift(props: DriftProps) {
 
         const timer = setTimeout(() => {
             init()
-            setupPinPush()
 
             const parent = parentRef.current
             if (parent) {
@@ -895,10 +820,6 @@ export default function Drift(props: DriftProps) {
                 m.el.style.transform = m.originalTransform || ""
                 m.el.style.willChange = ""
                 m.el.style.cursor = ""
-                if ((m.el as any).__driftPinCleanup) {
-                    ;(m.el as any).__driftPinCleanup()
-                    delete (m.el as any).__driftPinCleanup
-                }
             }
 
             if (engineRef.current) {
@@ -1109,14 +1030,6 @@ addPropertyControls(Drift, {
         placeholder: "#2, Background",
         description: "Use #index or text/name. These layers won't participate in physics.",
     },
-    pinPushLayers: {
-        type: ControlType.String,
-        title: "Pin & Push",
-        defaultValue: "",
-        placeholder: "#1, Card",
-        description: "Use #index or text/name. These layers pin in place on hover.",
-    },
-
     collisionEnabled: {
         type: ControlType.Boolean,
         title: "Collisions",
