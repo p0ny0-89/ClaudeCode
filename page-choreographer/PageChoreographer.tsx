@@ -2404,6 +2404,22 @@ export default function PageChoreographer(props: any) {
                                 for (var ex = 0; ex < existing.length; ex++) { existing[ex].cancel() }
                             } catch (e) {}
 
+                            // ── Unclip target ancestors ──
+                            // Framer preview sets contain:paint on frames for
+                            // perf, which clips content even when clip=false.
+                            // Walk from target up to wrapper and remove paint
+                            // containment so oversized text/content is visible.
+                            var _unclipNode: HTMLElement | null = el.parentElement
+                            while (_unclipNode && _unclipNode !== wrapper && _unclipNode !== document.body) {
+                                var _ucCS = window.getComputedStyle(_unclipNode)
+                                var _ucContain = _ucCS.contain || ""
+                                if (/paint|strict|content/.test(_ucContain)) {
+                                    scrollOverflowAncestors.push({ el: _unclipNode, orig: _ucContain })
+                                    _unclipNode.style.setProperty("contain", "none", "important")
+                                }
+                                _unclipNode = _unclipNode.parentElement
+                            }
+
                             var kf = reduced
                                 ? { from: { opacity: "0" }, to: { opacity: "1" } }
                                 : buildEnterKeyframes(target)
