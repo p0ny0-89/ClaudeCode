@@ -301,6 +301,34 @@ function resolveCollision(
     }
 }
 
+// ─── Canvas detection ───────────────────────────────────────────────────────
+
+/** Returns true when running on the Framer canvas (editing mode), false in preview/published */
+function isFramerCanvas(): boolean {
+    if (typeof window === "undefined") return true
+    // Framer preview and published sites use a clean URL or localhost preview port.
+    // The canvas renders inside an iframe whose URL contains "framercanvas" or
+    // has the data attribute on the document element.
+    try {
+        // Framer canvas sets data-framer-hydrate-v2 or wraps in a specific container
+        if (document.querySelector("[data-framer-page-optimized]")) return false
+        // In canvas mode the window name or ancestor frame hints at editing
+        if (window.name === "FramerCanvas" || window.name === "canvas") return true
+        // Framer canvas URLs contain /canvas or the referrer is framer.com editor
+        if (window.location.href.includes("/canvas")) return true
+        // Check for Framer's canvas-specific wrapper
+        if (document.getElementById("__framer-badge-container")) return false
+        // Framer preview runs at a specific port or framercanvas is absent
+        // Most reliable: Framer injects RenderEnvironment on the window
+        if ((window as any).__FRAMER_RENDER_ENVIRONMENT__ === "CANVAS") return true
+        // Fallback: check if we're inside the Framer editor iframe structure
+        if (window.parent !== window && window.parent.location.href.includes("framer.com")) return true
+    } catch {
+        // cross-origin access to parent — likely in preview/published
+    }
+    return false
+}
+
 // ─── DOM helpers ────────────────────────────────────────────────────────────
 
 function findParentContainer(self: HTMLElement): HTMLElement | null {
@@ -365,6 +393,9 @@ interface DriftProps {
     rotationEnabled: boolean
     angularDamping: number
 
+    // Stickiness — objects stop sliding when slow enough
+    stickiness: number
+
     // Layer assignment
     staticColliders: string
     ignoredLayers: string
@@ -400,6 +431,7 @@ const defaultProps: Partial<DriftProps> = {
     returnStrength: 0.03,
     rotationEnabled: true,
     angularDamping: 0.03,
+    stickiness: 0,
     staticColliders: "",
     ignoredLayers: "",
     pinPushLayers: "",
@@ -628,6 +660,29 @@ export default function Drift(props: DriftProps) {
             body.vel = vscale(body.vel, 1 - pp.airResistance)
             if (pp.rotationEnabled) {
                 body.angularVel *= 1 - pp.angularDamping
+            }
+
+            // Stickiness — snap to zero when velocity is below threshold.
+            // stickiness 0 = off, 1 = max (objects stop very quickly).
+            // Maps to a sleep threshold: higher stickiness = higher threshold.
+            if (pp.stickiness > 0) {
+                const sleepThreshold = pp.stickiness * 80 // 0–80 px/s
+                const speed = vlen(body.vel)
+                if (speed < sleepThreshold && speed > 0) {
+                    // Lerp toward zero — the higher stickiness, the harder the brake
+                    const brake = pp.stickiness * 0.3
+                    body.vel = vscale(body.vel, 1 - brake)
+                    // Hard stop when very slow
+                    if (vlen(body.vel) < sleepThreshold * 0.1) {
+                        body.vel = vec()
+                    }
+                }
+                if (pp.rotationEnabled && Math.abs(body.angularVel) < sleepThreshold * 0.01) {
+                    body.angularVel *= 1 - pp.stickiness * 0.3
+                    if (Math.abs(body.angularVel) < 0.005) {
+                        body.angularVel = 0
+                    }
+                }
             }
 
             // Velocity cap
@@ -885,6 +940,9 @@ export default function Drift(props: DriftProps) {
     // ── Setup and teardown ──────────────────────────────────────────────
 
     useEffect(() => {
+        // Don't run simulation on the Framer canvas — only in preview/published
+        if (isFramerCanvas()) return
+
         const timer = setTimeout(() => {
             initBodies()
             applyInitialMotion()
@@ -1132,6 +1190,19 @@ addPropertyControls(Drift, {
         defaultValue: 0.03,
         hidden: (props) => !props.rotationEnabled,
         description: "How quickly rotation slows down",
+    },
+
+    // ── Stickiness ──────────────────────────────────────────────────────
+
+    stickiness: {
+        type: ControlType.Number,
+        title: "Stickiness",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0,
+        description:
+            "How quickly objects come to rest. 0 = frictionless sliding, 1 = stop quickly.",
     },
 
     // ── Interaction ─────────────────────────────────────────────────────
