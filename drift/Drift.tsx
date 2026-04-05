@@ -348,8 +348,8 @@ export default function Drift(props: DriftProps) {
                 isStatic,
                 // Bounce mode: near-perfect elasticity, no friction, no air drag
                 restitution: isBounce ? Math.max(pp.bounciness, 0.95) : pp.bounciness,
-                friction: isBounce ? 0.01 : 0.3 + pp.stickiness * 0.7,
-                frictionStatic: isBounce ? 0.01 : 0.5 + pp.stickiness * 1.5,
+                friction: isBounce ? 0.01 : pp.stickiness * 1.0,
+                frictionStatic: isBounce ? 0.01 : pp.stickiness * 2.0,
                 frictionAir: isBounce ? 0.0005 : pp.airResistance,
                 density: 0.001,
                 slop: 0.005,
@@ -417,7 +417,7 @@ export default function Drift(props: DriftProps) {
             ]
             for (const w of walls) {
                 w.restitution = isBounce ? 1.0 : pp.bounciness
-                w.friction = isBounce ? 0 : 0.3 + pp.stickiness * 0.7
+                w.friction = isBounce ? 0 : pp.stickiness * 1.0
             }
             Composite.add(engine.world, walls)
             wallsRef.current = walls
@@ -603,19 +603,31 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Step the engine with FIXED timestep for stability
-        Engine.update(engine, FIXED_DT)
-
-        // Post-step: velocity cap + bounds safety (AFTER engine step to catch collision spikes)
+        // Pre-step: cap velocity to prevent runaway buildup from forces
         for (const m of managed) {
             if (m.body.isStatic) continue
-
-            // Velocity cap
             const v = m.body.velocity
             const speed = Math.sqrt(v.x * v.x + v.y * v.y)
             if (speed > pp.velocityCap) {
-                const scale = pp.velocityCap / speed
-                Body.setVelocity(m.body, { x: v.x * scale, y: v.y * scale })
+                const s = pp.velocityCap / speed
+                Body.setVelocity(m.body, { x: v.x * s, y: v.y * s })
+            }
+        }
+
+        // Step the engine with FIXED timestep for stability
+        Engine.update(engine, FIXED_DT)
+
+        // Post-step: safety net only — allow bounce rebounds up to 2x the cap,
+        // only clamp truly extreme spikes from collision glitches
+        const hardCap = pp.velocityCap * 2
+        for (const m of managed) {
+            if (m.body.isStatic) continue
+
+            const v = m.body.velocity
+            const speed = Math.sqrt(v.x * v.x + v.y * v.y)
+            if (speed > hardCap) {
+                const s = hardCap / speed
+                Body.setVelocity(m.body, { x: v.x * s, y: v.y * s })
             }
 
             // Angular velocity cap
@@ -741,11 +753,10 @@ export default function Drift(props: DriftProps) {
                     let vx = ((recent.pos.x - older.pos.x) / dt) * pp.throwStrength * 0.015
                     let vy = ((recent.pos.y - older.pos.y) / dt) * pp.throwStrength * 0.015
 
-                    // Clamp throw velocity to prevent escape
+                    // Clamp throw to velocity cap
                     const throwSpeed = Math.sqrt(vx * vx + vy * vy)
-                    const maxThrow = pp.velocityCap * 0.8
-                    if (throwSpeed > maxThrow) {
-                        const s = maxThrow / throwSpeed
+                    if (throwSpeed > pp.velocityCap) {
+                        const s = pp.velocityCap / throwSpeed
                         vx *= s
                         vy *= s
                     }
