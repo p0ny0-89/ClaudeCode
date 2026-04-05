@@ -18,6 +18,7 @@ interface ManagedBody {
     el: HTMLElement
     body: Matter.Body
     role: BodyRole
+    isPointerLayer: boolean
     homeCenter: { x: number; y: number }
     homeAngle: number
     originalTransform: string
@@ -205,6 +206,7 @@ interface DriftProps {
 
     staticColliders: string
     ignoredLayers: string
+    pointerLayers: string
     collisionEnabled: boolean
     colliderPadding: number
 
@@ -237,6 +239,7 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     eventName: "drift-start",
     staticColliders: "",
     ignoredLayers: "",
+    pointerLayers: "",
     collisionEnabled: true,
     colliderPadding: 0,
     debugView: false,
@@ -305,6 +308,7 @@ export default function Drift(props: DriftProps) {
 
         const staticSelectors = parseSelectorList(pp.staticColliders)
         const ignoredSelectors = parseSelectorList(pp.ignoredLayers)
+        const pointerSelectors = parseSelectorList(pp.pointerLayers)
 
         const managed: ManagedBody[] = []
         const selfEls = new Set<HTMLElement>()
@@ -370,10 +374,13 @@ export default function Drift(props: DriftProps) {
 
             Composite.add(engine.world, matterBody)
 
+            const isPointerLayer = matchesSelectorList(child, ci, pointerSelectors)
+
             managed.push({
                 el: child,
                 body: matterBody,
                 role,
+                isPointerLayer,
                 homeCenter: { x: cx, y: cy },
                 homeAngle,
                 originalTransform,
@@ -382,12 +389,13 @@ export default function Drift(props: DriftProps) {
 
         managedRef.current = managed
 
-        // Set grab cursor on draggable (dynamic) elements
-        if (pp.dragEnabled) {
-            for (const m of managed) {
-                if (m.role === "dynamic") {
-                    m.el.style.cursor = "grab"
-                }
+        // Set cursor on dynamic elements: grab for draggable, pointer for link layers
+        for (const m of managed) {
+            if (m.role !== "dynamic") continue
+            if (m.isPointerLayer) {
+                m.el.style.cursor = "pointer"
+            } else if (pp.dragEnabled) {
+                m.el.style.cursor = "grab"
             }
         }
 
@@ -769,6 +777,9 @@ export default function Drift(props: DriftProps) {
 
             if (Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
                 Matter.Vertices.contains(m.body.vertices, { x: px, y: py })) {
+                // Pointer layers: let the click through for links/buttons
+                if (m.isPointerLayer) return
+
                 const offset = {
                     x: px - m.body.position.x,
                     y: py - m.body.position.y,
@@ -778,7 +789,6 @@ export default function Drift(props: DriftProps) {
                     offset,
                     history: [{ pos: { x: px, y: py }, time: performance.now() }],
                 }
-                // Wake the body
                 Matter.Sleeping.set(m.body, false)
                 m.el.style.cursor = "grabbing"
                 e.preventDefault()
@@ -841,7 +851,7 @@ export default function Drift(props: DriftProps) {
                 }
             }
         }
-        if (drag) drag.managed.el.style.cursor = "grab"
+        if (drag && !drag.managed.isPointerLayer) drag.managed.el.style.cursor = "grab"
         dragRef.current = null
     }, [])
 
@@ -1183,6 +1193,14 @@ addPropertyControls(Drift, {
         placeholder: "#2, Background",
         description: "Use #index or text/name. These layers won't participate in physics.",
     },
+    pointerLayers: {
+        type: ControlType.String,
+        title: "Link Layers",
+        defaultValue: "",
+        placeholder: "#2, Button",
+        description: "These elements show a pointer cursor and pass clicks through for links/buttons.",
+    },
+
     collisionEnabled: {
         type: ControlType.Boolean,
         title: "Collisions",
