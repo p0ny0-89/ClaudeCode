@@ -448,16 +448,23 @@ export default function Drift(props: DriftProps) {
     }, [])
 
     // ── Pin-push hover listeners ────────────────────────────────────────
+    // Pin & Push layers are static (pinned in place). On hover, they expand/activate
+    // and push nearby dynamic bodies away with a radial force.
+
+    const pinPushHoveredRef = useRef<Set<ManagedBody>>(new Set())
 
     const setupPinPush = useCallback(() => {
         for (const m of managedRef.current) {
             if (m.role !== "pinpush") continue
 
+            // Pin-push bodies are always static (pinned)
+            Body.setStatic(m.body, true)
+
             const onEnter = () => {
-                Body.setStatic(m.body, true)
+                pinPushHoveredRef.current.add(m)
             }
             const onLeave = () => {
-                Body.setStatic(m.body, false)
+                pinPushHoveredRef.current.delete(m)
             }
 
             m.el.addEventListener("pointerenter", onEnter)
@@ -465,9 +472,11 @@ export default function Drift(props: DriftProps) {
             ;(m.el as any).__driftPinCleanup = () => {
                 m.el.removeEventListener("pointerenter", onEnter)
                 m.el.removeEventListener("pointerleave", onLeave)
+                pinPushHoveredRef.current.delete(m)
             }
         }
     }, [])
+
 
     // ── Animation loop ──────────────────────────────────────────────────
 
@@ -551,6 +560,63 @@ export default function Drift(props: DriftProps) {
                         m.body,
                         m.body.angularVelocity + angleDiff * pp.returnStrength * 0.5
                     )
+                }
+            }
+        }
+
+        // Sync static & pin-push colliders to their live DOM bounds every frame.
+        // This lets hover animations (CSS transitions, Framer variants) that change
+        // an element's size physically push dynamic bodies in real time.
+        const parent = parentRef.current
+        if (parent) {
+            const parentRect = parent.getBoundingClientRect()
+            for (const m of managed) {
+                if (m.role !== "static" && m.role !== "pinpush") continue
+
+                const rect = m.el.getBoundingClientRect()
+                const newW = m.el.offsetWidth
+                const newH = m.el.offsetHeight
+                const newCx = rect.left + rect.width / 2 - parentRect.left
+                const newCy = rect.top + rect.height / 2 - parentRect.top
+
+                const oldW = Math.round(m.body.bounds.max.x - m.body.bounds.min.x)
+                const oldH = Math.round(m.body.bounds.max.y - m.body.bounds.min.y)
+                const pad = pp.colliderPadding
+
+                // Rebuild body if size changed significantly
+                if (Math.abs((newW + pad * 2) - oldW) > 2 || Math.abs((newH + pad * 2) - oldH) > 2) {
+                    const engine = engineRef.current!
+                    Composite.remove(engine.world, m.body)
+                    const angle = parseRotation(getComputedStyle(m.el).transform)
+                    const newBody = Bodies.rectangle(
+                        newCx, newCy,
+                        newW + pad * 2, newH + pad * 2,
+                        {
+                            angle,
+                            isStatic: true,
+                            restitution: m.body.restitution,
+                            friction: m.body.friction,
+                            frictionStatic: m.body.frictionStatic,
+                            slop: 0.005,
+                            label: m.body.label,
+                        }
+                    )
+                    Composite.add(engine.world, newBody)
+                    m.body = newBody
+
+                    // Wake nearby dynamic bodies so they react to the size change
+                    for (const other of managed) {
+                        if (other.body.isStatic) continue
+                        const ddx = other.body.position.x - newCx
+                        const ddy = other.body.position.y - newCy
+                        const dist = Math.sqrt(ddx * ddx + ddy * ddy)
+                        if (dist < Math.max(newW, newH) + 100) {
+                            Matter.Sleeping.set(other.body, false)
+                        }
+                    }
+                } else {
+                    // Just update position
+                    Body.setPosition(m.body, { x: newCx, y: newCy })
                 }
             }
         }
