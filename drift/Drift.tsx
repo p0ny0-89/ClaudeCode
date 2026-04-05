@@ -82,10 +82,10 @@ interface Body {
     inertia: number // moment of inertia
     restitution: number
 
-    // Sleep & resting contact system
+    // Sleep system
     sleeping: boolean
     sleepCounter: number // frames below sleep threshold
-    contactNormal: Vec2 | null // normal of resting contact (for gravity cancellation)
+    hadCollisionThisFrame: boolean // set during collision phase, used for post-settle
 
     // State
     originalTransform: string
@@ -576,7 +576,7 @@ export default function Drift(props: DriftProps) {
                 originalTransform,
                 sleeping: false,
                 sleepCounter: 0,
-                contactNormal: null,
+                hadCollisionThisFrame: false,
                 isPinned: false,
                 expandedHalfW: null,
                 expandedHalfH: null,
@@ -616,19 +616,14 @@ export default function Drift(props: DriftProps) {
 
     // ── Physics step ────────────────────────────────────────────────────
     //
-    // Step order matters for stability:
-    //   1. Clear per-frame contact state
-    //   2. Apply forces (gravity with contact cancellation, cursor, springs)
-    //   3. Damping + stickiness
-    //   4. Integrate velocity → position
-    //   5. Bounds containment
-    //   6. Collision detection + resolution (records contact normals)
-    //   7. Sleep evaluation (AFTER collisions, so settled bodies actually sleep)
+    // No cross-frame gravity cancellation (causes alternating-frame bugs).
+    // Instead: apply gravity always, resolve collisions, then post-settle
+    // any body that collided this frame AND has low velocity.
     //
 
-    const SLEEP_VEL = 8 // px/s — below this for SLEEP_FRAMES → sleep
-    const SLEEP_ANG = 0.15 // rad/s
-    const SLEEP_FRAMES = 5 // aggressive — settle fast
+    const SLEEP_VEL = 10
+    const SLEEP_ANG = 0.2
+    const SLEEP_FRAMES = 4
 
     const step = useCallback((dt: number) => {
         const pp = propsRef.current
@@ -643,10 +638,11 @@ export default function Drift(props: DriftProps) {
         // ── Phase 1: Forces + integration ───────────────────────────────
         for (const body of bodies) {
             if (body.role === "static") continue
+            body.hadCollisionThisFrame = false
+
             if (drag && drag.body === body) {
                 body.sleeping = false
                 body.sleepCounter = 0
-                body.contactNormal = null
                 continue
             }
 
@@ -669,33 +665,12 @@ export default function Drift(props: DriftProps) {
                 body.sleepCounter = 0
             }
 
-            // Gravity — cancel component along resting contact normal
-            let gx = 0
-            let gy = 0
+            // Gravity — always applied, collisions handle the reaction
             if (pp.motionMode === "gravity") {
-                gy = pp.gravityStrength * dt
+                body.vel.y += pp.gravityStrength * dt
             } else if (pp.motionMode === "bounce") {
-                gy = pp.gravityStrength * 0.1 * dt
+                body.vel.y += pp.gravityStrength * 0.1 * dt
             }
-
-            if ((gx !== 0 || gy !== 0) && body.contactNormal) {
-                // Contact normal points AWAY from the surface (toward the body).
-                // Gravity pushing INTO the surface has a NEGATIVE dot with the normal.
-                const gravVec = vec(gx, gy)
-                const gravAlongNormal = vdot(gravVec, body.contactNormal)
-                if (gravAlongNormal < 0) {
-                    // Gravity pushes into the surface — cancel that component
-                    const cancelled = vscale(body.contactNormal, gravAlongNormal)
-                    gx -= cancelled.x
-                    gy -= cancelled.y
-                }
-            }
-
-            body.vel.x += gx
-            body.vel.y += gy
-
-            // Clear contact normal — it will be re-set by this frame's collisions
-            body.contactNormal = null
 
             // Cursor forces
             if (cursor && pp.cursorInfluence !== "off") {
@@ -721,8 +696,7 @@ export default function Drift(props: DriftProps) {
                     }
 
                     if (pp.rotationEnabled) {
-                        const torque = vcross(diff, vscale(dir, strength * 0.1))
-                        body.angularVel += torque / body.inertia
+                        body.angularVel += vcross(diff, vscale(dir, strength * 0.1)) / body.inertia
                     }
                 }
             }
@@ -743,19 +717,15 @@ export default function Drift(props: DriftProps) {
 
             // Stickiness braking
             if (pp.stickiness > 0) {
-                const stickyThreshold = pp.stickiness * 80
+                const thresh = pp.stickiness * 80
                 const speed = vlen(body.vel)
-                if (speed < stickyThreshold && speed > 0) {
-                    const brake = pp.stickiness * 0.4
-                    body.vel = vscale(body.vel, 1 - brake)
+                if (speed < thresh && speed > 0) {
+                    body.vel = vscale(body.vel, 1 - pp.stickiness * 0.4)
                     if (vlen(body.vel) < 1) body.vel = vec()
                 }
-                if (pp.rotationEnabled) {
-                    const angThresh = stickyThreshold * 0.02
-                    if (Math.abs(body.angularVel) < angThresh) {
-                        body.angularVel *= 1 - pp.stickiness * 0.4
-                        if (Math.abs(body.angularVel) < 0.01) body.angularVel = 0
-                    }
+                if (pp.rotationEnabled && Math.abs(body.angularVel) < thresh * 0.02) {
+                    body.angularVel *= 1 - pp.stickiness * 0.4
+                    if (Math.abs(body.angularVel) < 0.01) body.angularVel = 0
                 }
             }
 
@@ -786,22 +756,22 @@ export default function Drift(props: DriftProps) {
                 if (cx - aabbHW < pad) {
                     body.pos.x = pad + aabbHW - body.homeCenter.x
                     body.vel.x = Math.abs(body.vel.x) < 30 ? 0 : Math.abs(body.vel.x) * pp.bounciness
-                    body.contactNormal = vec(1, 0)
+                    body.hadCollisionThisFrame = true
                 }
                 if (cx + aabbHW > bounds.width - pad) {
                     body.pos.x = bounds.width - pad - aabbHW - body.homeCenter.x
                     body.vel.x = Math.abs(body.vel.x) < 30 ? 0 : -Math.abs(body.vel.x) * pp.bounciness
-                    body.contactNormal = vec(-1, 0)
+                    body.hadCollisionThisFrame = true
                 }
                 if (cy - aabbHH < pad) {
                     body.pos.y = pad + aabbHH - body.homeCenter.y
                     body.vel.y = Math.abs(body.vel.y) < 30 ? 0 : Math.abs(body.vel.y) * pp.bounciness
-                    body.contactNormal = vec(0, 1)
+                    body.hadCollisionThisFrame = true
                 }
                 if (cy + aabbHH > bounds.height - pad) {
                     body.pos.y = bounds.height - pad - aabbHH - body.homeCenter.y
                     body.vel.y = Math.abs(body.vel.y) < 30 ? 0 : -Math.abs(body.vel.y) * pp.bounciness
-                    body.contactNormal = vec(0, -1)
+                    body.hadCollisionThisFrame = true
                 }
             }
         }
@@ -818,31 +788,37 @@ export default function Drift(props: DriftProps) {
 
                         const result = satTest(a, b, pp.colliderPadding)
                         if (result) {
-                            // Wake sleeping bodies on real collision
-                            if (result.overlap > 1.5) {
-                                if (a.sleeping) { a.sleeping = false; a.sleepCounter = 0 }
-                                if (b.sleeping) { b.sleeping = false; b.sleepCounter = 0 }
-                            }
+                            if (a.sleeping) { a.sleeping = false; a.sleepCounter = 0 }
+                            if (b.sleeping) { b.sleeping = false; b.sleepCounter = 0 }
 
                             resolveCollision(a, b, result, pp.bounciness, pp.stickiness)
-
-                            // Record contact normals for gravity cancellation next frame.
-                            // Normal points from A toward B, so A's contact is -normal, B's is +normal.
-                            const aStatic = a.role === "static" || a.isPinned
-                            const bStatic = b.role === "static" || b.isPinned
-                            if (!aStatic) {
-                                a.contactNormal = vscale(result.normal, -1)
-                            }
-                            if (!bStatic) {
-                                b.contactNormal = result.normal
-                            }
+                            a.hadCollisionThisFrame = true
+                            b.hadCollisionThisFrame = true
                         }
                     }
                 }
             }
         }
 
-        // ── Phase 3: Sleep evaluation (AFTER collisions) ────────────────
+        // ── Phase 3: Post-collision settling ────────────────────────────
+        // Bodies that collided this frame AND have low velocity: zero it out.
+        // This is the simple, robust alternative to cross-frame gravity
+        // cancellation. Gravity pushed the body down, collision pushed it back
+        // up — if the net velocity is small, the body is at rest. Kill it.
+        for (const body of bodies) {
+            if (body.role === "static") continue
+            if (drag && drag.body === body) continue
+            if (!body.hadCollisionThisFrame) continue
+
+            const speed = vlen(body.vel)
+            if (speed < 50) {
+                body.vel = vec()
+                body.angularVel *= 0.5
+                if (Math.abs(body.angularVel) < 0.05) body.angularVel = 0
+            }
+        }
+
+        // ── Phase 4: Sleep evaluation ───────────────────────────────────
         for (const body of bodies) {
             if (body.role === "static") continue
             if (body.sleeping) continue
@@ -868,7 +844,7 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // ── Phase 4: Apply transforms to DOM ────────────────────────────
+        // ── Phase 5: Apply transforms to DOM ────────────────────────────
         for (const body of bodies) {
             if (body.role === "static") continue
 
