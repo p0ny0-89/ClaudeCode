@@ -199,6 +199,10 @@ interface DriftProps {
     angularDamping: number
     stickiness: number
 
+    startTrigger: "immediate" | "inView" | "event"
+    viewThreshold: "top" | "center" | "bottom"
+    eventName: string
+
     staticColliders: string
     ignoredLayers: string
     collisionEnabled: boolean
@@ -228,6 +232,9 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     rotationEnabled: true,
     angularDamping: 0.05,
     stickiness: 0.3,
+    startTrigger: "immediate",
+    viewThreshold: "center",
+    eventName: "drift-start",
     staticColliders: "",
     ignoredLayers: "",
     collisionEnabled: true,
@@ -847,56 +854,110 @@ export default function Drift(props: DriftProps) {
 
     const initedRef = useRef(false)
 
-    useEffect(() => {
-        if (isFramerCanvas()) return
+    const startSimulation = useCallback(() => {
         if (initedRef.current) return
         initedRef.current = true
 
-        const timer = setTimeout(() => {
-            init()
+        init()
 
-            const parent = parentRef.current
-            if (parent) {
-                // Use capture phase so we intercept events before child elements
-                // can stop propagation (needed for fast-moving bounce mode objects)
-                parent.addEventListener("pointerdown", handlePointerDown, true)
-                parent.addEventListener("pointermove", handlePointerMove, true)
-                parent.addEventListener("pointerup", handlePointerUp, true)
-                parent.addEventListener("pointerleave", handlePointerLeave)
+        const parent = parentRef.current
+        if (parent) {
+            parent.addEventListener("pointerdown", handlePointerDown, true)
+            parent.addEventListener("pointermove", handlePointerMove, true)
+            parent.addEventListener("pointerup", handlePointerUp, true)
+            parent.addEventListener("pointerleave", handlePointerLeave)
+        }
+
+        lastTimeRef.current = 0
+        rafRef.current = requestAnimationFrame(animate)
+    }, [init, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, animate])
+
+    const stopSimulation = useCallback(() => {
+        initedRef.current = false
+        cancelAnimationFrame(rafRef.current)
+
+        const parent = parentRef.current
+        if (parent) {
+            parent.removeEventListener("pointerdown", handlePointerDown, true)
+            parent.removeEventListener("pointermove", handlePointerMove, true)
+            parent.removeEventListener("pointerup", handlePointerUp, true)
+            parent.removeEventListener("pointerleave", handlePointerLeave)
+        }
+
+        for (const m of managedRef.current) {
+            m.el.style.translate = ""
+            m.el.style.rotate = ""
+            m.el.style.willChange = ""
+            m.el.style.cursor = ""
+        }
+
+        if (engineRef.current) {
+            World.clear(engineRef.current.world, false)
+            Engine.clear(engineRef.current)
+            engineRef.current = null
+        }
+
+        managedRef.current = []
+        wallsRef.current = []
+    }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave])
+
+    useEffect(() => {
+        if (isFramerCanvas()) return
+
+        const pp = propsRef.current
+        let cleanup: (() => void) | undefined
+
+        if (pp.startTrigger === "immediate") {
+            // Start after a short delay for DOM to settle
+            const timer = setTimeout(startSimulation, 100)
+            cleanup = () => clearTimeout(timer)
+
+        } else if (pp.startTrigger === "inView") {
+            // Use Intersection Observer on the parent container
+            const timer = setTimeout(() => {
+                const self = selfRef.current
+                if (!self) return
+                const container = findParentContainer(self)
+                if (!container) return
+
+                // Map threshold position to rootMargin
+                // "top" = trigger when top edge enters viewport bottom
+                // "center" = trigger when center of element is in viewport
+                // "bottom" = trigger when bottom edge enters viewport (fully visible)
+                const thresholdMap = { top: 0.0, center: 0.5, bottom: 1.0 }
+                const threshold = thresholdMap[pp.viewThreshold] ?? 0.5
+
+                const observer = new IntersectionObserver(
+                    ([entry]) => {
+                        if (entry.isIntersecting) {
+                            startSimulation()
+                            observer.disconnect()
+                        }
+                    },
+                    { threshold }
+                )
+                observer.observe(container)
+
+                cleanup = () => observer.disconnect()
+            }, 100)
+
+            const outerCleanup = cleanup
+            cleanup = () => {
+                clearTimeout(timer)
+                outerCleanup?.()
             }
 
-            lastTimeRef.current = 0
-            rafRef.current = requestAnimationFrame(animate)
-        }, 100)
+        } else if (pp.startTrigger === "event") {
+            // Listen for a custom DOM event
+            const eventName = pp.eventName || "drift-start"
+            const handler = () => startSimulation()
+            window.addEventListener(eventName, handler)
+            cleanup = () => window.removeEventListener(eventName, handler)
+        }
 
         return () => {
-            initedRef.current = false
-            clearTimeout(timer)
-            cancelAnimationFrame(rafRef.current)
-
-            const parent = parentRef.current
-            if (parent) {
-                parent.removeEventListener("pointerdown", handlePointerDown, true)
-                parent.removeEventListener("pointermove", handlePointerMove, true)
-                parent.removeEventListener("pointerup", handlePointerUp, true)
-                parent.removeEventListener("pointerleave", handlePointerLeave)
-            }
-
-            for (const m of managedRef.current) {
-                m.el.style.translate = ""
-                m.el.style.rotate = ""
-                m.el.style.willChange = ""
-                m.el.style.cursor = ""
-            }
-
-            if (engineRef.current) {
-                World.clear(engineRef.current.world, false)
-                Engine.clear(engineRef.current)
-                engineRef.current = null
-            }
-
-            managedRef.current = []
-            wallsRef.current = []
+            cleanup?.()
+            stopSimulation()
         }
     }, [])
 
@@ -951,6 +1012,31 @@ Drift.displayName = "Drift"
 // ─── Property controls ──────────────────────────────────────────────────────
 
 addPropertyControls(Drift, {
+    startTrigger: {
+        type: ControlType.Enum,
+        title: "Start When",
+        options: ["immediate", "inView", "event"],
+        optionTitles: ["Immediate", "In View", "Event"],
+        defaultValue: "immediate",
+    },
+    viewThreshold: {
+        type: ControlType.Enum,
+        title: "View Threshold",
+        options: ["top", "center", "bottom"],
+        optionTitles: ["Top", "Center", "Bottom"],
+        defaultValue: "center",
+        hidden: (p) => p.startTrigger !== "inView",
+        description: "How much of the container must be visible to trigger.",
+    },
+    eventName: {
+        type: ControlType.String,
+        title: "Event Name",
+        defaultValue: "drift-start",
+        placeholder: "drift-start",
+        hidden: (p) => p.startTrigger !== "event",
+        description: "Custom DOM event name. Trigger from a button with: window.dispatchEvent(new CustomEvent('drift-start'))",
+    },
+
     motionMode: {
         type: ControlType.Enum,
         title: "Motion Mode",
