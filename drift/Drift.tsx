@@ -279,18 +279,20 @@ export default function Drift(props: DriftProps) {
         const pp = propsRef.current
 
         // Create engine
+        const isBounce = pp.motionMode === "bounce"
         const engine = Engine.create({
             gravity: {
                 x: 0,
                 y:
                     pp.motionMode === "gravity"
                         ? pp.gravityStrength
-                        : pp.motionMode === "bounce"
-                        ? pp.gravityStrength * 0.1
+                        : isBounce
+                        ? pp.gravityStrength * 0.05
                         : 0,
                 scale: 0.001,
             },
-            enableSleeping: true,
+            // Disable sleeping in bounce mode — objects must stay in motion
+            enableSleeping: !isBounce,
         })
         // Increase solver iterations for tighter collision resolution
         ;(engine as any).positionIterations = 10
@@ -349,13 +351,14 @@ export default function Drift(props: DriftProps) {
             const matterBody = Bodies.rectangle(cx, cy, w + pad * 2, h + pad * 2, {
                 angle: homeAngle,
                 isStatic,
-                restitution: pp.bounciness,
-                friction: 0.3 + pp.stickiness * 0.7,
-                frictionStatic: 0.5 + pp.stickiness * 1.5,
-                frictionAir: pp.airResistance,
+                // Bounce mode: near-perfect elasticity, no friction, no air drag
+                restitution: isBounce ? Math.max(pp.bounciness, 0.95) : pp.bounciness,
+                friction: isBounce ? 0.01 : 0.3 + pp.stickiness * 0.7,
+                frictionStatic: isBounce ? 0.01 : 0.5 + pp.stickiness * 1.5,
+                frictionAir: isBounce ? 0.0005 : pp.airResistance,
                 density: 0.001,
                 slop: 0.005,
-                sleepThreshold: 30,
+                sleepThreshold: isBounce ? Infinity : 30,
                 label: getLayerName(child) || `body-${ci}`,
             })
 
@@ -409,8 +412,8 @@ export default function Drift(props: DriftProps) {
                 Bodies.rectangle(W + wallThickness / 2, H / 2, wallThickness, H + wallThickness * 2, { isStatic: true, label: "wall-right" }),
             ]
             for (const w of walls) {
-                w.restitution = pp.bounciness
-                w.friction = 0.3 + pp.stickiness * 0.7
+                w.restitution = isBounce ? 1.0 : pp.bounciness
+                w.friction = isBounce ? 0 : 0.3 + pp.stickiness * 0.7
             }
             Composite.add(engine.world, walls)
             wallsRef.current = walls
@@ -548,6 +551,27 @@ export default function Drift(props: DriftProps) {
                         m.body,
                         m.body.angularVelocity + angleDiff * pp.returnStrength * 0.5
                     )
+                }
+            }
+        }
+
+        // Bounce mode: maintain energy — if a body slows below a minimum speed, nudge it
+        if (pp.motionMode === "bounce") {
+            const minSpeed = 1.5
+            for (const m of managed) {
+                if (m.body.isStatic) continue
+                if (drag && drag.managed === m) continue
+                const v = m.body.velocity
+                const speed = Math.sqrt(v.x * v.x + v.y * v.y)
+                if (speed < minSpeed) {
+                    // Boost in the current direction, or random if nearly stopped
+                    const angle = speed > 0.1
+                        ? Math.atan2(v.y, v.x)
+                        : Math.random() * Math.PI * 2
+                    Body.setVelocity(m.body, {
+                        x: Math.cos(angle) * minSpeed,
+                        y: Math.sin(angle) * minSpeed,
+                    })
                 }
             }
         }
