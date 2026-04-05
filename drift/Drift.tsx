@@ -82,9 +82,10 @@ interface Body {
     inertia: number // moment of inertia
     restitution: number
 
-    // Sleep system — bodies at rest skip integration to prevent jitter
+    // Sleep & resting contact system
     sleeping: boolean
     sleepCounter: number // frames below sleep threshold
+    contactNormal: Vec2 | null // normal of resting contact (for gravity cancellation)
 
     // State
     originalTransform: string
@@ -195,9 +196,15 @@ function satTest(a: Body, b: Body, padding: number): SATResult | null {
         minAxis = vscale(minAxis, -1)
     }
 
-    // Approximate contact point: average of the deepest-penetrating corners
-    // Find corners of A that are inside B's projection, and vice versa
-    const contactPoint = vscale(vadd(ca, cb), 0.5) // midpoint as approximation
+    // Contact point: project from A's center toward B along the collision normal,
+    // landing on A's surface. This is much better than the center midpoint for
+    // stacking scenarios and produces correct torque directions.
+    const [hwA, hhA] = getBodyHalfSize(bodyA)
+    const [hwB, hhB] = getBodyHalfSize(bodyB)
+    // Approximate: halfway between the two surfaces along the normal
+    const depthA = hwA * Math.abs(minAxis.x) + hhA * Math.abs(minAxis.y)
+    const depthB = hwB * Math.abs(minAxis.x) + hhB * Math.abs(minAxis.y)
+    const contactPoint = vadd(ca, vscale(minAxis, depthA - minOverlap * 0.5))
 
     return { normal: minAxis, overlap: minOverlap, contactPoint }
 }
@@ -564,6 +571,7 @@ export default function Drift(props: DriftProps) {
                 originalTransform,
                 sleeping: false,
                 sleepCounter: 0,
+                contactNormal: null,
                 isPinned: false,
                 expandedHalfW: null,
                 expandedHalfH: null,
@@ -602,6 +610,20 @@ export default function Drift(props: DriftProps) {
     }, [])
 
     // ── Physics step ────────────────────────────────────────────────────
+    //
+    // Step order matters for stability:
+    //   1. Clear per-frame contact state
+    //   2. Apply forces (gravity with contact cancellation, cursor, springs)
+    //   3. Damping + stickiness
+    //   4. Integrate velocity → position
+    //   5. Bounds containment
+    //   6. Collision detection + resolution (records contact normals)
+    //   7. Sleep evaluation (AFTER collisions, so settled bodies actually sleep)
+    //
+
+    const SLEEP_VEL = 6 // px/s — below this for SLEEP_FRAMES → sleep
+    const SLEEP_ANG = 0.1 // rad/s
+    const SLEEP_FRAMES = 8
 
     const step = useCallback((dt: number) => {
         const pp = propsRef.current
@@ -613,17 +635,13 @@ export default function Drift(props: DriftProps) {
         if (bodies.length === 0) return
         dt = Math.min(dt, 0.033)
 
-        // Sleep threshold: bodies below this speed for enough frames go to sleep.
-        // Sleeping bodies skip integration entirely, preventing gravity vs collision jitter.
-        const SLEEP_VEL_THRESHOLD = 8 // px/s
-        const SLEEP_ANG_THRESHOLD = 0.15 // rad/s
-        const SLEEP_FRAMES = 10 // frames below threshold before sleeping
-
+        // ── Phase 1: Forces + integration ───────────────────────────────
         for (const body of bodies) {
             if (body.role === "static") continue
             if (drag && drag.body === body) {
                 body.sleeping = false
                 body.sleepCounter = 0
+                body.contactNormal = null
                 continue
             }
 
@@ -632,7 +650,7 @@ export default function Drift(props: DriftProps) {
                 (body.role === "pinpush" && !body.isPinned)
             if (!isDynamic) continue
 
-            // Wake check: cursor nearby or external forces can wake sleeping bodies
+            // Wake check
             let shouldWake = false
             if (cursor && pp.cursorInfluence !== "off") {
                 const center = getBodyCenter(body)
@@ -640,18 +658,38 @@ export default function Drift(props: DriftProps) {
                 if (dist < pp.cursorRadius) shouldWake = true
             }
 
-            if (body.sleeping && !shouldWake) continue // skip entirely
-            if (shouldWake) {
+            if (body.sleeping && !shouldWake) continue
+            if (shouldWake && body.sleeping) {
                 body.sleeping = false
                 body.sleepCounter = 0
             }
 
-            // Gravity
+            // Gravity — cancel component along resting contact normal
+            let gx = 0
+            let gy = 0
             if (pp.motionMode === "gravity") {
-                body.vel.y += pp.gravityStrength * dt
+                gy = pp.gravityStrength * dt
             } else if (pp.motionMode === "bounce") {
-                body.vel.y += pp.gravityStrength * 0.1 * dt
+                gy = pp.gravityStrength * 0.1 * dt
             }
+
+            if (gy !== 0 && body.contactNormal) {
+                // Project gravity onto contact normal and subtract it
+                const gravVec = vec(gx, gy)
+                const gravAlongNormal = vdot(gravVec, body.contactNormal)
+                if (gravAlongNormal > 0) {
+                    // Gravity pushes into the surface — cancel that component
+                    const cancelled = vscale(body.contactNormal, gravAlongNormal)
+                    gx -= cancelled.x
+                    gy -= cancelled.y
+                }
+            }
+
+            body.vel.x += gx
+            body.vel.y += gy
+
+            // Clear contact normal — it will be re-set by this frame's collisions
+            body.contactNormal = null
 
             // Cursor forces
             if (cursor && pp.cursorInfluence !== "off") {
@@ -697,21 +735,20 @@ export default function Drift(props: DriftProps) {
                 body.angularVel *= 1 - pp.angularDamping
             }
 
-            // Stickiness — extra braking for slow objects
+            // Stickiness braking
             if (pp.stickiness > 0) {
                 const stickyThreshold = pp.stickiness * 80
                 const speed = vlen(body.vel)
                 if (speed < stickyThreshold && speed > 0) {
-                    const brake = pp.stickiness * 0.3
+                    const brake = pp.stickiness * 0.4
                     body.vel = vscale(body.vel, 1 - brake)
-                    if (vlen(body.vel) < stickyThreshold * 0.1) {
-                        body.vel = vec()
-                    }
+                    if (vlen(body.vel) < 1) body.vel = vec()
                 }
-                if (pp.rotationEnabled && Math.abs(body.angularVel) < stickyThreshold * 0.01) {
-                    body.angularVel *= 1 - pp.stickiness * 0.3
-                    if (Math.abs(body.angularVel) < 0.005) {
-                        body.angularVel = 0
+                if (pp.rotationEnabled) {
+                    const angThresh = stickyThreshold * 0.02
+                    if (Math.abs(body.angularVel) < angThresh) {
+                        body.angularVel *= 1 - pp.stickiness * 0.4
+                        if (Math.abs(body.angularVel) < 0.01) body.angularVel = 0
                     }
                 }
             }
@@ -719,8 +756,7 @@ export default function Drift(props: DriftProps) {
             // Velocity cap
             body.vel = vclamp(body.vel, pp.velocityCap)
             if (pp.rotationEnabled) {
-                const maxAngular = 15
-                body.angularVel = Math.max(-maxAngular, Math.min(body.angularVel, maxAngular))
+                body.angularVel = Math.max(-15, Math.min(body.angularVel, 15))
             }
 
             // Integrate
@@ -729,10 +765,96 @@ export default function Drift(props: DriftProps) {
                 body.angularPos += body.angularVel * dt
             }
 
-            // Sleep evaluation: if velocity is below threshold, increment counter
+            // Bounds containment
+            if (pp.boundToContainer) {
+                const angle = getBodyAngle(body)
+                const [hw, hh] = getBodyHalfSize(body)
+                const pad = pp.colliderPadding
+                const cosA = Math.abs(Math.cos(angle))
+                const sinA = Math.abs(Math.sin(angle))
+                const aabbHW = hw * cosA + hh * sinA
+                const aabbHH = hw * sinA + hh * cosA
+                const cx = body.homeCenter.x + body.pos.x
+                const cy = body.homeCenter.y + body.pos.y
+
+                if (cx - aabbHW < pad) {
+                    body.pos.x = pad + aabbHW - body.homeCenter.x
+                    body.vel.x = Math.abs(body.vel.x) * pp.bounciness
+                    if (pp.rotationEnabled) body.angularVel *= -0.5
+                    body.contactNormal = vec(1, 0) // left wall
+                }
+                if (cx + aabbHW > bounds.width - pad) {
+                    body.pos.x = bounds.width - pad - aabbHW - body.homeCenter.x
+                    body.vel.x = -Math.abs(body.vel.x) * pp.bounciness
+                    if (pp.rotationEnabled) body.angularVel *= -0.5
+                    body.contactNormal = vec(-1, 0) // right wall
+                }
+                if (cy - aabbHH < pad) {
+                    body.pos.y = pad + aabbHH - body.homeCenter.y
+                    body.vel.y = Math.abs(body.vel.y) * pp.bounciness
+                    if (pp.rotationEnabled) body.angularVel *= -0.5
+                    body.contactNormal = vec(0, 1) // ceiling
+                }
+                if (cy + aabbHH > bounds.height - pad) {
+                    body.pos.y = bounds.height - pad - aabbHH - body.homeCenter.y
+                    body.vel.y = -Math.abs(body.vel.y) * pp.bounciness
+                    if (pp.rotationEnabled) body.angularVel *= -0.5
+                    body.contactNormal = vec(0, -1) // floor
+                }
+            }
+        }
+
+        // ── Phase 2: Collision detection + resolution ───────────────────
+        if (pp.collisionEnabled) {
+            for (let iter = 0; iter < pp.collisionIterations; iter++) {
+                for (let i = 0; i < bodies.length; i++) {
+                    for (let j = i + 1; j < bodies.length; j++) {
+                        const a = bodies[i]
+                        const b = bodies[j]
+                        if (a.role === "static" && b.role === "static") continue
+                        if (a.sleeping && b.sleeping) continue
+
+                        const result = satTest(a, b, pp.colliderPadding)
+                        if (result) {
+                            // Wake sleeping bodies on real collision
+                            if (result.overlap > 1.5) {
+                                if (a.sleeping) { a.sleeping = false; a.sleepCounter = 0 }
+                                if (b.sleeping) { b.sleeping = false; b.sleepCounter = 0 }
+                            }
+
+                            resolveCollision(a, b, result, pp.bounciness, pp.stickiness)
+
+                            // Record contact normals for gravity cancellation next frame.
+                            // Normal points from A toward B, so A's contact is -normal, B's is +normal.
+                            const aStatic = a.role === "static" || a.isPinned
+                            const bStatic = b.role === "static" || b.isPinned
+                            if (!aStatic) {
+                                a.contactNormal = vscale(result.normal, -1)
+                            }
+                            if (!bStatic) {
+                                b.contactNormal = result.normal
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Phase 3: Sleep evaluation (AFTER collisions) ────────────────
+        for (const body of bodies) {
+            if (body.role === "static") continue
+            if (body.sleeping) continue
+            if (drag && drag.body === body) continue
+
+            const isDynamic =
+                body.role === "dynamic" ||
+                (body.role === "pinpush" && !body.isPinned)
+            if (!isDynamic) continue
+
             const speed = vlen(body.vel)
             const angSpeed = Math.abs(body.angularVel)
-            if (speed < SLEEP_VEL_THRESHOLD && angSpeed < SLEEP_ANG_THRESHOLD) {
+
+            if (speed < SLEEP_VEL && angSpeed < SLEEP_ANG) {
                 body.sleepCounter++
                 if (body.sleepCounter >= SLEEP_FRAMES) {
                     body.sleeping = true
@@ -741,80 +863,10 @@ export default function Drift(props: DriftProps) {
                 }
             } else {
                 body.sleepCounter = 0
-                body.sleeping = false
-            }
-
-            // Bounds containment (approximate — use AABB of OBB for bounds check)
-            if (pp.boundToContainer) {
-                const angle = getBodyAngle(body)
-                const [hw, hh] = getBodyHalfSize(body)
-                const pad = pp.colliderPadding
-
-                // Half-extents of the AABB enclosing the rotated box
-                const cosA = Math.abs(Math.cos(angle))
-                const sinA = Math.abs(Math.sin(angle))
-                const aabbHW = hw * cosA + hh * sinA
-                const aabbHH = hw * sinA + hh * cosA
-
-                const cx = body.homeCenter.x + body.pos.x
-                const cy = body.homeCenter.y + body.pos.y
-
-                // Bounce off container walls
-                if (cx - aabbHW < pad) {
-                    body.pos.x = pad + aabbHW - body.homeCenter.x
-                    body.vel.x = Math.abs(body.vel.x) * pp.bounciness
-                    if (pp.rotationEnabled) body.angularVel *= -0.5
-                }
-                if (cx + aabbHW > bounds.width - pad) {
-                    body.pos.x = bounds.width - pad - aabbHW - body.homeCenter.x
-                    body.vel.x = -Math.abs(body.vel.x) * pp.bounciness
-                    if (pp.rotationEnabled) body.angularVel *= -0.5
-                }
-                if (cy - aabbHH < pad) {
-                    body.pos.y = pad + aabbHH - body.homeCenter.y
-                    body.vel.y = Math.abs(body.vel.y) * pp.bounciness
-                    if (pp.rotationEnabled) body.angularVel *= -0.5
-                }
-                if (cy + aabbHH > bounds.height - pad) {
-                    body.pos.y = bounds.height - pad - aabbHH - body.homeCenter.y
-                    body.vel.y = -Math.abs(body.vel.y) * pp.bounciness
-                    if (pp.rotationEnabled) body.angularVel *= -0.5
-                }
             }
         }
 
-        // Collision detection & resolution (OBB via SAT)
-        if (pp.collisionEnabled) {
-            for (let iter = 0; iter < pp.collisionIterations; iter++) {
-                for (let i = 0; i < bodies.length; i++) {
-                    for (let j = i + 1; j < bodies.length; j++) {
-                        const a = bodies[i]
-                        const b = bodies[j]
-                        if (a.role === "static" && b.role === "static") continue
-                        // Skip if both sleeping — they're already at rest
-                        if (a.sleeping && b.sleeping) continue
-
-                        const result = satTest(a, b, pp.colliderPadding)
-                        if (result) {
-                            // Wake sleeping bodies on significant collision
-                            if (result.overlap > 1) {
-                                if (a.sleeping) {
-                                    a.sleeping = false
-                                    a.sleepCounter = 0
-                                }
-                                if (b.sleeping) {
-                                    b.sleeping = false
-                                    b.sleepCounter = 0
-                                }
-                            }
-                            resolveCollision(a, b, result, pp.bounciness, pp.stickiness)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Apply transforms to DOM
+        // ── Phase 4: Apply transforms to DOM ────────────────────────────
         for (const body of bodies) {
             if (body.role === "static") continue
 
