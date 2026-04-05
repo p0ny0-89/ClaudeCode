@@ -76,8 +76,6 @@ function findParentContainer(self: HTMLElement): HTMLElement | null {
 }
 
 function getLayerName(el: HTMLElement): string {
-    // Try multiple attributes Framer uses for layer names across
-    // canvas, preview, and published modes
     return (
         el.getAttribute("data-framer-name") ||
         el.getAttribute("data-name") ||
@@ -91,32 +89,91 @@ function getLayerName(el: HTMLElement): string {
 /** Get ALL possible identifying strings for an element (for fuzzy matching) */
 function getLayerIdentifiers(el: HTMLElement): string[] {
     const ids: string[] = []
+
+    // DOM attributes (work on canvas, may be stripped in preview)
     const attrs = ["data-framer-name", "data-name", "name", "aria-label", "id"]
     for (const attr of attrs) {
         const v = el.getAttribute(attr)
         if (v) ids.push(v.toLowerCase())
     }
-    // Also check direct text content (for simple text layers)
+
+    // All data-* attributes (Framer sometimes adds custom data attrs)
+    for (const attr of Array.from(el.attributes)) {
+        if (attr.name.startsWith("data-") && attr.value && attr.value.length < 60) {
+            ids.push(attr.value.toLowerCase())
+        }
+    }
+
+    // CSS class names (Framer generates class names, some may contain layer hints)
+    if (el.className && typeof el.className === "string") {
+        for (const cls of el.className.split(/\s+/)) {
+            if (cls && cls.length > 2 && cls.length < 60) {
+                ids.push(cls.toLowerCase())
+            }
+        }
+    }
+
+    // Direct text content of the element (shallow — only first 100 chars)
     const text = el.textContent?.trim()
-    if (text && text.length < 50) ids.push(text.toLowerCase())
+    if (text && text.length < 100) ids.push(text.toLowerCase())
+
+    // Also check direct child text nodes only (avoids nested container text bleed)
+    let directText = ""
+    for (const node of Array.from(el.childNodes)) {
+        if (node.nodeType === 3 /* TEXT_NODE */) {
+            directText += node.textContent || ""
+        }
+    }
+    directText = directText.trim()
+    if (directText && directText.length < 100 && directText !== text?.trim()) {
+        ids.push(directText.toLowerCase())
+    }
+
     return ids
 }
 
-function parseNameList(input: string): string[] {
+interface ParsedSelector {
+    type: "index" | "name"
+    value: string // lowercase name, or index as string
+}
+
+/**
+ * Parse a comma-separated identifier list. Supports:
+ *  - "#0", "#3"  → index-based (0-indexed child position, excluding Drift itself)
+ *  - "COLLIDER"  → name/text-based matching
+ */
+function parseSelectorList(input: string): ParsedSelector[] {
     if (!input || !input.trim()) return []
     return input
         .split(",")
-        .map((s) => s.trim().toLowerCase())
+        .map((s) => s.trim())
         .filter(Boolean)
+        .map((s) => {
+            if (s.startsWith("#") && /^#\d+$/.test(s)) {
+                return { type: "index" as const, value: s.slice(1) }
+            }
+            return { type: "name" as const, value: s.toLowerCase() }
+        })
 }
 
-function matchesNameList(el: HTMLElement, nameList: string[]): boolean {
-    if (nameList.length === 0) return false
+function matchesSelectorList(
+    el: HTMLElement,
+    childIndex: number,
+    selectors: ParsedSelector[]
+): boolean {
+    if (selectors.length === 0) return false
     const identifiers = getLayerIdentifiers(el)
-    if (identifiers.length === 0) return false
-    return nameList.some((pattern) =>
-        identifiers.some((id) => id === pattern || id.includes(pattern))
-    )
+
+    return selectors.some((sel) => {
+        if (sel.type === "index") {
+            return childIndex === parseInt(sel.value, 10)
+        }
+        // Name matching: check if any identifier contains the pattern
+        if (identifiers.length === 0) return false
+        return identifiers.some(
+            (id) => id === sel.value || id.includes(sel.value)
+        )
+    })
 }
 
 // ─── Props ──────────────────────────────────────────────────────────────────
@@ -234,12 +291,15 @@ export default function Drift(props: DriftProps) {
                 scale: 0.001,
             },
             enableSleeping: true,
-        })
+            positionIterations: 10,
+            velocityIterations: 8,
+            constraintIterations: 4,
+        } as any)
         engineRef.current = engine
 
-        const staticNames = parseNameList(pp.staticColliders)
-        const ignoredNames = parseNameList(pp.ignoredLayers)
-        const pinPushNames = parseNameList(pp.pinPushLayers)
+        const staticSelectors = parseSelectorList(pp.staticColliders)
+        const ignoredSelectors = parseSelectorList(pp.ignoredLayers)
+        const pinPushSelectors = parseSelectorList(pp.pinPushLayers)
 
         const managed: ManagedBody[] = []
         const selfEls = new Set<HTMLElement>()
@@ -249,20 +309,27 @@ export default function Drift(props: DriftProps) {
             wrapper = wrapper.parentElement
         }
 
+        // Build list of eligible children (excluding self) with stable indices
+        const eligibleChildren: HTMLElement[] = []
         for (let i = 0; i < parent.children.length; i++) {
             const child = parent.children[i] as HTMLElement
             if (selfEls.has(child)) continue
+            eligibleChildren.push(child)
+        }
+
+        for (let ci = 0; ci < eligibleChildren.length; ci++) {
+            const child = eligibleChildren[ci]
             if (!child.getBoundingClientRect) continue
 
             const childRect = child.getBoundingClientRect()
             if (childRect.width === 0 && childRect.height === 0) continue
 
-            // Role
-            if (matchesNameList(child, ignoredNames)) continue
+            // Role — ci is the 0-based index among non-Drift siblings
+            if (matchesSelectorList(child, ci, ignoredSelectors)) continue
 
             let role: BodyRole = "dynamic"
-            if (matchesNameList(child, staticNames)) role = "static"
-            else if (matchesNameList(child, pinPushNames)) role = "pinpush"
+            if (matchesSelectorList(child, ci, staticSelectors)) role = "static"
+            else if (matchesSelectorList(child, ci, pinPushSelectors)) role = "pinpush"
 
             const computedTransform = getComputedStyle(child).transform
             const originalTransform =
@@ -287,9 +354,9 @@ export default function Drift(props: DriftProps) {
                 frictionStatic: 0.5 + pp.stickiness * 1.5,
                 frictionAir: pp.airResistance,
                 density: 0.001,
-                slop: 0.01,
+                slop: 0.005,
                 sleepThreshold: 30,
-                label: getLayerName(child) || `body-${i}`,
+                label: getLayerName(child) || `body-${ci}`,
             })
 
             if (!pp.rotationEnabled && !isStatic) {
@@ -314,13 +381,17 @@ export default function Drift(props: DriftProps) {
         if (pp.debugView) {
             console.log(
                 "[Drift] Detected layers:",
-                managed.map((m) => ({
+                managed.map((m, idx) => ({
+                    index: `#${idx}`,
                     name: getLayerName(m.el) || "(unnamed)",
                     identifiers: getLayerIdentifiers(m.el),
                     role: m.role,
-                    size: `${m.body.bounds.max.x - m.body.bounds.min.x}×${m.body.bounds.max.y - m.body.bounds.min.y}`,
+                    size: `${Math.round(m.body.bounds.max.x - m.body.bounds.min.x)}×${Math.round(m.body.bounds.max.y - m.body.bounds.min.y)}`,
                     isStatic: m.body.isStatic,
                 }))
+            )
+            console.log(
+                "[Drift] Tip: Use #0, #1, etc. in Static Colliders / Ignored / Pin & Push fields to select layers by index."
             )
         }
 
@@ -368,6 +439,43 @@ export default function Drift(props: DriftProps) {
                 if (pp.rotationEnabled) {
                     Body.setAngularVelocity(m.body, (Math.random() - 0.5) * 0.04)
                 }
+            }
+        }
+
+        // Warm-up: run physics for several frames so gravity bodies settle
+        // before the first visual render, preventing the "floating gap" on load.
+        if (pp.motionMode === "gravity") {
+            // Temporarily disable sleeping so bodies can fully settle
+            for (const m of managed) {
+                if (!m.body.isStatic) m.body.sleepThreshold = Infinity
+            }
+            // Simulate ~1 second of physics at 60fps to let everything settle
+            for (let step = 0; step < 60; step++) {
+                Engine.update(engine, 16.67)
+            }
+            // Re-enable sleeping
+            for (const m of managed) {
+                if (!m.body.isStatic) m.body.sleepThreshold = 30
+            }
+            // Sync positions to DOM immediately after warm-up
+            for (const m of managed) {
+                if (m.role === "static") continue
+                const dx = Math.round((m.body.position.x - m.homeCenter.x) * 100) / 100
+                const dy = Math.round((m.body.position.y - m.homeCenter.y) * 100) / 100
+                const dAngle = m.body.angle - m.homeAngle
+                const dAngleDeg = Math.round((dAngle * 180) / Math.PI * 100) / 100
+                let transform: string
+                if (pp.rotationEnabled && Math.abs(dAngleDeg) > 0.01) {
+                    transform = m.originalTransform
+                        ? `translate(${dx}px, ${dy}px) ${m.originalTransform} rotate(${dAngleDeg}deg)`
+                        : `translate(${dx}px, ${dy}px) rotate(${dAngleDeg}deg)`
+                } else {
+                    transform = m.originalTransform
+                        ? `translate(${dx}px, ${dy}px) ${m.originalTransform}`
+                        : `translate(${dx}px, ${dy}px)`
+                }
+                m.el.style.transform = transform
+                m.el.style.willChange = "transform"
             }
         }
     }, [])
@@ -869,19 +977,22 @@ addPropertyControls(Drift, {
         type: ControlType.String,
         title: "Static Colliders",
         defaultValue: "",
-        placeholder: "Layer name, Another name",
+        placeholder: "#0, COLLIDER, #3",
+        description: "Use #0, #1… for index or text/name to match. Enable Debug View to see indices.",
     },
     ignoredLayers: {
         type: ControlType.String,
         title: "Ignored Layers",
         defaultValue: "",
-        placeholder: "Background, Logo",
+        placeholder: "#2, Background",
+        description: "Use #index or text/name. These layers won't participate in physics.",
     },
     pinPushLayers: {
         type: ControlType.String,
         title: "Pin & Push",
         defaultValue: "",
-        placeholder: "Card, Badge",
+        placeholder: "#1, Card",
+        description: "Use #index or text/name. These layers pin in place on hover.",
     },
 
     collisionEnabled: {
