@@ -228,12 +228,12 @@ function resolveCollision(
 
     if (totalInvMass === 0) return
 
-    // Positional correction with slop tolerance to prevent jitter.
-    // Only correct penetration beyond the slop threshold, and apply
-    // gradually (Baumgarte stabilization) instead of full correction.
-    const slop = 0.5 // allow up to 0.5px overlap without correction
-    const baumgarte = 0.4 // correct 40% of penetration per iteration
-    const correctionMag = Math.max(overlap - slop, 0) * baumgarte
+    // ── Full positional correction ──
+    // Push bodies fully out of overlap. No gradual Baumgarte — that causes
+    // sinking under sustained gravity. A small slop prevents jitter from
+    // floating-point imprecision.
+    const slop = 0.3
+    const correctionMag = Math.max(overlap - slop, 0)
     if (correctionMag > 0) {
         if (!aStatic) {
             a.pos = vsub(a.pos, vscale(normal, correctionMag * (invMassA / totalInvMass)))
@@ -243,7 +243,7 @@ function resolveCollision(
         }
     }
 
-    // ── Velocity + angular impulse resolution ──
+    // ── Velocity resolution ──
     const rA = vsub(contactPoint, ca)
     const rB = vsub(contactPoint, cb)
 
@@ -269,23 +269,34 @@ function resolveCollision(
 
     if (effectiveMass === 0) return
 
-    // Kill restitution at low velocities to prevent micro-bouncing
-    const e = Math.abs(velAlongNormal) < 40 ? 0 : restitution
+    // At low contact velocities: zero restitution AND directly zero out
+    // the normal velocity component. This is the key to stable resting.
+    const absVelN = Math.abs(velAlongNormal)
+    const e = absVelN < 60 ? 0 : restitution
     const j = -(1 + e) * velAlongNormal / effectiveMass
-
     const impulse = vscale(normal, j)
 
     if (!aStatic) {
         a.vel = vadd(a.vel, vscale(impulse, invMassA))
         a.angularVel += vcross(rA, impulse) * invInertiaA
+        // For very low contact speed, directly kill normal velocity to prevent oscillation
+        if (absVelN < 30) {
+            const avn = vdot(a.vel, normal)
+            if (avn < 0) a.vel = vsub(a.vel, vscale(normal, avn))
+            a.angularVel *= 0.9
+        }
     }
     if (!bStatic) {
         b.vel = vsub(b.vel, vscale(impulse, invMassB))
         b.angularVel -= vcross(rB, impulse) * invInertiaB
+        if (absVelN < 30) {
+            const bvn = vdot(b.vel, normal)
+            if (bvn > 0) b.vel = vsub(b.vel, vscale(normal, bvn))
+            b.angularVel *= 0.9
+        }
     }
 
     // ── Friction impulse (tangential) ──
-    // Stickiness boosts contact friction from 0.3 up to 0.95
     const tangent = vnorm(vsub(relVel, vscale(normal, velAlongNormal)))
     const velAlongTangent = vdot(relVel, tangent)
     const frictionCoeff = 0.3 + stickiness * 0.65
@@ -298,7 +309,6 @@ function resolveCollision(
 
     if (tEffectiveMass > 0) {
         let jt = -velAlongTangent / tEffectiveMass
-        // Coulomb friction clamp
         jt = Math.max(-Math.abs(j) * frictionCoeff, Math.min(jt, Math.abs(j) * frictionCoeff))
 
         const frictionImpulse = vscale(tangent, jt)
@@ -616,9 +626,9 @@ export default function Drift(props: DriftProps) {
     //   7. Sleep evaluation (AFTER collisions, so settled bodies actually sleep)
     //
 
-    const SLEEP_VEL = 6 // px/s — below this for SLEEP_FRAMES → sleep
-    const SLEEP_ANG = 0.1 // rad/s
-    const SLEEP_FRAMES = 8
+    const SLEEP_VEL = 8 // px/s — below this for SLEEP_FRAMES → sleep
+    const SLEEP_ANG = 0.15 // rad/s
+    const SLEEP_FRAMES = 5 // aggressive — settle fast
 
     const step = useCallback((dt: number) => {
         const pp = propsRef.current
@@ -668,11 +678,12 @@ export default function Drift(props: DriftProps) {
                 gy = pp.gravityStrength * 0.1 * dt
             }
 
-            if (gy !== 0 && body.contactNormal) {
-                // Project gravity onto contact normal and subtract it
+            if ((gx !== 0 || gy !== 0) && body.contactNormal) {
+                // Contact normal points AWAY from the surface (toward the body).
+                // Gravity pushing INTO the surface has a NEGATIVE dot with the normal.
                 const gravVec = vec(gx, gy)
                 const gravAlongNormal = vdot(gravVec, body.contactNormal)
-                if (gravAlongNormal > 0) {
+                if (gravAlongNormal < 0) {
                     // Gravity pushes into the surface — cancel that component
                     const cancelled = vscale(body.contactNormal, gravAlongNormal)
                     gx -= cancelled.x
@@ -774,27 +785,23 @@ export default function Drift(props: DriftProps) {
 
                 if (cx - aabbHW < pad) {
                     body.pos.x = pad + aabbHW - body.homeCenter.x
-                    body.vel.x = Math.abs(body.vel.x) * pp.bounciness
-                    if (pp.rotationEnabled) body.angularVel *= -0.5
-                    body.contactNormal = vec(1, 0) // left wall
+                    body.vel.x = Math.abs(body.vel.x) < 30 ? 0 : Math.abs(body.vel.x) * pp.bounciness
+                    body.contactNormal = vec(1, 0)
                 }
                 if (cx + aabbHW > bounds.width - pad) {
                     body.pos.x = bounds.width - pad - aabbHW - body.homeCenter.x
-                    body.vel.x = -Math.abs(body.vel.x) * pp.bounciness
-                    if (pp.rotationEnabled) body.angularVel *= -0.5
-                    body.contactNormal = vec(-1, 0) // right wall
+                    body.vel.x = Math.abs(body.vel.x) < 30 ? 0 : -Math.abs(body.vel.x) * pp.bounciness
+                    body.contactNormal = vec(-1, 0)
                 }
                 if (cy - aabbHH < pad) {
                     body.pos.y = pad + aabbHH - body.homeCenter.y
-                    body.vel.y = Math.abs(body.vel.y) * pp.bounciness
-                    if (pp.rotationEnabled) body.angularVel *= -0.5
-                    body.contactNormal = vec(0, 1) // ceiling
+                    body.vel.y = Math.abs(body.vel.y) < 30 ? 0 : Math.abs(body.vel.y) * pp.bounciness
+                    body.contactNormal = vec(0, 1)
                 }
                 if (cy + aabbHH > bounds.height - pad) {
                     body.pos.y = bounds.height - pad - aabbHH - body.homeCenter.y
-                    body.vel.y = -Math.abs(body.vel.y) * pp.bounciness
-                    if (pp.rotationEnabled) body.angularVel *= -0.5
-                    body.contactNormal = vec(0, -1) // floor
+                    body.vel.y = Math.abs(body.vel.y) < 30 ? 0 : -Math.abs(body.vel.y) * pp.bounciness
+                    body.contactNormal = vec(0, -1)
                 }
             }
         }
