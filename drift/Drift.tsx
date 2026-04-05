@@ -574,35 +574,30 @@ export default function Drift(props: DriftProps) {
                 const isHovered = hoveredPP.has(m)
 
                 if (isHovered && !m.body.isStatic) {
-                    // Hover started → freeze body, clear our transform override
-                    // so Framer's hover variant can control the visual freely
+                    // Hover started → freeze physics transform in place.
+                    // We keep our current translate/rotate so the element stays
+                    // exactly where physics put it. Framer's hover variant then
+                    // expands the element at that position along its own axes.
                     Body.setStatic(m.body, true)
-                    m.el.style.transform = ""
-                    m.el.style.willChange = ""
+                    // Don't touch el.style.transform — leave our physics offset frozen
                 } else if (!isHovered && m.body.isStatic) {
-                    // Hover ended → recapture position from DOM as new home,
-                    // then restore to dynamic so physics resumes from here
+                    // Hover ended → read where the element is NOW in the DOM
+                    // (after Framer's hover animation has reverted) and resume
+                    // physics from that exact spot.
                     const rect = m.el.getBoundingClientRect()
                     const newCx = rect.left + rect.width / 2 - parentRect.left
                     const newCy = rect.top + rect.height / 2 - parentRect.top
                     const newW = m.el.offsetWidth
                     const newH = m.el.offsetHeight
-                    const angle = parseRotation(getComputedStyle(m.el).transform)
 
-                    // Update home to current position
-                    m.homeCenter = { x: newCx, y: newCy }
-                    m.homeAngle = angle
-                    m.originalTransform = getComputedStyle(m.el).transform || ""
-                    if (m.originalTransform === "none") m.originalTransform = ""
-
-                    // Rebuild body at original (non-expanded) size
+                    // Rebuild body at current DOM size/position, now dynamic
                     const engine = engineRef.current!
                     const pad = pp.colliderPadding
                     Composite.remove(engine.world, m.body)
                     const newBody = Bodies.rectangle(
                         newCx, newCy, newW + pad * 2, newH + pad * 2,
                         {
-                            angle,
+                            angle: m.body.angle,
                             isStatic: false,
                             restitution: m.body.restitution,
                             friction: m.body.friction,
