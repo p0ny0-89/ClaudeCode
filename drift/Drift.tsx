@@ -1,5 +1,6 @@
 // Drift — Invisible physics behavior layer for Framer
 // Drop into a parent container to activate interactive motion on its direct child layers.
+// Supports full rotation physics and OBB (oriented bounding box) collision via SAT.
 
 import { addPropertyControls, ControlType } from "framer"
 import * as React from "react"
@@ -22,9 +23,36 @@ const vnorm = (a: Vec2): Vec2 => {
     return l > 0.0001 ? vscale(a, 1 / l) : vec()
 }
 const vdot = (a: Vec2, b: Vec2): number => a.x * b.x + a.y * b.y
+const vcross = (a: Vec2, b: Vec2): number => a.x * b.y - a.y * b.x
 const vclamp = (v: Vec2, max: number): Vec2 => {
     const l = vlen(v)
     return l > max ? vscale(vnorm(v), max) : v
+}
+// Perpendicular: rotate 90 degrees
+const vperp = (a: Vec2): Vec2 => ({ x: -a.y, y: a.x })
+
+// ─── Transform parsing ─────────────────────────────────────────────────────
+
+/** Extract rotation angle (radians) from a CSS transform matrix string */
+function parseRotation(transform: string): number {
+    if (!transform || transform === "none") return 0
+    // matrix(a, b, c, d, tx, ty) — angle = atan2(b, a)
+    const match = transform.match(
+        /matrix\(\s*([^,]+),\s*([^,]+),\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*[^)]+\)/
+    )
+    if (match) {
+        const a = parseFloat(match[1])
+        const b = parseFloat(match[2])
+        return Math.atan2(b, a)
+    }
+    // Try rotate(Xdeg) or rotate(Xrad)
+    const rotMatch = transform.match(/rotate\(\s*([^)]+)\)/)
+    if (rotMatch) {
+        const val = rotMatch[1].trim()
+        if (val.endsWith("rad")) return parseFloat(val)
+        return (parseFloat(val) * Math.PI) / 180
+    }
+    return 0
 }
 
 // ─── Body types ─────────────────────────────────────────────────────────────
@@ -34,15 +62,31 @@ type BodyRole = "dynamic" | "static" | "ignored" | "pinpush"
 interface Body {
     el: HTMLElement
     role: BodyRole
-    home: Vec2 // authored position relative to parent
-    pos: Vec2 // current position (offset from home)
+
+    // Positions are CENTER-based, relative to parent top-left
+    homeCenter: Vec2 // authored center in parent space
+    pos: Vec2 // delta offset from homeCenter
     vel: Vec2
-    size: Vec2 // width, height
+
+    // Unrotated dimensions (from offsetWidth/offsetHeight)
+    halfW: number
+    halfH: number
+
+    // Rotation
+    homeAngle: number // authored rotation (radians), from CSS transform
+    angularPos: number // delta rotation from homeAngle
+    angularVel: number // radians per second
+
+    // Physics
     mass: number
+    inertia: number // moment of inertia
     restitution: number
+
+    // State
     originalTransform: string
-    isPinned: boolean // temporarily pinned during hover
-    expandedSize: Vec2 | null // size during pin expansion
+    isPinned: boolean
+    expandedHalfW: number | null
+    expandedHalfH: number | null
 }
 
 interface Bounds {
@@ -50,89 +94,216 @@ interface Bounds {
     height: number
 }
 
-// ─── Collision detection (AABB) ─────────────────────────────────────────────
+// ─── OBB collision via Separating Axis Theorem ──────────────────────────────
 
-interface Collision {
-    bodyA: Body
-    bodyB: Body
-    normal: Vec2
+/** Get the 4 corners of an oriented bounding box */
+function getOBBCorners(
+    cx: number,
+    cy: number,
+    hw: number,
+    hh: number,
+    angle: number
+): Vec2[] {
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    return [
+        vec(cx - cos * hw + sin * hh, cy - sin * hw - cos * hh),
+        vec(cx + cos * hw + sin * hh, cy + sin * hw - cos * hh),
+        vec(cx + cos * hw - sin * hh, cy + sin * hw + cos * hh),
+        vec(cx - cos * hw - sin * hh, cy - sin * hw + cos * hh),
+    ]
+}
+
+/** Get the 2 edge-normal axes of an OBB */
+function getOBBAxes(angle: number): [Vec2, Vec2] {
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    return [vec(cos, sin), vec(-sin, cos)]
+}
+
+/** Project corners onto an axis, return [min, max] */
+function projectOnAxis(corners: Vec2[], axis: Vec2): [number, number] {
+    let min = Infinity
+    let max = -Infinity
+    for (const c of corners) {
+        const p = vdot(c, axis)
+        if (p < min) min = p
+        if (p > max) max = p
+    }
+    return [min, max]
+}
+
+function getBodyCenter(body: Body): Vec2 {
+    return vadd(body.homeCenter, body.pos)
+}
+
+function getBodyAngle(body: Body): number {
+    return body.homeAngle + body.angularPos
+}
+
+function getBodyHalfSize(body: Body): [number, number] {
+    return [
+        body.expandedHalfW ?? body.halfW,
+        body.expandedHalfH ?? body.halfH,
+    ]
+}
+
+interface SATResult {
+    normal: Vec2 // from A toward B
     overlap: number
+    contactPoint: Vec2
 }
 
-function getBodyRect(body: Body): { x: number; y: number; w: number; h: number } {
-    const s = body.expandedSize ?? body.size
-    return {
-        x: body.home.x + body.pos.x,
-        y: body.home.y + body.pos.y,
-        w: s.x,
-        h: s.y,
+function satTest(a: Body, b: Body, padding: number): SATResult | null {
+    const ca = getBodyCenter(a)
+    const cb = getBodyCenter(b)
+    const angleA = getBodyAngle(a)
+    const angleB = getBodyAngle(b)
+    const [hwA, hhA] = getBodyHalfSize(a)
+    const [hwB, hhB] = getBodyHalfSize(b)
+
+    const cornersA = getOBBCorners(ca.x, ca.y, hwA + padding, hhA + padding, angleA)
+    const cornersB = getOBBCorners(cb.x, cb.y, hwB + padding, hhB + padding, angleB)
+
+    const axesA = getOBBAxes(angleA)
+    const axesB = getOBBAxes(angleB)
+    const axes = [axesA[0], axesA[1], axesB[0], axesB[1]]
+
+    let minOverlap = Infinity
+    let minAxis = vec()
+
+    for (const axis of axes) {
+        const [minA, maxA] = projectOnAxis(cornersA, axis)
+        const [minB, maxB] = projectOnAxis(cornersB, axis)
+        const overlap = Math.min(maxA, maxB) - Math.max(minA, minB)
+
+        if (overlap <= 0) return null // separating axis found — no collision
+
+        if (overlap < minOverlap) {
+            minOverlap = overlap
+            minAxis = axis
+        }
     }
-}
 
-function detectCollision(a: Body, b: Body): Collision | null {
-    const ra = getBodyRect(a)
-    const rb = getBodyRect(b)
-
-    const overlapX = Math.min(ra.x + ra.w, rb.x + rb.w) - Math.max(ra.x, rb.x)
-    const overlapY = Math.min(ra.y + ra.h, rb.y + rb.h) - Math.max(ra.y, rb.y)
-
-    if (overlapX <= 0 || overlapY <= 0) return null
-
-    // Choose axis with smallest overlap for minimum translation
-    if (overlapX < overlapY) {
-        const nx = ra.x + ra.w / 2 < rb.x + rb.w / 2 ? -1 : 1
-        return { bodyA: a, bodyB: b, normal: vec(nx, 0), overlap: overlapX }
-    } else {
-        const ny = ra.y + ra.h / 2 < rb.y + rb.h / 2 ? -1 : 1
-        return { bodyA: a, bodyB: b, normal: vec(0, ny), overlap: overlapY }
+    // Ensure normal points from A toward B
+    const d = vsub(cb, ca)
+    if (vdot(d, minAxis) < 0) {
+        minAxis = vscale(minAxis, -1)
     }
+
+    // Approximate contact point: average of the deepest-penetrating corners
+    // Find corners of A that are inside B's projection, and vice versa
+    const contactPoint = vscale(vadd(ca, cb), 0.5) // midpoint as approximation
+
+    return { normal: minAxis, overlap: minOverlap, contactPoint }
 }
 
-function resolveCollision(col: Collision, restitution: number) {
-    const { bodyA, bodyB, normal, overlap } = col
-    const aStatic = bodyA.role === "static" || bodyA.isPinned
-    const bStatic = bodyB.role === "static" || bodyB.isPinned
-
+function resolveCollision(
+    a: Body,
+    b: Body,
+    sat: SATResult,
+    restitution: number
+) {
+    const aStatic = a.role === "static" || a.isPinned
+    const bStatic = b.role === "static" || b.isPinned
     if (aStatic && bStatic) return
 
-    // Positional correction
-    const totalMass = (aStatic ? 0 : bodyA.mass) + (bStatic ? 0 : bodyB.mass)
-    if (totalMass === 0) return
+    const { normal, overlap, contactPoint } = sat
+    const ca = getBodyCenter(a)
+    const cb = getBodyCenter(b)
 
-    const correction = overlap + 0.5 // slight extra push to avoid sticking
+    // ── Positional correction ──
+    const invMassA = aStatic ? 0 : 1 / a.mass
+    const invMassB = bStatic ? 0 : 1 / b.mass
+    const invInertiaA = aStatic ? 0 : 1 / a.inertia
+    const invInertiaB = bStatic ? 0 : 1 / b.inertia
+    const totalInvMass = invMassA + invMassB
+
+    if (totalInvMass === 0) return
+
+    const correction = overlap + 0.3
     if (!aStatic) {
-        const ratio = bStatic ? 1 : bodyA.mass / totalMass
-        bodyA.pos = vadd(bodyA.pos, vscale(normal, correction * ratio))
+        a.pos = vsub(a.pos, vscale(normal, correction * (invMassA / totalInvMass)))
     }
     if (!bStatic) {
-        const ratio = aStatic ? 1 : bodyB.mass / totalMass
-        bodyB.pos = vsub(bodyB.pos, vscale(normal, correction * ratio))
+        b.pos = vadd(b.pos, vscale(normal, correction * (invMassB / totalInvMass)))
     }
 
-    // Velocity resolution
-    const relVel = vsub(aStatic ? vec() : bodyA.vel, bStatic ? vec() : bodyB.vel)
+    // ── Velocity + angular impulse resolution ──
+    // Contact vectors from center to contact point
+    const rA = vsub(contactPoint, ca)
+    const rB = vsub(contactPoint, cb)
+
+    // Velocity at contact point (linear + angular contribution)
+    const velA = aStatic
+        ? vec()
+        : vadd(a.vel, vscale(vperp(rA), a.angularVel))
+    const velB = bStatic
+        ? vec()
+        : vadd(b.vel, vscale(vperp(rB), b.angularVel))
+
+    const relVel = vsub(velA, velB)
     const velAlongNormal = vdot(relVel, normal)
 
-    // Only resolve if bodies are moving toward each other
+    // Only resolve if moving toward each other
     if (velAlongNormal > 0) return
 
+    // Effective mass at contact including rotational inertia
+    const rACrossN = vcross(rA, normal)
+    const rBCrossN = vcross(rB, normal)
+    const effectiveMass =
+        invMassA +
+        invMassB +
+        rACrossN * rACrossN * invInertiaA +
+        rBCrossN * rBCrossN * invInertiaB
+
+    if (effectiveMass === 0) return
+
     const e = restitution
-    const j = -(1 + e) * velAlongNormal / totalMass
+    const j = -(1 + e) * velAlongNormal / effectiveMass
+
+    const impulse = vscale(normal, j)
 
     if (!aStatic) {
-        bodyA.vel = vadd(bodyA.vel, vscale(normal, j * bodyA.mass))
+        a.vel = vadd(a.vel, vscale(impulse, invMassA))
+        a.angularVel += vcross(rA, impulse) * invInertiaA
     }
     if (!bStatic) {
-        bodyB.vel = vsub(bodyB.vel, vscale(normal, j * bodyB.mass))
+        b.vel = vsub(b.vel, vscale(impulse, invMassB))
+        b.angularVel -= vcross(rB, impulse) * invInertiaB
+    }
+
+    // ── Friction impulse (tangential) ──
+    const tangent = vnorm(vsub(relVel, vscale(normal, velAlongNormal)))
+    const velAlongTangent = vdot(relVel, tangent)
+    const frictionCoeff = 0.3
+
+    const tEffectiveMass =
+        invMassA +
+        invMassB +
+        vcross(rA, tangent) ** 2 * invInertiaA +
+        vcross(rB, tangent) ** 2 * invInertiaB
+
+    if (tEffectiveMass > 0) {
+        let jt = -velAlongTangent / tEffectiveMass
+        // Coulomb friction clamp
+        jt = Math.max(-Math.abs(j) * frictionCoeff, Math.min(jt, Math.abs(j) * frictionCoeff))
+
+        const frictionImpulse = vscale(tangent, jt)
+        if (!aStatic) {
+            a.vel = vadd(a.vel, vscale(frictionImpulse, invMassA))
+            a.angularVel += vcross(rA, frictionImpulse) * invInertiaA
+        }
+        if (!bStatic) {
+            b.vel = vsub(b.vel, vscale(frictionImpulse, invMassB))
+            b.angularVel -= vcross(rB, frictionImpulse) * invInertiaB
+        }
     }
 }
 
 // ─── DOM helpers ────────────────────────────────────────────────────────────
 
 function findParentContainer(self: HTMLElement): HTMLElement | null {
-    // Walk up to find the Framer container that holds siblings.
-    // Framer wraps code components, so we walk up until we find
-    // an element with multiple children that looks like a container.
     let el: HTMLElement | null = self.parentElement
     let depth = 0
     while (el && depth < 6) {
@@ -190,6 +361,10 @@ interface DriftProps {
     returnHome: boolean
     returnStrength: number
 
+    // Rotation
+    rotationEnabled: boolean
+    angularDamping: number
+
     // Layer assignment
     staticColliders: string
     ignoredLayers: string
@@ -208,8 +383,6 @@ interface DriftProps {
     style?: React.CSSProperties
 }
 
-// ─── Default values ─────────────────────────────────────────────────────────
-
 const defaultProps: Partial<DriftProps> = {
     motionMode: "zeroGravity",
     gravityStrength: 800,
@@ -225,6 +398,8 @@ const defaultProps: Partial<DriftProps> = {
     throwEnabled: true,
     returnHome: false,
     returnStrength: 0.03,
+    rotationEnabled: true,
+    angularDamping: 0.03,
     staticColliders: "",
     ignoredLayers: "",
     pinPushLayers: "",
@@ -247,7 +422,7 @@ export default function Drift(props: DriftProps) {
     const cursorRef = useRef<Vec2 | null>(null)
     const dragRef = useRef<{
         body: Body
-        offset: Vec2
+        offset: Vec2 // offset from body center in parent space
         history: { pos: Vec2; time: number }[]
     } | null>(null)
     const parentRef = useRef<HTMLElement | null>(null)
@@ -255,7 +430,6 @@ export default function Drift(props: DriftProps) {
     const propsRef = useRef(p)
     propsRef.current = p
 
-    // Track hovered pin-push layers
     const hoveredPinPushRef = useRef<Set<HTMLElement>>(new Set())
 
     // ── Initialize bodies from DOM ──────────────────────────────────────
@@ -281,7 +455,6 @@ export default function Drift(props: DriftProps) {
         const bodies: Body[] = []
         const selfEls = new Set<HTMLElement>()
 
-        // Find our own wrapper element(s) to exclude
         let wrapper: HTMLElement | null = self
         while (wrapper && wrapper !== parent) {
             selfEls.add(wrapper)
@@ -306,31 +479,50 @@ export default function Drift(props: DriftProps) {
                 role = "pinpush"
             }
 
-            if (role === "ignored") continue // skip entirely
+            if (role === "ignored") continue
 
-            const home = vec(
-                childRect.left - parentRect.left,
-                childRect.top - parentRect.top
-            )
-
+            // Get the original transform and extract rotation
+            const computedTransform = getComputedStyle(child).transform
             const originalTransform =
-                child.style.transform ||
-                getComputedStyle(child).transform ||
-                ""
+                computedTransform && computedTransform !== "none"
+                    ? computedTransform
+                    : ""
+            const homeAngle = parseRotation(originalTransform)
+
+            // Use offsetWidth/offsetHeight for UNROTATED dimensions.
+            // getBoundingClientRect() inflates the box for rotated elements.
+            const w = child.offsetWidth
+            const h = child.offsetHeight
+
+            // Center of the bounding rect IS the center of the element
+            // (getBoundingClientRect center is correct even for rotated elements)
+            const centerX =
+                childRect.left + childRect.width / 2 - parentRect.left
+            const centerY =
+                childRect.top + childRect.height / 2 - parentRect.top
+
+            const mass = 1
+            // Moment of inertia for a rectangle: I = m * (w^2 + h^2) / 12
+            const inertia = (mass * (w * w + h * h)) / 12
 
             bodies.push({
                 el: child,
                 role,
-                home,
+                homeCenter: vec(centerX, centerY),
                 pos: vec(),
                 vel: vec(),
-                size: vec(childRect.width, childRect.height),
-                mass: 1,
+                halfW: w / 2,
+                halfH: h / 2,
+                homeAngle,
+                angularPos: 0,
+                angularVel: 0,
+                mass,
+                inertia: Math.max(inertia, 100), // minimum inertia to prevent jitter
                 restitution: propsRef.current.bounciness,
-                originalTransform:
-                    originalTransform === "none" ? "" : originalTransform,
+                originalTransform,
                 isPinned: false,
-                expandedSize: null,
+                expandedHalfW: null,
+                expandedHalfH: null,
             })
         }
 
@@ -348,23 +540,20 @@ export default function Drift(props: DriftProps) {
             if (body.role !== "dynamic" && body.role !== "pinpush") continue
 
             if (mode === "zeroGravity") {
-                // Gentle random drift
                 const angle = Math.random() * Math.PI * 2
                 const speed = 20 + Math.random() * 40
-                body.vel = vec(
-                    Math.cos(angle) * speed,
-                    Math.sin(angle) * speed
-                )
+                body.vel = vec(Math.cos(angle) * speed, Math.sin(angle) * speed)
+                if (propsRef.current.rotationEnabled) {
+                    body.angularVel = (Math.random() - 0.5) * 0.5
+                }
             } else if (mode === "bounce") {
-                // Screensaver-style initial velocity
                 const angle = Math.random() * Math.PI * 2
                 const speed = 80 + Math.random() * 120
-                body.vel = vec(
-                    Math.cos(angle) * speed,
-                    Math.sin(angle) * speed
-                )
+                body.vel = vec(Math.cos(angle) * speed, Math.sin(angle) * speed)
+                if (propsRef.current.rotationEnabled) {
+                    body.angularVel = (Math.random() - 0.5) * 1.0
+                }
             }
-            // gravity mode: objects start at rest and fall
         }
     }, [])
 
@@ -378,120 +567,136 @@ export default function Drift(props: DriftProps) {
         const drag = dragRef.current
 
         if (bodies.length === 0) return
-
-        // Clamp dt to avoid spiral of death
         dt = Math.min(dt, 0.033)
 
         for (const body of bodies) {
             if (body.role === "static") continue
-            if (drag && drag.body === body) continue // skip dragged body
+            if (drag && drag.body === body) continue
 
             const isDynamic =
                 body.role === "dynamic" ||
                 (body.role === "pinpush" && !body.isPinned)
-
             if (!isDynamic) continue
 
             // Gravity
             if (pp.motionMode === "gravity") {
                 body.vel.y += pp.gravityStrength * dt
             } else if (pp.motionMode === "bounce") {
-                // Light downward pull for bounce mode (gives slight arc)
                 body.vel.y += pp.gravityStrength * 0.1 * dt
             }
 
             // Cursor forces
             if (cursor && pp.cursorInfluence !== "off") {
-                const bodyCenter = vec(
-                    body.home.x + body.pos.x + body.size.x / 2,
-                    body.home.y + body.pos.y + body.size.y / 2
-                )
-                const diff = vsub(bodyCenter, cursor)
+                const center = getBodyCenter(body)
+                const diff = vsub(center, cursor)
                 const dist = vlen(diff)
 
                 if (dist < pp.cursorRadius && dist > 1) {
                     const strength =
-                        pp.cursorStrength *
-                        (1 - dist / pp.cursorRadius) *
-                        dt
+                        pp.cursorStrength * (1 - dist / pp.cursorRadius) * dt
                     const dir = vnorm(diff)
 
                     switch (pp.cursorInfluence) {
-                        case "nudge": {
-                            // Gentle push in cursor movement direction
+                        case "nudge":
                             body.vel = vadd(body.vel, vscale(dir, strength * 0.5))
                             break
-                        }
-                        case "repel": {
+                        case "repel":
                             body.vel = vadd(body.vel, vscale(dir, strength))
                             break
-                        }
-                        case "attract": {
+                        case "attract":
                             body.vel = vsub(body.vel, vscale(dir, strength))
                             break
-                        }
+                    }
+
+                    // Cursor can also impart a slight torque
+                    if (pp.rotationEnabled) {
+                        const torque = vcross(diff, vscale(dir, strength * 0.1))
+                        body.angularVel += torque / body.inertia
                     }
                 }
             }
 
-            // Return-home spring
+            // Return-home spring (position + rotation)
             if (pp.returnHome) {
-                const springForce = vscale(body.pos, -pp.returnStrength)
-                body.vel = vadd(body.vel, springForce)
+                body.vel = vadd(body.vel, vscale(body.pos, -pp.returnStrength))
+                if (pp.rotationEnabled) {
+                    body.angularVel -= body.angularPos * pp.returnStrength * 2
+                }
             }
 
-            // Air resistance / damping
+            // Air resistance
             body.vel = vscale(body.vel, 1 - pp.airResistance)
+            if (pp.rotationEnabled) {
+                body.angularVel *= 1 - pp.angularDamping
+            }
 
             // Velocity cap
             body.vel = vclamp(body.vel, pp.velocityCap)
+            if (pp.rotationEnabled) {
+                const maxAngular = 15 // ~2.5 revolutions/sec
+                body.angularVel = Math.max(
+                    -maxAngular,
+                    Math.min(body.angularVel, maxAngular)
+                )
+            }
 
-            // Integrate position
+            // Integrate
             body.pos = vadd(body.pos, vscale(body.vel, dt))
+            if (pp.rotationEnabled) {
+                body.angularPos += body.angularVel * dt
+            }
 
-            // Bounds containment
+            // Bounds containment (approximate — use AABB of OBB for bounds check)
             if (pp.boundToContainer) {
+                const angle = getBodyAngle(body)
+                const [hw, hh] = getBodyHalfSize(body)
                 const pad = pp.colliderPadding
-                const s = body.expandedSize ?? body.size
 
-                const minX = -(body.home.x) + pad
-                const minY = -(body.home.y) + pad
-                const maxX = bounds.width - body.home.x - s.x - pad
-                const maxY = bounds.height - body.home.y - s.y - pad
+                // Half-extents of the AABB enclosing the rotated box
+                const cosA = Math.abs(Math.cos(angle))
+                const sinA = Math.abs(Math.sin(angle))
+                const aabbHW = hw * cosA + hh * sinA
+                const aabbHH = hw * sinA + hh * cosA
 
-                if (body.pos.x < minX) {
-                    body.pos.x = minX
+                const cx = body.homeCenter.x + body.pos.x
+                const cy = body.homeCenter.y + body.pos.y
+
+                // Bounce off container walls
+                if (cx - aabbHW < pad) {
+                    body.pos.x = pad + aabbHW - body.homeCenter.x
                     body.vel.x = Math.abs(body.vel.x) * pp.bounciness
+                    if (pp.rotationEnabled) body.angularVel *= -0.5
                 }
-                if (body.pos.x > maxX) {
-                    body.pos.x = maxX
+                if (cx + aabbHW > bounds.width - pad) {
+                    body.pos.x = bounds.width - pad - aabbHW - body.homeCenter.x
                     body.vel.x = -Math.abs(body.vel.x) * pp.bounciness
+                    if (pp.rotationEnabled) body.angularVel *= -0.5
                 }
-                if (body.pos.y < minY) {
-                    body.pos.y = minY
+                if (cy - aabbHH < pad) {
+                    body.pos.y = pad + aabbHH - body.homeCenter.y
                     body.vel.y = Math.abs(body.vel.y) * pp.bounciness
+                    if (pp.rotationEnabled) body.angularVel *= -0.5
                 }
-                if (body.pos.y > maxY) {
-                    body.pos.y = maxY
+                if (cy + aabbHH > bounds.height - pad) {
+                    body.pos.y = bounds.height - pad - aabbHH - body.homeCenter.y
                     body.vel.y = -Math.abs(body.vel.y) * pp.bounciness
+                    if (pp.rotationEnabled) body.angularVel *= -0.5
                 }
             }
         }
 
-        // Collision detection & resolution
+        // Collision detection & resolution (OBB via SAT)
         if (pp.collisionEnabled) {
             for (let iter = 0; iter < pp.collisionIterations; iter++) {
                 for (let i = 0; i < bodies.length; i++) {
                     for (let j = i + 1; j < bodies.length; j++) {
                         const a = bodies[i]
                         const b = bodies[j]
-
-                        // Skip if both static or both ignored
                         if (a.role === "static" && b.role === "static") continue
 
-                        const col = detectCollision(a, b)
-                        if (col) {
-                            resolveCollision(col, pp.bounciness)
+                        const result = satTest(a, b, pp.colliderPadding)
+                        if (result) {
+                            resolveCollision(a, b, result, pp.bounciness)
                         }
                     }
                 }
@@ -505,60 +710,72 @@ export default function Drift(props: DriftProps) {
             const dx = Math.round(body.pos.x * 100) / 100
             const dy = Math.round(body.pos.y * 100) / 100
 
-            const base = body.originalTransform
-            const translate = `translate(${dx}px, ${dy}px)`
-            body.el.style.transform = base
-                ? `${base} ${translate}`
-                : translate
+            if (pp.rotationEnabled && body.angularPos !== 0) {
+                const dAngleDeg =
+                    Math.round(((body.angularPos * 180) / Math.PI) * 100) / 100
+                // Compose: translate in parent space, then original transform, then local rotation
+                // CSS transforms apply right-to-left:
+                //   rotate(dAngle) — local spin delta
+                //   originalTransform — authored position + rotation
+                //   translate(dx, dy) — displacement in parent space (outermost = applied last)
+                body.el.style.transform = body.originalTransform
+                    ? `translate(${dx}px, ${dy}px) ${body.originalTransform} rotate(${dAngleDeg}deg)`
+                    : `translate(${dx}px, ${dy}px) rotate(${dAngleDeg}deg)`
+            } else {
+                body.el.style.transform = body.originalTransform
+                    ? `translate(${dx}px, ${dy}px) ${body.originalTransform}`
+                    : `translate(${dx}px, ${dy}px)`
+            }
             body.el.style.willChange = "transform"
         }
     }, [])
 
     // ── Drag handling ───────────────────────────────────────────────────
 
-    const handlePointerDown = useCallback(
-        (e: PointerEvent) => {
-            if (!propsRef.current.dragEnabled) return
+    const handlePointerDown = useCallback((e: PointerEvent) => {
+        if (!propsRef.current.dragEnabled) return
 
-            const parent = parentRef.current
-            if (!parent) return
+        const parent = parentRef.current
+        if (!parent) return
 
-            const parentRect = parent.getBoundingClientRect()
-            const px = e.clientX - parentRect.left
-            const py = e.clientY - parentRect.top
-            const point = vec(px, py)
+        const parentRect = parent.getBoundingClientRect()
+        const px = e.clientX - parentRect.left
+        const py = e.clientY - parentRect.top
+        const point = vec(px, py)
 
-            // Hit test: find the topmost dynamic body under cursor
-            const bodies = bodiesRef.current
-            for (let i = bodies.length - 1; i >= 0; i--) {
-                const body = bodies[i]
-                if (body.role === "static") continue
-                if (body.isPinned) continue
+        // Hit test using OBB: check if point is inside the rotated body
+        const bodies = bodiesRef.current
+        for (let i = bodies.length - 1; i >= 0; i--) {
+            const body = bodies[i]
+            if (body.role === "static") continue
+            if (body.isPinned) continue
 
-                const r = getBodyRect(body)
-                if (
-                    px >= r.x &&
-                    px <= r.x + r.w &&
-                    py >= r.y &&
-                    py <= r.y + r.h
-                ) {
-                    const offset = vsub(
-                        point,
-                        vec(body.home.x + body.pos.x, body.home.y + body.pos.y)
-                    )
-                    dragRef.current = {
-                        body,
-                        offset,
-                        history: [{ pos: vec(px, py), time: performance.now() }],
-                    }
-                    body.vel = vec()
-                    e.preventDefault()
-                    return
+            const center = getBodyCenter(body)
+            const angle = getBodyAngle(body)
+            const [hw, hh] = getBodyHalfSize(body)
+
+            // Transform point into body's local coordinate system
+            const local = vsub(point, center)
+            const cos = Math.cos(-angle)
+            const sin = Math.sin(-angle)
+            const lx = local.x * cos - local.y * sin
+            const ly = local.x * sin + local.y * cos
+
+            if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) {
+                // Offset from body center (in parent space) — used for torque on throw
+                const offset = vsub(point, center)
+                dragRef.current = {
+                    body,
+                    offset,
+                    history: [{ pos: vec(px, py), time: performance.now() }],
                 }
+                body.vel = vec()
+                body.angularVel = 0
+                e.preventDefault()
+                return
             }
-        },
-        []
-    )
+        }
+    }, [])
 
     const handlePointerMove = useCallback((e: PointerEvent) => {
         const parent = parentRef.current
@@ -568,17 +785,14 @@ export default function Drift(props: DriftProps) {
         const px = e.clientX - parentRect.left
         const py = e.clientY - parentRect.top
 
-        // Update cursor position for force effects
         cursorRef.current = vec(px, py)
 
-        // Handle drag
         const drag = dragRef.current
         if (drag) {
-            const targetPos = vsub(vec(px, py), drag.offset)
-            drag.body.pos = vsub(targetPos, drag.body.home)
+            const targetCenter = vsub(vec(px, py), drag.offset)
+            drag.body.pos = vsub(targetCenter, drag.body.homeCenter)
             drag.body.vel = vec()
 
-            // Track history for throw velocity
             const now = performance.now()
             drag.history.push({ pos: vec(px, py), time: now })
             if (drag.history.length > 6) drag.history.shift()
@@ -588,7 +802,6 @@ export default function Drift(props: DriftProps) {
     const handlePointerUp = useCallback(() => {
         const drag = dragRef.current
         if (drag && propsRef.current.throwEnabled) {
-            // Compute throw velocity from recent pointer history
             const hist = drag.history
             if (hist.length >= 2) {
                 const recent = hist[hist.length - 1]
@@ -599,10 +812,14 @@ export default function Drift(props: DriftProps) {
                         vsub(recent.pos, older.pos),
                         propsRef.current.throwStrength / dt
                     )
-                    drag.body.vel = vclamp(
-                        throwVel,
-                        propsRef.current.velocityCap
-                    )
+                    drag.body.vel = vclamp(throwVel, propsRef.current.velocityCap)
+
+                    // Torque from off-center grab:
+                    // cross product of grab offset and throw velocity
+                    if (propsRef.current.rotationEnabled) {
+                        const torque = vcross(drag.offset, throwVel)
+                        drag.body.angularVel += torque / drag.body.inertia * 0.3
+                    }
                 }
             }
         }
@@ -628,22 +845,21 @@ export default function Drift(props: DriftProps) {
             const onEnter = () => {
                 body.isPinned = true
                 hovered.add(body.el)
-
-                // Update size in case hover animation changed it
                 const rect = body.el.getBoundingClientRect()
-                body.expandedSize = vec(rect.width, rect.height)
+                body.expandedHalfW = body.el.offsetWidth / 2
+                body.expandedHalfH = body.el.offsetHeight / 2
             }
 
             const onLeave = () => {
                 body.isPinned = false
                 hovered.delete(body.el)
-                body.expandedSize = null
+                body.expandedHalfW = null
+                body.expandedHalfH = null
             }
 
             body.el.addEventListener("pointerenter", onEnter)
             body.el.addEventListener("pointerleave", onLeave)
 
-            // Store cleanup refs on the element
             ;(body.el as any).__driftPinCleanup = () => {
                 body.el.removeEventListener("pointerenter", onEnter)
                 body.el.removeEventListener("pointerleave", onLeave)
@@ -660,9 +876,7 @@ export default function Drift(props: DriftProps) {
             if (lastTimeRef.current === 0) lastTimeRef.current = time
             const dt = (time - lastTimeRef.current) / 1000
             lastTimeRef.current = time
-
             step(dt)
-
             rafRef.current = requestAnimationFrame(animate)
         },
         [step]
@@ -671,7 +885,6 @@ export default function Drift(props: DriftProps) {
     // ── Setup and teardown ──────────────────────────────────────────────
 
     useEffect(() => {
-        // Small delay to ensure Framer has rendered sibling layers
         const timer = setTimeout(() => {
             initBodies()
             applyInitialMotion()
@@ -701,7 +914,6 @@ export default function Drift(props: DriftProps) {
                 parent.removeEventListener("pointerleave", handlePointerLeave)
             }
 
-            // Reset transforms and clean up pin-push listeners
             for (const body of bodiesRef.current) {
                 body.el.style.transform = body.originalTransform || ""
                 body.el.style.willChange = ""
@@ -725,7 +937,7 @@ export default function Drift(props: DriftProps) {
         animate,
     ])
 
-    // ── ResizeObserver to update bounds ──────────────────────────────────
+    // ── ResizeObserver ──────────────────────────────────────────────────
 
     useEffect(() => {
         const parent = parentRef.current
@@ -735,20 +947,27 @@ export default function Drift(props: DriftProps) {
             const rect = parent.getBoundingClientRect()
             boundsRef.current = { width: rect.width, height: rect.height }
 
-            // Recalculate home positions
             for (const body of bodiesRef.current) {
-                const childRect = body.el.getBoundingClientRect()
-                // Temporarily remove our transform to get true home position
-                const currentTransform = body.el.style.transform
+                // Temporarily reset to get clean measurements
+                const current = body.el.style.transform
                 body.el.style.transform = body.originalTransform || ""
-                const cleanRect = body.el.getBoundingClientRect()
-                body.el.style.transform = currentTransform
 
-                body.home = vec(
-                    cleanRect.left - rect.left,
-                    cleanRect.top - rect.top
+                const childRect = body.el.getBoundingClientRect()
+                body.homeCenter = vec(
+                    childRect.left + childRect.width / 2 - rect.left,
+                    childRect.top + childRect.height / 2 - rect.top
                 )
-                body.size = vec(cleanRect.width, cleanRect.height)
+                body.halfW = body.el.offsetWidth / 2
+                body.halfH = body.el.offsetHeight / 2
+                body.inertia = Math.max(
+                    (body.mass *
+                        (body.halfW * 2) ** 2 +
+                        (body.halfH * 2) ** 2) /
+                        12,
+                    100
+                )
+
+                body.el.style.transform = current
             }
         })
 
@@ -769,7 +988,9 @@ export default function Drift(props: DriftProps) {
                 }}
             >
                 {bodiesRef.current.map((body, i) => {
-                    const r = getBodyRect(body)
+                    const center = getBodyCenter(body)
+                    const angle = getBodyAngle(body)
+                    const [hw, hh] = getBodyHalfSize(body)
                     const color =
                         body.role === "static"
                             ? "rgba(255,100,100,0.3)"
@@ -782,12 +1003,14 @@ export default function Drift(props: DriftProps) {
                             key={i}
                             style={{
                                 position: "absolute",
-                                left: r.x,
-                                top: r.y,
-                                width: r.w,
-                                height: r.h,
+                                left: center.x - hw,
+                                top: center.y - hh,
+                                width: hw * 2,
+                                height: hh * 2,
                                 border: `1px solid ${color}`,
                                 background: color,
+                                transform: `rotate(${(angle * 180) / Math.PI}deg)`,
+                                transformOrigin: "center center",
                                 borderRadius: 2,
                                 fontSize: 9,
                                 color: "#fff",
@@ -805,7 +1028,6 @@ export default function Drift(props: DriftProps) {
 
     // ── Render ───────────────────────────────────────────────────────────
 
-    // Drift is invisible. It renders a zero-size element used as a DOM anchor.
     return (
         <div
             ref={selfRef}
@@ -856,7 +1078,7 @@ addPropertyControls(Drift, {
         max: 1,
         step: 0.05,
         defaultValue: 0.5,
-        description: "How much energy is preserved on bounce",
+        description: "Energy preserved on bounce",
     },
     airResistance: {
         type: ControlType.Number,
@@ -865,7 +1087,7 @@ addPropertyControls(Drift, {
         max: 0.2,
         step: 0.005,
         defaultValue: 0.02,
-        description: "Velocity damping per frame",
+        description: "Linear velocity damping",
     },
     velocityCap: {
         type: ControlType.Number,
@@ -874,7 +1096,7 @@ addPropertyControls(Drift, {
         max: 5000,
         step: 100,
         defaultValue: 1500,
-        description: "Maximum velocity for any object",
+        description: "Maximum velocity",
     },
     throwStrength: {
         type: ControlType.Number,
@@ -884,13 +1106,32 @@ addPropertyControls(Drift, {
         step: 0.1,
         defaultValue: 1.2,
         hidden: (props) => !props.dragEnabled,
-        description: "Velocity multiplier when releasing a dragged object",
+        description: "Velocity multiplier on release",
     },
     boundToContainer: {
         type: ControlType.Boolean,
         title: "Contain in Bounds",
         defaultValue: true,
-        description: "Keep objects inside the parent container",
+        description: "Keep objects inside the parent",
+    },
+
+    // ── Rotation ────────────────────────────────────────────────────────
+
+    rotationEnabled: {
+        type: ControlType.Boolean,
+        title: "Rotation",
+        defaultValue: true,
+        description: "Allow objects to spin from collisions and throws",
+    },
+    angularDamping: {
+        type: ControlType.Number,
+        title: "Rotation Damping",
+        min: 0,
+        max: 0.2,
+        step: 0.005,
+        defaultValue: 0.03,
+        hidden: (props) => !props.rotationEnabled,
+        description: "How quickly rotation slows down",
     },
 
     // ── Interaction ─────────────────────────────────────────────────────
@@ -921,26 +1162,26 @@ addPropertyControls(Drift, {
         step: 50,
         defaultValue: 600,
         hidden: (props) => props.cursorInfluence === "off",
-        description: "How strongly the cursor pushes objects",
+        description: "Push strength",
     },
     dragEnabled: {
         type: ControlType.Boolean,
         title: "Drag",
         defaultValue: true,
-        description: "Allow dragging objects with the cursor",
+        description: "Allow dragging objects",
     },
     throwEnabled: {
         type: ControlType.Boolean,
         title: "Throw",
         defaultValue: true,
         hidden: (props) => !props.dragEnabled,
-        description: "Objects gain momentum when released",
+        description: "Objects gain momentum on release",
     },
     returnHome: {
         type: ControlType.Boolean,
         title: "Return Home",
         defaultValue: false,
-        description: "Objects spring back toward their starting position",
+        description: "Spring back to starting position and rotation",
     },
     returnStrength: {
         type: ControlType.Number,
@@ -960,24 +1201,21 @@ addPropertyControls(Drift, {
         title: "Static Colliders",
         defaultValue: "",
         placeholder: "Layer name, Another name",
-        description:
-            "Comma-separated layer names. These stay in place but block dynamic objects.",
+        description: "Stay in place, block dynamic objects",
     },
     ignoredLayers: {
         type: ControlType.String,
         title: "Ignored Layers",
         defaultValue: "",
         placeholder: "Background, Logo",
-        description:
-            "Comma-separated layer names. These are excluded from the simulation entirely.",
+        description: "Excluded from simulation entirely",
     },
     pinPushLayers: {
         type: ControlType.String,
         title: "Pin & Push",
         defaultValue: "",
         placeholder: "Card, Badge",
-        description:
-            "Comma-separated layer names. These pin in place on hover and push nearby objects away.",
+        description: "Pin on hover and push nearby objects",
     },
 
     // ── Collider ────────────────────────────────────────────────────────
@@ -986,7 +1224,7 @@ addPropertyControls(Drift, {
         type: ControlType.Boolean,
         title: "Collisions",
         defaultValue: true,
-        description: "Enable collision detection between objects",
+        description: "Enable collision detection",
     },
     collisionIterations: {
         type: ControlType.Number,
@@ -996,8 +1234,7 @@ addPropertyControls(Drift, {
         step: 1,
         defaultValue: 3,
         hidden: (props) => !props.collisionEnabled,
-        description:
-            "Higher values give more stable stacking but cost performance",
+        description: "Stability vs performance tradeoff",
     },
     colliderPadding: {
         type: ControlType.Number,
@@ -1021,6 +1258,6 @@ addPropertyControls(Drift, {
         type: ControlType.Boolean,
         title: "Show Bounds",
         defaultValue: false,
-        description: "Show collider rectangles",
+        description: "Show oriented collider rectangles",
     },
 })
