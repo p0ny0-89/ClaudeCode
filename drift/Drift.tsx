@@ -581,14 +581,28 @@ export default function Drift(props: DriftProps) {
                     Body.setStatic(m.body, true)
                     // Don't touch el.style.transform — leave our physics offset frozen
                 } else if (!isHovered && m.body.isStatic) {
-                    // Hover ended → restore to dynamic, physics resumes
+                    // Hover ended → restore to dynamic, physics resumes.
+                    // If body is overlapping bounds (expanded past walls while static),
+                    // nudge it inward so it doesn't get stuck.
+                    const bds = boundsRef.current
+                    const pos = m.body.position
+                    const bw = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
+                    const bh = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
+                    let nx = pos.x, ny = pos.y
+                    if (pos.x - bw < 0) nx = bw + 2
+                    if (pos.x + bw > bds.width) nx = bds.width - bw - 2
+                    if (pos.y - bh < 0) ny = bh + 2
+                    if (pos.y + bh > bds.height) ny = bds.height - bh - 2
+                    if (nx !== pos.x || ny !== pos.y) {
+                        Body.setPosition(m.body, { x: nx, y: ny })
+                    }
                     Body.setStatic(m.body, false)
                 }
             }
 
             // Sync static colliders + hovered pin-push to their live DOM bounds.
-            // Use Body.scale() for smooth incremental resizing instead of
-            // destroying and recreating bodies every frame.
+            // Use setVertices() with exact rotated rectangle — no cumulative error,
+            // no axis distortion when rotated.
             for (const m of managed) {
                 const shouldSync =
                     m.role === "static" ||
@@ -596,37 +610,38 @@ export default function Drift(props: DriftProps) {
                 if (!shouldSync) continue
 
                 const rect = m.el.getBoundingClientRect()
-                // Use getBoundingClientRect for sub-pixel interpolation during CSS transitions
                 const newW = rect.width
                 const newH = rect.height
                 const newCx = rect.left + newW / 2 - parentRect.left
                 const newCy = rect.top + newH / 2 - parentRect.top
 
                 const pad = pp.colliderPadding
-                const targetW = newW + pad * 2
-                const targetH = newH + pad * 2
-                const oldW = m.body.bounds.max.x - m.body.bounds.min.x
-                const oldH = m.body.bounds.max.y - m.body.bounds.min.y
+                const hw = (newW + pad * 2) / 2
+                const hh = (newH + pad * 2) / 2
+                const angle = m.body.angle
+                const cos = Math.cos(angle)
+                const sin = Math.sin(angle)
 
-                // Scale the existing body smoothly instead of rebuilding
-                if (oldW > 0.1 && oldH > 0.1) {
-                    const sx = targetW / oldW
-                    const sy = targetH / oldH
-                    if (Math.abs(sx - 1) > 0.001 || Math.abs(sy - 1) > 0.001) {
-                        Body.scale(m.body, sx, sy)
-                        // Wake nearby dynamics so they react to the growth
-                        for (const other of managed) {
-                            if (other === m || other.body.isStatic) continue
-                            const ddx = other.body.position.x - newCx
-                            const ddy = other.body.position.y - newCy
-                            if (Math.sqrt(ddx * ddx + ddy * ddy) < Math.max(targetW, targetH) + 80) {
-                                Matter.Sleeping.set(other.body, false)
-                            }
-                        }
+                // Compute exact rotated rectangle vertices
+                const verts = [
+                    { x: newCx + (-hw * cos - -hh * sin), y: newCy + (-hw * sin + -hh * cos) },
+                    { x: newCx + ( hw * cos - -hh * sin), y: newCy + ( hw * sin + -hh * cos) },
+                    { x: newCx + ( hw * cos -  hh * sin), y: newCy + ( hw * sin +  hh * cos) },
+                    { x: newCx + (-hw * cos -  hh * sin), y: newCy + (-hw * sin +  hh * cos) },
+                ]
+
+                Body.setVertices(m.body, verts)
+                Body.setPosition(m.body, { x: newCx, y: newCy })
+
+                // Wake nearby dynamics so they react to size changes
+                for (const other of managed) {
+                    if (other === m || other.body.isStatic) continue
+                    const ddx = other.body.position.x - newCx
+                    const ddy = other.body.position.y - newCy
+                    if (Math.sqrt(ddx * ddx + ddy * ddy) < Math.max(hw, hh) * 2 + 80) {
+                        Matter.Sleeping.set(other.body, false)
                     }
                 }
-
-                Body.setPosition(m.body, { x: newCx, y: newCy })
             }
         }
 
