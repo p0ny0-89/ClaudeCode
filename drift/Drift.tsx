@@ -196,14 +196,9 @@ function satTest(a: Body, b: Body, padding: number): SATResult | null {
         minAxis = vscale(minAxis, -1)
     }
 
-    // Contact point: project from A's center toward B along the collision normal,
-    // landing on A's surface. This is much better than the center midpoint for
-    // stacking scenarios and produces correct torque directions.
-    const [hwA, hhA] = getBodyHalfSize(bodyA)
-    const [hwB, hhB] = getBodyHalfSize(bodyB)
-    // Approximate: halfway between the two surfaces along the normal
+    // Contact point: project from A's center toward B along collision normal,
+    // landing on A's surface. hwA/hhA/hwB/hhB already declared above.
     const depthA = hwA * Math.abs(minAxis.x) + hhA * Math.abs(minAxis.y)
-    const depthB = hwB * Math.abs(minAxis.x) + hhB * Math.abs(minAxis.y)
     const contactPoint = vadd(ca, vscale(minAxis, depthA - minOverlap * 0.5))
 
     return { normal: minAxis, overlap: minOverlap, contactPoint }
