@@ -291,10 +291,10 @@ export default function Drift(props: DriftProps) {
                 scale: 0.001,
             },
             enableSleeping: true,
-            positionIterations: 10,
-            velocityIterations: 8,
-            constraintIterations: 4,
-        } as any)
+        })
+        // Increase solver iterations for tighter collision resolution
+        ;(engine as any).positionIterations = 10
+        ;(engine as any).velocityIterations = 8
         engineRef.current = engine
 
         const staticSelectors = parseSelectorList(pp.staticColliders)
@@ -442,42 +442,6 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Warm-up: run physics for several frames so gravity bodies settle
-        // before the first visual render, preventing the "floating gap" on load.
-        if (pp.motionMode === "gravity") {
-            // Temporarily disable sleeping so bodies can fully settle
-            for (const m of managed) {
-                if (!m.body.isStatic) m.body.sleepThreshold = Infinity
-            }
-            // Simulate ~1 second of physics at 60fps to let everything settle
-            for (let step = 0; step < 60; step++) {
-                Engine.update(engine, 16.67)
-            }
-            // Re-enable sleeping
-            for (const m of managed) {
-                if (!m.body.isStatic) m.body.sleepThreshold = 30
-            }
-            // Sync positions to DOM immediately after warm-up
-            for (const m of managed) {
-                if (m.role === "static") continue
-                const dx = Math.round((m.body.position.x - m.homeCenter.x) * 100) / 100
-                const dy = Math.round((m.body.position.y - m.homeCenter.y) * 100) / 100
-                const dAngle = m.body.angle - m.homeAngle
-                const dAngleDeg = Math.round((dAngle * 180) / Math.PI * 100) / 100
-                let transform: string
-                if (pp.rotationEnabled && Math.abs(dAngleDeg) > 0.01) {
-                    transform = m.originalTransform
-                        ? `translate(${dx}px, ${dy}px) ${m.originalTransform} rotate(${dAngleDeg}deg)`
-                        : `translate(${dx}px, ${dy}px) rotate(${dAngleDeg}deg)`
-                } else {
-                    transform = m.originalTransform
-                        ? `translate(${dx}px, ${dy}px) ${m.originalTransform}`
-                        : `translate(${dx}px, ${dy}px)`
-                }
-                m.el.style.transform = transform
-                m.el.style.willChange = "transform"
-            }
-        }
     }, [])
 
     // ── Pin-push hover listeners ────────────────────────────────────────
@@ -504,31 +468,26 @@ export default function Drift(props: DriftProps) {
 
     // ── Animation loop ──────────────────────────────────────────────────
 
+    const FIXED_DT = 1000 / 60 // ~16.67ms — constant for stable physics
+
     const animate = useCallback((time: number) => {
         const engine = engineRef.current
         if (!engine) return
-
-        if (lastTimeRef.current === 0) lastTimeRef.current = time
-        const dt = Math.min(time - lastTimeRef.current, 33)
-        lastTimeRef.current = time
 
         const pp = propsRef.current
         const managed = managedRef.current
         const cursor = cursorRef.current
         const drag = dragRef.current
+        const bounds = boundsRef.current
 
         // Handle drag: move body to cursor each frame
         if (drag) {
-            const target = {
-                x: (cursor?.x ?? 0) - drag.offset.x + drag.managed.homeCenter.x,
-                y: (cursor?.y ?? 0) - drag.offset.y + drag.managed.homeCenter.y,
-            }
-            // Use setPosition for direct control, zero velocity to prevent buildup
             Body.setPosition(drag.managed.body, {
                 x: (cursor?.x ?? drag.managed.body.position.x) - drag.offset.x,
                 y: (cursor?.y ?? drag.managed.body.position.y) - drag.offset.y,
             })
             Body.setVelocity(drag.managed.body, { x: 0, y: 0 })
+            Body.setAngularVelocity(drag.managed.body, 0)
         }
 
         // Cursor forces on non-dragged bodies
@@ -583,7 +542,6 @@ export default function Drift(props: DriftProps) {
                     y: dy * pp.returnStrength * m.body.mass * 0.001,
                 })
 
-                // Angular return
                 if (pp.rotationEnabled) {
                     const angleDiff = m.homeAngle - m.body.angle
                     Body.setAngularVelocity(
@@ -594,19 +552,50 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Velocity cap
+        // Step the engine with FIXED timestep for stability
+        Engine.update(engine, FIXED_DT)
+
+        // Post-step: velocity cap + bounds safety (AFTER engine step to catch collision spikes)
         for (const m of managed) {
             if (m.body.isStatic) continue
+
+            // Velocity cap
             const v = m.body.velocity
             const speed = Math.sqrt(v.x * v.x + v.y * v.y)
             if (speed > pp.velocityCap) {
                 const scale = pp.velocityCap / speed
                 Body.setVelocity(m.body, { x: v.x * scale, y: v.y * scale })
             }
-        }
 
-        // Step the engine
-        Engine.update(engine, dt)
+            // Angular velocity cap
+            const maxAngVel = 0.3
+            if (Math.abs(m.body.angularVelocity) > maxAngVel) {
+                Body.setAngularVelocity(
+                    m.body,
+                    Math.sign(m.body.angularVelocity) * maxAngVel
+                )
+            }
+
+            // Bounds safety — if a body escapes the container, pull it back
+            if (pp.boundToContainer && bounds.width > 0) {
+                const pos = m.body.position
+                const margin = 50
+                let clamped = false
+                let nx = pos.x
+                let ny = pos.y
+
+                if (pos.x < -margin) { nx = 10; clamped = true }
+                if (pos.x > bounds.width + margin) { nx = bounds.width - 10; clamped = true }
+                if (pos.y < -margin) { ny = 10; clamped = true }
+                if (pos.y > bounds.height + margin) { ny = bounds.height - 10; clamped = true }
+
+                if (clamped) {
+                    Body.setPosition(m.body, { x: nx, y: ny })
+                    Body.setVelocity(m.body, { x: 0, y: 0 })
+                    Body.setAngularVelocity(m.body, 0)
+                }
+            }
+        }
 
         // Sync transforms to DOM
         for (const m of managed) {
@@ -693,29 +682,35 @@ export default function Drift(props: DriftProps) {
     const handlePointerUp = useCallback(() => {
         const drag = dragRef.current
         if (drag && propsRef.current.throwEnabled) {
+            const pp = propsRef.current
             const hist = drag.history
             if (hist.length >= 2) {
                 const recent = hist[hist.length - 1]
                 const older = hist[Math.max(0, hist.length - 3)]
                 const dt = (recent.time - older.time) / 1000
-                if (dt > 0.001) {
-                    const vx =
-                        ((recent.pos.x - older.pos.x) / dt) *
-                        propsRef.current.throwStrength *
-                        0.02
-                    const vy =
-                        ((recent.pos.y - older.pos.y) / dt) *
-                        propsRef.current.throwStrength *
-                        0.02
+                if (dt > 0.005) {
+                    // Calculate throw velocity in pixels/sec, then scale to Matter.js units
+                    let vx = ((recent.pos.x - older.pos.x) / dt) * pp.throwStrength * 0.015
+                    let vy = ((recent.pos.y - older.pos.y) / dt) * pp.throwStrength * 0.015
+
+                    // Clamp throw velocity to prevent escape
+                    const throwSpeed = Math.sqrt(vx * vx + vy * vy)
+                    const maxThrow = pp.velocityCap * 0.8
+                    if (throwSpeed > maxThrow) {
+                        const s = maxThrow / throwSpeed
+                        vx *= s
+                        vy *= s
+                    }
 
                     Body.setVelocity(drag.managed.body, { x: vx, y: vy })
 
                     // Torque from off-center grab
-                    if (propsRef.current.rotationEnabled) {
+                    if (pp.rotationEnabled) {
                         const cross = drag.offset.x * vy - drag.offset.y * vx
                         Body.setAngularVelocity(
                             drag.managed.body,
-                            drag.managed.body.angularVelocity + cross * 0.0005
+                            drag.managed.body.angularVelocity +
+                                Math.max(-0.15, Math.min(0.15, cross * 0.0003))
                         )
                     }
                 }
@@ -731,8 +726,12 @@ export default function Drift(props: DriftProps) {
 
     // ── Setup and teardown ──────────────────────────────────────────────
 
+    const initedRef = useRef(false)
+
     useEffect(() => {
         if (isFramerCanvas()) return
+        if (initedRef.current) return
+        initedRef.current = true
 
         const timer = setTimeout(() => {
             init()
@@ -751,6 +750,7 @@ export default function Drift(props: DriftProps) {
         }, 100)
 
         return () => {
+            initedRef.current = false
             clearTimeout(timer)
             cancelAnimationFrame(rafRef.current)
 
@@ -780,15 +780,7 @@ export default function Drift(props: DriftProps) {
             managedRef.current = []
             wallsRef.current = []
         }
-    }, [
-        init,
-        setupPinPush,
-        handlePointerDown,
-        handlePointerMove,
-        handlePointerUp,
-        handlePointerLeave,
-        animate,
-    ])
+    }, [])
 
     // ── ResizeObserver ──────────────────────────────────────────────────
 
