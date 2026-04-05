@@ -447,18 +447,16 @@ export default function Drift(props: DriftProps) {
 
     }, [])
 
-    // ── Pin-push hover listeners ────────────────────────────────────────
-    // Pin & Push layers are static (pinned in place). On hover, they expand/activate
-    // and push nearby dynamic bodies away with a radial force.
+    // ── Pin & Push hover listeners ─────────────────────────────────────
+    // Pin & Push layers are DYNAMIC (they fall, bounce, collide like normal).
+    // On hover, their Framer variant expands them — we sync the physics body
+    // to the new DOM size each frame so the growth physically pushes neighbors.
 
     const pinPushHoveredRef = useRef<Set<ManagedBody>>(new Set())
 
     const setupPinPush = useCallback(() => {
         for (const m of managedRef.current) {
             if (m.role !== "pinpush") continue
-
-            // Pin-push bodies are always static (pinned)
-            Body.setStatic(m.body, true)
 
             const onEnter = () => {
                 pinPushHoveredRef.current.add(m)
@@ -564,14 +562,36 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Sync static & pin-push colliders to their live DOM bounds every frame.
-        // This lets hover animations (CSS transitions, Framer variants) that change
-        // an element's size physically push dynamic bodies in real time.
+        // ── Live collider sync ──────────────────────────────────────────
+        // Sync static colliders to their live DOM bounds every frame so hover
+        // animations physically push dynamic bodies.
+        // For pin-push: they're dynamic normally, but when hovered we temporarily
+        // make them static so the expanding body acts as a wall that pushes others.
         const parent = parentRef.current
+        const hoveredPP = pinPushHoveredRef.current
         if (parent) {
             const parentRect = parent.getBoundingClientRect()
+
+            // Handle pin-push hover state transitions
             for (const m of managed) {
-                if (m.role !== "static" && m.role !== "pinpush") continue
+                if (m.role !== "pinpush") continue
+                const isHovered = hoveredPP.has(m)
+
+                if (isHovered && !m.body.isStatic) {
+                    // Hover started → freeze in place so expansion pushes others
+                    Body.setStatic(m.body, true)
+                } else if (!isHovered && m.body.isStatic) {
+                    // Hover ended → restore to dynamic
+                    Body.setStatic(m.body, false)
+                }
+            }
+
+            // Sync bodies whose DOM might be animating (static colliders + hovered pin-push)
+            for (const m of managed) {
+                const shouldSync =
+                    m.role === "static" ||
+                    (m.role === "pinpush" && hoveredPP.has(m))
+                if (!shouldSync) continue
 
                 const rect = m.el.getBoundingClientRect()
                 const newW = m.el.offsetWidth
@@ -586,6 +606,8 @@ export default function Drift(props: DriftProps) {
                 // Rebuild body if size changed significantly
                 if (Math.abs((newW + pad * 2) - oldW) > 2 || Math.abs((newH + pad * 2) - oldH) > 2) {
                     const engine = engineRef.current!
+                    const vel = { x: m.body.velocity.x, y: m.body.velocity.y }
+                    const angVel = m.body.angularVelocity
                     Composite.remove(engine.world, m.body)
                     const angle = parseRotation(getComputedStyle(m.el).transform)
                     const newBody = Bodies.rectangle(
@@ -593,10 +615,12 @@ export default function Drift(props: DriftProps) {
                         newW + pad * 2, newH + pad * 2,
                         {
                             angle,
-                            isStatic: true,
+                            isStatic: m.body.isStatic,
                             restitution: m.body.restitution,
                             friction: m.body.friction,
                             frictionStatic: m.body.frictionStatic,
+                            frictionAir: m.body.frictionAir,
+                            density: 0.001,
                             slop: 0.005,
                             label: m.body.label,
                         }
@@ -604,8 +628,9 @@ export default function Drift(props: DriftProps) {
                     Composite.add(engine.world, newBody)
                     m.body = newBody
 
-                    // Wake nearby dynamic bodies so they react to the size change
+                    // Wake nearby dynamic bodies so they react
                     for (const other of managed) {
+                        if (other === m) continue
                         if (other.body.isStatic) continue
                         const ddx = other.body.position.x - newCx
                         const ddy = other.body.position.y - newCy
@@ -615,7 +640,6 @@ export default function Drift(props: DriftProps) {
                         }
                     }
                 } else {
-                    // Just update position
                     Body.setPosition(m.body, { x: newCx, y: newCy })
                 }
             }
