@@ -581,39 +581,14 @@ export default function Drift(props: DriftProps) {
                     Body.setStatic(m.body, true)
                     // Don't touch el.style.transform — leave our physics offset frozen
                 } else if (!isHovered && m.body.isStatic) {
-                    // Hover ended → read where the element is NOW in the DOM
-                    // (after Framer's hover animation has reverted) and resume
-                    // physics from that exact spot.
-                    const rect = m.el.getBoundingClientRect()
-                    const newCx = rect.left + rect.width / 2 - parentRect.left
-                    const newCy = rect.top + rect.height / 2 - parentRect.top
-                    const newW = m.el.offsetWidth
-                    const newH = m.el.offsetHeight
-
-                    // Rebuild body at current DOM size/position, now dynamic
-                    const engine = engineRef.current!
-                    const pad = pp.colliderPadding
-                    Composite.remove(engine.world, m.body)
-                    const newBody = Bodies.rectangle(
-                        newCx, newCy, newW + pad * 2, newH + pad * 2,
-                        {
-                            angle: m.body.angle,
-                            isStatic: false,
-                            restitution: m.body.restitution,
-                            friction: m.body.friction,
-                            frictionStatic: m.body.frictionStatic,
-                            frictionAir: m.body.frictionAir,
-                            density: 0.001,
-                            slop: 0.005,
-                            label: m.body.label,
-                        }
-                    )
-                    Composite.add(engine.world, newBody)
-                    m.body = newBody
+                    // Hover ended → restore to dynamic, physics resumes
+                    Body.setStatic(m.body, false)
                 }
             }
 
-            // Sync static colliders + hovered pin-push to their live DOM bounds
+            // Sync static colliders + hovered pin-push to their live DOM bounds.
+            // Use Body.scale() for smooth incremental resizing instead of
+            // destroying and recreating bodies every frame.
             for (const m of managed) {
                 const shouldSync =
                     m.role === "static" ||
@@ -621,49 +596,37 @@ export default function Drift(props: DriftProps) {
                 if (!shouldSync) continue
 
                 const rect = m.el.getBoundingClientRect()
-                const newW = m.el.offsetWidth
-                const newH = m.el.offsetHeight
-                const newCx = rect.left + rect.width / 2 - parentRect.left
-                const newCy = rect.top + rect.height / 2 - parentRect.top
+                // Use getBoundingClientRect for sub-pixel interpolation during CSS transitions
+                const newW = rect.width
+                const newH = rect.height
+                const newCx = rect.left + newW / 2 - parentRect.left
+                const newCy = rect.top + newH / 2 - parentRect.top
 
-                const oldW = Math.round(m.body.bounds.max.x - m.body.bounds.min.x)
-                const oldH = Math.round(m.body.bounds.max.y - m.body.bounds.min.y)
                 const pad = pp.colliderPadding
+                const targetW = newW + pad * 2
+                const targetH = newH + pad * 2
+                const oldW = m.body.bounds.max.x - m.body.bounds.min.x
+                const oldH = m.body.bounds.max.y - m.body.bounds.min.y
 
-                if (Math.abs((newW + pad * 2) - oldW) > 2 || Math.abs((newH + pad * 2) - oldH) > 2) {
-                    const engine = engineRef.current!
-                    Composite.remove(engine.world, m.body)
-                    const angle = parseRotation(getComputedStyle(m.el).transform)
-                    const newBody = Bodies.rectangle(
-                        newCx, newCy,
-                        newW + pad * 2, newH + pad * 2,
-                        {
-                            angle,
-                            isStatic: true,
-                            restitution: m.body.restitution,
-                            friction: m.body.friction,
-                            frictionStatic: m.body.frictionStatic,
-                            frictionAir: m.body.frictionAir,
-                            density: 0.001,
-                            slop: 0.005,
-                            label: m.body.label,
-                        }
-                    )
-                    Composite.add(engine.world, newBody)
-                    m.body = newBody
-
-                    // Wake nearby dynamics
-                    for (const other of managed) {
-                        if (other === m || other.body.isStatic) continue
-                        const ddx = other.body.position.x - newCx
-                        const ddy = other.body.position.y - newCy
-                        if (Math.sqrt(ddx * ddx + ddy * ddy) < Math.max(newW, newH) + 100) {
-                            Matter.Sleeping.set(other.body, false)
+                // Scale the existing body smoothly instead of rebuilding
+                if (oldW > 0.1 && oldH > 0.1) {
+                    const sx = targetW / oldW
+                    const sy = targetH / oldH
+                    if (Math.abs(sx - 1) > 0.001 || Math.abs(sy - 1) > 0.001) {
+                        Body.scale(m.body, sx, sy)
+                        // Wake nearby dynamics so they react to the growth
+                        for (const other of managed) {
+                            if (other === m || other.body.isStatic) continue
+                            const ddx = other.body.position.x - newCx
+                            const ddy = other.body.position.y - newCy
+                            if (Math.sqrt(ddx * ddx + ddy * ddy) < Math.max(targetW, targetH) + 80) {
+                                Matter.Sleeping.set(other.body, false)
+                            }
                         }
                     }
-                } else {
-                    Body.setPosition(m.body, { x: newCx, y: newCy })
                 }
+
+                Body.setPosition(m.body, { x: newCx, y: newCy })
             }
         }
 
