@@ -76,12 +76,30 @@ function findParentContainer(self: HTMLElement): HTMLElement | null {
 }
 
 function getLayerName(el: HTMLElement): string {
+    // Try multiple attributes Framer uses for layer names across
+    // canvas, preview, and published modes
     return (
         el.getAttribute("data-framer-name") ||
+        el.getAttribute("data-name") ||
         el.getAttribute("name") ||
         el.getAttribute("aria-label") ||
+        el.getAttribute("id") ||
         ""
     )
+}
+
+/** Get ALL possible identifying strings for an element (for fuzzy matching) */
+function getLayerIdentifiers(el: HTMLElement): string[] {
+    const ids: string[] = []
+    const attrs = ["data-framer-name", "data-name", "name", "aria-label", "id"]
+    for (const attr of attrs) {
+        const v = el.getAttribute(attr)
+        if (v) ids.push(v.toLowerCase())
+    }
+    // Also check direct text content (for simple text layers)
+    const text = el.textContent?.trim()
+    if (text && text.length < 50) ids.push(text.toLowerCase())
+    return ids
 }
 
 function parseNameList(input: string): string[] {
@@ -94,9 +112,11 @@ function parseNameList(input: string): string[] {
 
 function matchesNameList(el: HTMLElement, nameList: string[]): boolean {
     if (nameList.length === 0) return false
-    const name = getLayerName(el).toLowerCase()
-    if (!name) return false
-    return nameList.some((p) => name === p || name.includes(p))
+    const identifiers = getLayerIdentifiers(el)
+    if (identifiers.length === 0) return false
+    return nameList.some((pattern) =>
+        identifiers.some((id) => id === pattern || id.includes(pattern))
+    )
 }
 
 // ─── Props ──────────────────────────────────────────────────────────────────
@@ -289,6 +309,20 @@ export default function Drift(props: DriftProps) {
         }
 
         managedRef.current = managed
+
+        // Debug: log detected layers and their roles
+        if (pp.debugView) {
+            console.log(
+                "[Drift] Detected layers:",
+                managed.map((m) => ({
+                    name: getLayerName(m.el) || "(unnamed)",
+                    identifiers: getLayerIdentifiers(m.el),
+                    role: m.role,
+                    size: `${m.body.bounds.max.x - m.body.bounds.min.x}×${m.body.bounds.max.y - m.body.bounds.min.y}`,
+                    isStatic: m.body.isStatic,
+                }))
+            )
+        }
 
         // Container walls (if bounded)
         if (pp.boundToContainer) {
