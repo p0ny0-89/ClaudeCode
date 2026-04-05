@@ -559,6 +559,13 @@ export default function Drift(props: DriftProps) {
                 const cos = Math.cos(angle)
                 const sin = Math.sin(angle)
 
+                // Track movement so Matter.js generates proper push impulses.
+                // Static bodies with velocity correctly displace dynamic bodies.
+                const prevCx = m.body.position.x
+                const prevCy = m.body.position.y
+                const velX = newCx - prevCx
+                const velY = newCy - prevCy
+
                 // Set exact rotated rectangle vertices — no cumulative error
                 const verts = [
                     { x: newCx + (-hw * cos - -hh * sin), y: newCy + (-hw * sin + -hh * cos) },
@@ -569,14 +576,70 @@ export default function Drift(props: DriftProps) {
 
                 Body.setVertices(m.body, verts)
                 Body.setPosition(m.body, { x: newCx, y: newCy })
+                // Give the static body velocity matching its movement so the
+                // collision solver properly pushes dynamic bodies out of the way
+                Body.setVelocity(m.body, { x: velX, y: velY })
 
-                // Wake nearby dynamics so they react to size changes
+                // Actively push any dynamic body that overlaps this collider.
+                // This handles the case where setVertices grows into a body —
+                // Matter.js separation alone can be too gentle for fast expansions.
                 for (const other of managed) {
                     if (other === m || other.body.isStatic) continue
-                    const ddx = other.body.position.x - newCx
-                    const ddy = other.body.position.y - newCy
-                    if (Math.sqrt(ddx * ddx + ddy * ddy) < Math.max(hw, hh) * 2 + 80) {
-                        Matter.Sleeping.set(other.body, false)
+
+                    // Check if the dynamic body overlaps the collider bounds
+                    const ob = other.body
+                    const dx = ob.position.x - newCx
+                    const dy = ob.position.y - newCy
+
+                    // Project onto collider's local axes to check overlap
+                    const localX = dx * cos + dy * sin
+                    const localY = -dx * sin + dy * cos
+                    const obHw = (ob.bounds.max.x - ob.bounds.min.x) / 2
+                    const obHh = (ob.bounds.max.y - ob.bounds.min.y) / 2
+
+                    const overlapX = hw + obHw - Math.abs(localX)
+                    const overlapY = hh + obHh - Math.abs(localY)
+
+                    if (overlapX > 0 && overlapY > 0) {
+                        Matter.Sleeping.set(ob, false)
+
+                        // Push along the axis of least penetration
+                        if (overlapY < overlapX) {
+                            // Push vertically (in collider's local space)
+                            const pushDir = localY > 0 ? 1 : -1
+                            const pushDist = overlapY + 2
+                            const worldPushX = -sin * pushDir * pushDist
+                            const worldPushY = cos * pushDir * pushDist
+                            Body.setPosition(ob, {
+                                x: ob.position.x + worldPushX,
+                                y: ob.position.y + worldPushY,
+                            })
+                            // Transfer the collider's velocity to the pushed body
+                            Body.setVelocity(ob, {
+                                x: ob.velocity.x + velX * 0.8,
+                                y: ob.velocity.y + velY * 0.8,
+                            })
+                        } else {
+                            // Push horizontally
+                            const pushDir = localX > 0 ? 1 : -1
+                            const pushDist = overlapX + 2
+                            const worldPushX = cos * pushDir * pushDist
+                            const worldPushY = sin * pushDir * pushDist
+                            Body.setPosition(ob, {
+                                x: ob.position.x + worldPushX,
+                                y: ob.position.y + worldPushY,
+                            })
+                            Body.setVelocity(ob, {
+                                x: ob.velocity.x + velX * 0.8,
+                                y: ob.velocity.y + velY * 0.8,
+                            })
+                        }
+                    } else {
+                        // Wake nearby bodies even if not overlapping
+                        const dist = Math.sqrt(dx * dx + dy * dy)
+                        if (dist < Math.max(hw, hh) * 2 + 80) {
+                            Matter.Sleeping.set(ob, false)
+                        }
                     }
                 }
             }
