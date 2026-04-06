@@ -536,6 +536,7 @@ export default function Drift(props: DriftProps) {
     const animate = useCallback((time: number) => {
         const engine = engineRef.current
         if (!engine) return
+        if (pausedRef.current) return
 
         const pp = propsRef.current
         const managed = managedRef.current
@@ -940,6 +941,81 @@ export default function Drift(props: DriftProps) {
     // ── Setup and teardown ──────────────────────────────────────────────
 
     const initedRef = useRef(false)
+    const pausedRef = useRef(false)
+
+    const pauseSimulation = useCallback(() => {
+        pausedRef.current = !pausedRef.current
+        // If unpausing, restart the animation loop
+        if (!pausedRef.current && initedRef.current) {
+            lastTimeRef.current = 0
+            rafRef.current = requestAnimationFrame(animate)
+        }
+    }, [animate])
+
+    const resetSimulation = useCallback(() => {
+        if (!initedRef.current) return
+        pausedRef.current = false
+        cancelAnimationFrame(rafRef.current)
+
+        // Snap all dynamic bodies back to home positions
+        for (const m of managedRef.current) {
+            if (m.role === "static") continue
+            Body.setPosition(m.body, { x: m.homeCenter.x, y: m.homeCenter.y })
+            Body.setAngle(m.body, m.homeAngle)
+            Body.setVelocity(m.body, { x: 0, y: 0 })
+            Body.setAngularVelocity(m.body, 0)
+            m.el.style.translate = ""
+            m.el.style.rotate = ""
+        }
+    }, [])
+
+    const replaySimulation = useCallback(() => {
+        if (!initedRef.current) return
+        pausedRef.current = false
+        cancelAnimationFrame(rafRef.current)
+
+        // Snap all dynamic bodies back to home positions
+        for (const m of managedRef.current) {
+            if (m.role === "static") continue
+            Body.setPosition(m.body, { x: m.homeCenter.x, y: m.homeCenter.y })
+            Body.setAngle(m.body, m.homeAngle)
+            Body.setVelocity(m.body, { x: 0, y: 0 })
+            Body.setAngularVelocity(m.body, 0)
+            m.el.style.translate = ""
+            m.el.style.rotate = ""
+        }
+
+        // Re-apply initial velocities for bounce/zero-gravity modes
+        const pp = propsRef.current
+        for (const m of managedRef.current) {
+            if (m.role === "static") continue
+            if (pp.motionMode === "zeroGravity") {
+                const angle = Math.random() * Math.PI * 2
+                const speed = 1 + Math.random() * 2
+                Body.setVelocity(m.body, {
+                    x: Math.cos(angle) * speed,
+                    y: Math.sin(angle) * speed,
+                })
+                if (pp.rotationEnabled) {
+                    Body.setAngularVelocity(m.body, (Math.random() - 0.5) * 0.02)
+                }
+            } else if (pp.motionMode === "bounce") {
+                const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.8
+                const speed = 3 + Math.random() * 4
+                Body.setVelocity(m.body, {
+                    x: Math.cos(angle) * speed,
+                    y: Math.sin(angle) * speed,
+                })
+                if (pp.rotationEnabled) {
+                    Body.setAngularVelocity(m.body, (Math.random() - 0.5) * 0.04)
+                }
+            }
+        }
+
+        // Restart animation loop
+        lastTimeRef.current = 0
+        rafRef.current = requestAnimationFrame(animate)
+    }, [animate])
 
     const startSimulation = useCallback(() => {
         if (initedRef.current) return
@@ -1051,8 +1127,25 @@ export default function Drift(props: DriftProps) {
             cleanup = () => window.removeEventListener(eventName, handler)
         }
 
+        // Always listen for pause / reset / replay events
+        // Convention: base name from eventName prop, with -pause, -reset, -replay suffixes
+        const baseName = pp.eventName || "drift"
+        // Strip "-start" suffix if present to get the base
+        const base = baseName.replace(/-start$/, "") || "drift"
+
+        const pauseHandler = () => pauseSimulation()
+        const resetHandler = () => resetSimulation()
+        const replayHandler = () => replaySimulation()
+
+        window.addEventListener(`${base}-pause`, pauseHandler)
+        window.addEventListener(`${base}-reset`, resetHandler)
+        window.addEventListener(`${base}-replay`, replayHandler)
+
         return () => {
             cleanup?.()
+            window.removeEventListener(`${base}-pause`, pauseHandler)
+            window.removeEventListener(`${base}-reset`, resetHandler)
+            window.removeEventListener(`${base}-replay`, replayHandler)
             stopSimulation()
         }
     }, [])
