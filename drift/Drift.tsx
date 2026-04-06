@@ -559,6 +559,7 @@ export default function Drift(props: DriftProps) {
                 const m = managedRef.current.find(mb => mb.body === dynamicBody)
                 if (!m || m.role === "static") continue
 
+                console.log("[Drift] Wall bounce:", wallLabel, dynamicBody.label)
                 window.dispatchEvent(new CustomEvent("drift-wall-bounce", {
                     detail: {
                         wall: wallLabel.replace("wall-", ""),
