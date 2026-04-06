@@ -768,8 +768,8 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Bounce mode: maintain energy — if a body slows below a minimum speed, nudge it
-        if (pp.motionMode === "bounce") {
+        // Perpetual modes: maintain energy — if a body slows below a minimum speed, nudge it
+        if (pp.motionMode === "bounce" || pp.motionMode === "zeroGravity") {
             const minSpeed = 1.5
             for (const m of managed) {
                 if (m.body.isStatic) continue
