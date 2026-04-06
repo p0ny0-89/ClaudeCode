@@ -310,6 +310,8 @@ export default function Drift(props: DriftProps) {
 
         // Create engine
         const isBounce = pp.motionMode === "bounce"
+        const isZeroG = pp.motionMode === "zeroGravity"
+        const isPerpetual = isBounce || isZeroG // modes that need energy preservation
         const engine = Engine.create({
             gravity: {
                 x: 0,
@@ -322,7 +324,7 @@ export default function Drift(props: DriftProps) {
                 scale: 0.001,
             },
             // Disable sleeping in bounce mode — objects must stay in motion
-            enableSleeping: !isBounce,
+            enableSleeping: !isPerpetual,
         })
         // Increase solver iterations for tighter collision resolution
         ;(engine as any).positionIterations = 10
@@ -399,14 +401,14 @@ export default function Drift(props: DriftProps) {
             const matterBody = Bodies.rectangle(cx, cy, w + pad * 2, h + pad * 2, {
                 angle: homeAngle,
                 isStatic,
-                // Bounce mode: near-perfect elasticity, no friction, no air drag
-                restitution: isBounce ? Math.max(pp.bounciness, 0.95) : pp.bounciness,
-                friction: isBounce ? 0.01 : pp.stickiness * 1.0,
-                frictionStatic: isBounce ? 0.01 : pp.stickiness * 2.0,
-                frictionAir: isBounce ? 0.0005 : pp.airResistance,
+                // Perpetual modes (bounce/zeroGravity): near-perfect elasticity, minimal friction
+                restitution: isPerpetual ? Math.max(pp.bounciness, 0.95) : pp.bounciness,
+                friction: isPerpetual ? 0.01 : pp.stickiness * 1.0,
+                frictionStatic: isPerpetual ? 0.01 : pp.stickiness * 2.0,
+                frictionAir: isPerpetual ? 0.0005 : pp.airResistance,
                 density: 0.001,
                 slop: 0.005,
-                sleepThreshold: isBounce ? Infinity : 30,
+                sleepThreshold: isPerpetual ? Infinity : 30,
                 label: getLayerName(child) || `body-${ci}`,
                 collisionFilter,
             })
@@ -530,8 +532,8 @@ export default function Drift(props: DriftProps) {
                 Bodies.rectangle(W + wallThickness / 2, H / 2, wallThickness, H + wallThickness * 2, { isStatic: true, label: "wall-right" }),
             ]
             for (const w of walls) {
-                w.restitution = isBounce ? 1.0 : pp.bounciness
-                w.friction = isBounce ? 0 : pp.stickiness * 1.0
+                w.restitution = isPerpetual ? 1.0 : pp.bounciness
+                w.friction = isPerpetual ? 0 : pp.stickiness * 1.0
                 w.collisionFilter = { category: 0x0001, mask: 0xFFFF }
             }
             Composite.add(engine.world, walls)
