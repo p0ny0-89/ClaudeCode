@@ -949,97 +949,6 @@ export default function Drift(props: DriftProps) {
     const resetSimRef = useRef<() => void>(() => {})
     const replaySimRef = useRef<() => void>(() => {})
 
-    const pauseSimulation = useCallback(() => {
-        pausedRef.current = !pausedRef.current
-        // If unpausing, restart the animation loop
-        if (!pausedRef.current && initedRef.current) {
-            lastTimeRef.current = 0
-            rafRef.current = requestAnimationFrame(animate)
-        }
-    }, [animate])
-
-    const resetSimulation = useCallback(() => {
-        if (!initedRef.current) return
-        pausedRef.current = false
-
-        // Full teardown so startSimulation can re-init cleanly
-        stopSimulation()
-    }, [stopSimulation])
-
-    pauseSimRef.current = pauseSimulation
-    resetSimRef.current = resetSimulation
-
-    const replaySimulation = useCallback(() => {
-        if (!initedRef.current) return
-        pausedRef.current = false
-        cancelAnimationFrame(rafRef.current)
-
-        // Snap all dynamic bodies back to home positions
-        for (const m of managedRef.current) {
-            if (m.role === "static") continue
-            Body.setPosition(m.body, { x: m.homeCenter.x, y: m.homeCenter.y })
-            Body.setAngle(m.body, m.homeAngle)
-            Body.setVelocity(m.body, { x: 0, y: 0 })
-            Body.setAngularVelocity(m.body, 0)
-            m.el.style.translate = ""
-            m.el.style.rotate = ""
-        }
-
-        // Re-apply initial velocities for bounce/zero-gravity modes
-        const pp = propsRef.current
-        for (const m of managedRef.current) {
-            if (m.role === "static") continue
-            if (pp.motionMode === "zeroGravity") {
-                const angle = Math.random() * Math.PI * 2
-                const speed = 1 + Math.random() * 2
-                Body.setVelocity(m.body, {
-                    x: Math.cos(angle) * speed,
-                    y: Math.sin(angle) * speed,
-                })
-                if (pp.rotationEnabled) {
-                    Body.setAngularVelocity(m.body, (Math.random() - 0.5) * 0.02)
-                }
-            } else if (pp.motionMode === "bounce") {
-                const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.8
-                const speed = 3 + Math.random() * 4
-                Body.setVelocity(m.body, {
-                    x: Math.cos(angle) * speed,
-                    y: Math.sin(angle) * speed,
-                })
-                if (pp.rotationEnabled) {
-                    Body.setAngularVelocity(m.body, (Math.random() - 0.5) * 0.04)
-                }
-            }
-        }
-
-        // Restart animation loop
-        lastTimeRef.current = 0
-        rafRef.current = requestAnimationFrame(animate)
-    }, [animate])
-
-    replaySimRef.current = replaySimulation
-
-    const startSimulation = useCallback(() => {
-        if (initedRef.current) return
-        initedRef.current = true
-        pausedRef.current = false
-
-        init()
-
-        const parent = parentRef.current
-        if (parent) {
-            parent.addEventListener("pointerdown", handlePointerDown, true)
-            parent.addEventListener("pointermove", handlePointerMove, true)
-            parent.addEventListener("pointerup", handlePointerUp, true)
-            parent.addEventListener("pointerleave", handlePointerLeave)
-        }
-
-        lastTimeRef.current = 0
-        rafRef.current = requestAnimationFrame(animate)
-    }, [init, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, animate])
-
-    startSimRef.current = startSimulation
-
     const stopSimulation = useCallback(() => {
         initedRef.current = false
         cancelAnimationFrame(rafRef.current)
@@ -1077,6 +986,91 @@ export default function Drift(props: DriftProps) {
         wallsRef.current = []
         ignoredElsRef.current = new Set()
     }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave])
+
+    const startSimulation = useCallback(() => {
+        if (initedRef.current) return
+        initedRef.current = true
+        pausedRef.current = false
+
+        init()
+
+        const parent = parentRef.current
+        if (parent) {
+            parent.addEventListener("pointerdown", handlePointerDown, true)
+            parent.addEventListener("pointermove", handlePointerMove, true)
+            parent.addEventListener("pointerup", handlePointerUp, true)
+            parent.addEventListener("pointerleave", handlePointerLeave)
+        }
+
+        lastTimeRef.current = 0
+        rafRef.current = requestAnimationFrame(animate)
+    }, [init, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, animate])
+
+    const pauseSimulation = useCallback(() => {
+        pausedRef.current = !pausedRef.current
+        // If unpausing, restart the animation loop
+        if (!pausedRef.current && initedRef.current) {
+            lastTimeRef.current = 0
+            rafRef.current = requestAnimationFrame(animate)
+        }
+    }, [animate])
+
+    const resetSimulation = useCallback(() => {
+        if (!initedRef.current) return
+        pausedRef.current = false
+        stopSimulation()
+    }, [stopSimulation])
+
+    const replaySimulation = useCallback(() => {
+        if (!initedRef.current) return
+        pausedRef.current = false
+        cancelAnimationFrame(rafRef.current)
+
+        for (const m of managedRef.current) {
+            if (m.role === "static") continue
+            Body.setPosition(m.body, { x: m.homeCenter.x, y: m.homeCenter.y })
+            Body.setAngle(m.body, m.homeAngle)
+            Body.setVelocity(m.body, { x: 0, y: 0 })
+            Body.setAngularVelocity(m.body, 0)
+            m.el.style.translate = ""
+            m.el.style.rotate = ""
+        }
+
+        const pp = propsRef.current
+        for (const m of managedRef.current) {
+            if (m.role === "static") continue
+            if (pp.motionMode === "zeroGravity") {
+                const angle = Math.random() * Math.PI * 2
+                const speed = 1 + Math.random() * 2
+                Body.setVelocity(m.body, {
+                    x: Math.cos(angle) * speed,
+                    y: Math.sin(angle) * speed,
+                })
+                if (pp.rotationEnabled) {
+                    Body.setAngularVelocity(m.body, (Math.random() - 0.5) * 0.02)
+                }
+            } else if (pp.motionMode === "bounce") {
+                const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.8
+                const speed = 3 + Math.random() * 4
+                Body.setVelocity(m.body, {
+                    x: Math.cos(angle) * speed,
+                    y: Math.sin(angle) * speed,
+                })
+                if (pp.rotationEnabled) {
+                    Body.setAngularVelocity(m.body, (Math.random() - 0.5) * 0.04)
+                }
+            }
+        }
+
+        lastTimeRef.current = 0
+        rafRef.current = requestAnimationFrame(animate)
+    }, [animate])
+
+    // Keep refs pointing to latest versions for event listeners
+    startSimRef.current = startSimulation
+    pauseSimRef.current = pauseSimulation
+    resetSimRef.current = resetSimulation
+    replaySimRef.current = replaySimulation
 
     useEffect(() => {
         if (isFramerCanvas()) return
