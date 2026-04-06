@@ -401,13 +401,13 @@ export default function Drift(props: DriftProps) {
             const matterBody = Bodies.rectangle(cx, cy, w + pad * 2, h + pad * 2, {
                 angle: homeAngle,
                 isStatic,
-                // Perpetual modes (bounce/zeroGravity): near-perfect elasticity, minimal friction
-                restitution: isPerpetual ? Math.max(pp.bounciness, 0.95) : pp.bounciness,
-                friction: isPerpetual ? 0.01 : pp.stickiness * 1.0,
-                frictionStatic: isPerpetual ? 0.01 : pp.stickiness * 2.0,
-                frictionAir: isPerpetual ? 0.0005 : pp.airResistance,
+                // Perpetual modes (bounce/zeroGravity): perfect elasticity, zero friction
+                restitution: isPerpetual ? 1.0 : pp.bounciness,
+                friction: isPerpetual ? 0 : pp.stickiness * 1.0,
+                frictionStatic: isPerpetual ? 0 : pp.stickiness * 2.0,
+                frictionAir: isPerpetual ? 0 : pp.airResistance,
                 density: 0.001,
-                slop: 0.005,
+                slop: isPerpetual ? 0.01 : 0.005,
                 sleepThreshold: isPerpetual ? Infinity : 30,
                 label: getLayerName(child) || `body-${ci}`,
                 collisionFilter,
@@ -534,6 +534,7 @@ export default function Drift(props: DriftProps) {
             for (const w of walls) {
                 w.restitution = isPerpetual ? 1.0 : pp.bounciness
                 w.friction = isPerpetual ? 0 : pp.stickiness * 1.0
+                w.frictionStatic = 0
                 w.collisionFilter = { category: 0x0001, mask: 0xFFFF }
             }
             Composite.add(engine.world, walls)
@@ -770,17 +771,20 @@ export default function Drift(props: DriftProps) {
 
         // Perpetual modes: maintain energy — if a body slows below a minimum speed, nudge it
         if (pp.motionMode === "bounce" || pp.motionMode === "zeroGravity") {
-            const minSpeed = 1.5
+            const minSpeed = 2.0
             for (const m of managed) {
                 if (m.body.isStatic) continue
                 if (drag && drag.managed === m) continue
                 const v = m.body.velocity
                 const speed = Math.sqrt(v.x * v.x + v.y * v.y)
                 if (speed < minSpeed) {
-                    // Boost in the current direction, or random if nearly stopped
-                    const angle = speed > 0.1
-                        ? Math.atan2(v.y, v.x)
-                        : Math.random() * Math.PI * 2
+                    // Use a random diagonal angle to escape walls/corners
+                    // Avoid pure horizontal/vertical which can cause sliding
+                    const baseAngle = Math.random() * Math.PI * 2
+                    // Ensure both x and y components have meaningful magnitude
+                    const angle = speed > 0.5
+                        ? Math.atan2(v.y, v.x) + (Math.random() - 0.5) * 0.5
+                        : baseAngle
                     Body.setVelocity(m.body, {
                         x: Math.cos(angle) * minSpeed,
                         y: Math.sin(angle) * minSpeed,
