@@ -955,19 +955,10 @@ export default function Drift(props: DriftProps) {
     const resetSimulation = useCallback(() => {
         if (!initedRef.current) return
         pausedRef.current = false
-        cancelAnimationFrame(rafRef.current)
 
-        // Snap all dynamic bodies back to home positions
-        for (const m of managedRef.current) {
-            if (m.role === "static") continue
-            Body.setPosition(m.body, { x: m.homeCenter.x, y: m.homeCenter.y })
-            Body.setAngle(m.body, m.homeAngle)
-            Body.setVelocity(m.body, { x: 0, y: 0 })
-            Body.setAngularVelocity(m.body, 0)
-            m.el.style.translate = ""
-            m.el.style.rotate = ""
-        }
-    }, [])
+        // Full teardown so startSimulation can re-init cleanly
+        stopSimulation()
+    }, [stopSimulation])
 
     const replaySimulation = useCallback(() => {
         if (!initedRef.current) return
