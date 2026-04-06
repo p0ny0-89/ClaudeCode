@@ -571,24 +571,36 @@ export default function Drift(props: DriftProps) {
                     m.el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
                 }
 
-                // Prevent edge-sliding: ensure reflected velocity has both axes alive
+                // Prevent edge-sliding: deflect velocity away from wall-parallel direction
                 const wallDir = wallLabel.replace("wall-", "")
                 const isPerpetual = pp.motionMode === "bounce" || pp.motionMode === "zeroGravity"
                 if (isPerpetual) {
                     const v = dynamicBody.velocity
                     const speed = Math.sqrt(v.x * v.x + v.y * v.y)
-                    const minAxis = Math.max(0.8, speed * 0.3)
-                    // Top/bottom wall: Y should have bounced, ensure X is alive
-                    // Left/right wall: X should have bounced, ensure Y is alive
-                    if (wallDir === "top" || wallDir === "bottom") {
-                        if (Math.abs(v.x) < minAxis) {
-                            const nudge = (v.x >= 0 ? 1 : -1) * minAxis
-                            Body.setVelocity(dynamicBody, { x: nudge || minAxis, y: v.y })
+                    if (speed > 0.1) {
+                        const minAngle = Math.PI / 9 // 20°
+                        let angle = Math.atan2(v.y, v.x)
+                        // For top/bottom walls, velocity should not be near horizontal (0° or 180°)
+                        // For left/right walls, velocity should not be near vertical (90° or 270°)
+                        let needsFix = false
+                        if (wallDir === "top" || wallDir === "bottom") {
+                            // Near 0 or ±π means sliding horizontally
+                            const absAngle = Math.abs(angle)
+                            if (absAngle < minAngle) { angle = angle >= 0 ? minAngle : -minAngle; needsFix = true }
+                            else if (Math.abs(absAngle - Math.PI) < minAngle) {
+                                angle = angle >= 0 ? Math.PI - minAngle : -(Math.PI - minAngle); needsFix = true
+                            }
+                        } else if (wallDir === "left" || wallDir === "right") {
+                            // Near ±π/2 means sliding vertically
+                            const halfPi = Math.PI / 2
+                            if (Math.abs(angle - halfPi) < minAngle) { angle = halfPi - minAngle; needsFix = true }
+                            else if (Math.abs(angle + halfPi) < minAngle) { angle = -(halfPi - minAngle); needsFix = true }
                         }
-                    } else if (wallDir === "left" || wallDir === "right") {
-                        if (Math.abs(v.y) < minAxis) {
-                            const nudge = (v.y >= 0 ? 1 : -1) * minAxis
-                            Body.setVelocity(dynamicBody, { x: v.x, y: nudge || minAxis })
+                        if (needsFix) {
+                            Body.setVelocity(dynamicBody, {
+                                x: Math.cos(angle) * speed,
+                                y: Math.sin(angle) * speed,
+                            })
                         }
                     }
                 }
@@ -831,10 +843,10 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Bounce mode: maintain energy — keep both axes alive for clean bouncing
+        // Bounce mode: maintain energy — enforce minimum angle to prevent edge-sliding
         if (pp.motionMode === "bounce") {
             const minSpeed = 1.5
-            const minAxisRatio = 0.25 // each axis must carry at least 25% of total speed
+            const minAngle = Math.PI / 9 // 20° — minimum angle away from any axis
             for (const m of managed) {
                 if (m.body.isStatic) continue
                 if (drag && drag.managed === m) continue
@@ -851,24 +863,36 @@ export default function Drift(props: DriftProps) {
                         y: Math.sin(angle) * minSpeed,
                     })
                 } else {
-                    // Ensure both axes carry meaningful velocity to prevent edge-sliding
-                    const minAxis = Math.max(0.8, speed * minAxisRatio)
-                    if (Math.abs(v.x) < minAxis || Math.abs(v.y) < minAxis) {
-                        const sign = (val: number) => val >= 0 ? 1 : -1
-                        const ax = Math.abs(v.x) < minAxis ? sign(v.x || (Math.random() - 0.5)) * minAxis : v.x
-                        const ay = Math.abs(v.y) < minAxis ? sign(v.y || (Math.random() - 0.5)) * minAxis : v.y
-                        // Preserve total speed when redistributing
-                        const newSpeed = Math.sqrt(ax * ax + ay * ay)
-                        const scale = speed / newSpeed
-                        Body.setVelocity(m.body, { x: ax * scale, y: ay * scale })
+                    // Clamp angle away from pure horizontal/vertical (0°, 90°, 180°, 270°)
+                    let angle = Math.atan2(v.y, v.x)
+                    // Normalize to 0..2π
+                    if (angle < 0) angle += Math.PI * 2
+                    // Check proximity to each axis (0, π/2, π, 3π/2, 2π)
+                    const axes = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI * 2]
+                    let needsFix = false
+                    for (const ax of axes) {
+                        const diff = Math.abs(angle - ax)
+                        if (diff < minAngle) {
+                            // Push away from axis
+                            angle = ax + (angle >= ax ? minAngle : -minAngle)
+                            needsFix = true
+                            break
+                        }
+                    }
+                    if (needsFix) {
+                        Body.setVelocity(m.body, {
+                            x: Math.cos(angle) * speed,
+                            y: Math.sin(angle) * speed,
+                        })
                     }
                 }
             }
         }
 
-        // Zero gravity: maintain energy with random escape angles for wall/corner recovery
+        // Zero gravity: maintain energy and enforce minimum angle
         if (pp.motionMode === "zeroGravity") {
             const minSpeed = 2.0
+            const minAngle = Math.PI / 9 // 20°
             for (const m of managed) {
                 if (m.body.isStatic) continue
                 if (drag && drag.managed === m) continue
@@ -882,6 +906,25 @@ export default function Drift(props: DriftProps) {
                         x: Math.cos(angle) * minSpeed,
                         y: Math.sin(angle) * minSpeed,
                     })
+                } else {
+                    // Same angle clamp as bounce mode
+                    let angle = Math.atan2(v.y, v.x)
+                    if (angle < 0) angle += Math.PI * 2
+                    const axes = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI * 2]
+                    let needsFix = false
+                    for (const ax of axes) {
+                        if (Math.abs(angle - ax) < minAngle) {
+                            angle = ax + (angle >= ax ? minAngle : -minAngle)
+                            needsFix = true
+                            break
+                        }
+                    }
+                    if (needsFix) {
+                        Body.setVelocity(m.body, {
+                            x: Math.cos(angle) * speed,
+                            y: Math.sin(angle) * speed,
+                        })
+                    }
                 }
             }
         }
