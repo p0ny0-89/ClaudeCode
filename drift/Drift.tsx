@@ -543,6 +543,32 @@ export default function Drift(props: DriftProps) {
             wallsRef.current = walls
         }
 
+        // Wall bounce detection — dispatch custom event when a dynamic body hits a wall
+        Events.on(engine, "collisionStart", (event: any) => {
+            for (const pair of event.pairs) {
+                const labelA = pair.bodyA.label || ""
+                const labelB = pair.bodyB.label || ""
+                const isWallA = labelA.startsWith("wall-")
+                const isWallB = labelB.startsWith("wall-")
+                if (!isWallA && !isWallB) continue
+
+                const dynamicBody = isWallA ? pair.bodyB : pair.bodyA
+                const wallLabel = isWallA ? labelA : labelB
+
+                // Find the managed body to get the element
+                const m = managedRef.current.find(mb => mb.body === dynamicBody)
+                if (!m || m.role === "static") continue
+
+                window.dispatchEvent(new CustomEvent("drift-wall-bounce", {
+                    detail: {
+                        wall: wallLabel.replace("wall-", ""),
+                        bodyLabel: dynamicBody.label,
+                        element: m.el,
+                    },
+                }))
+            }
+        })
+
         // Apply initial motion for zero-gravity and bounce modes
         for (const m of managed) {
             if (m.role === "static") continue
