@@ -23,6 +23,7 @@ interface ManagedBody {
     homeCenter: { x: number; y: number }
     homeAngle: number
     originalTransform: string
+    debugLabel?: HTMLElement // debug overlay label element
 }
 
 // ─── Canvas detection ───────────────────────────────────────────────────────
@@ -454,6 +455,7 @@ export default function Drift(props: DriftProps) {
                 })
                 parent.appendChild(label)
                 debugOverlaysRef.current.push(label)
+                m.debugLabel = label
 
                 // Also add a colored border to the element itself
                 const color = m.role === "static" ? "rgba(255, 102, 0, 0.8)" : "rgba(0, 136, 255, 0.8)"
@@ -809,6 +811,14 @@ export default function Drift(props: DriftProps) {
             }
 
             m.el.style.willChange = "translate, rotate"
+
+            // Update debug label position to follow the body
+            if (m.debugLabel) {
+                const bw = m.body.bounds.max.x - m.body.bounds.min.x
+                const bh = m.body.bounds.max.y - m.body.bounds.min.y
+                m.debugLabel.style.top = `${m.body.position.y - bh / 2 + 4}px`
+                m.debugLabel.style.left = `${m.body.position.x - bw / 2 + 4}px`
+            }
         }
 
         rafRef.current = requestAnimationFrame(animate)
