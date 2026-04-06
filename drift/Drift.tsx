@@ -261,6 +261,7 @@ export default function Drift(props: DriftProps) {
     const rafRef = useRef<number>(0)
     const lastTimeRef = useRef(0)
     const debugOverlaysRef = useRef<HTMLElement[]>([])
+    const ignoredElsRef = useRef<Set<HTMLElement>>(new Set())
     const cursorRef = useRef<{ x: number; y: number } | null>(null)
     const dragRef = useRef<{
         managed: ManagedBody
@@ -337,7 +338,10 @@ export default function Drift(props: DriftProps) {
             if (childRect.width === 0 && childRect.height === 0) continue
 
             // Role — ci is the 0-based index among non-Drift siblings
-            if (matchesSelectorList(child, ci, ignoredSelectors)) continue
+            if (matchesSelectorList(child, ci, ignoredSelectors)) {
+                ignoredElsRef.current.add(child)
+                continue
+            }
 
             let role: BodyRole = "dynamic"
             if (matchesSelectorList(child, ci, staticSelectors)) role = "static"
@@ -831,6 +835,12 @@ export default function Drift(props: DriftProps) {
         const parent = parentRef.current
         if (!parent) return
 
+        // If the click target is inside an ignored element, don't interfere
+        const target = e.target as HTMLElement
+        for (const ignoredEl of ignoredElsRef.current) {
+            if (ignoredEl === target || ignoredEl.contains(target)) return
+        }
+
         const parentRect = parent.getBoundingClientRect()
         const px = e.clientX - parentRect.left
         const py = e.clientY - parentRect.top
@@ -984,6 +994,7 @@ export default function Drift(props: DriftProps) {
 
         managedRef.current = []
         wallsRef.current = []
+        ignoredElsRef.current = new Set()
     }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave])
 
     useEffect(() => {
