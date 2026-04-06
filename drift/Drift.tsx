@@ -797,14 +797,16 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Bounce mode: maintain energy — if a body slows below a minimum speed, nudge it
+        // Bounce mode: maintain energy — keep both axes alive for clean bouncing
         if (pp.motionMode === "bounce") {
             const minSpeed = 1.5
+            const minAxis = 0.3 // minimum velocity per axis to prevent edge-sliding
             for (const m of managed) {
                 if (m.body.isStatic) continue
                 if (drag && drag.managed === m) continue
                 const v = m.body.velocity
                 const speed = Math.sqrt(v.x * v.x + v.y * v.y)
+
                 if (speed < minSpeed) {
                     // Boost in the current direction, or random if nearly stopped
                     const angle = speed > 0.1
@@ -813,6 +815,12 @@ export default function Drift(props: DriftProps) {
                     Body.setVelocity(m.body, {
                         x: Math.cos(angle) * minSpeed,
                         y: Math.sin(angle) * minSpeed,
+                    })
+                } else if (Math.abs(v.x) < minAxis || Math.abs(v.y) < minAxis) {
+                    // One axis died — inject a nudge to prevent edge-sliding
+                    Body.setVelocity(m.body, {
+                        x: Math.abs(v.x) < minAxis ? (Math.random() > 0.5 ? minAxis : -minAxis) : v.x,
+                        y: Math.abs(v.y) < minAxis ? (Math.random() > 0.5 ? minAxis : -minAxis) : v.y,
                     })
                 }
             }
