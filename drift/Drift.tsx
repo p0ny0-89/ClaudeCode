@@ -841,92 +841,6 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Bounce mode: maintain energy — enforce minimum angle to prevent edge-sliding
-        if (pp.motionMode === "bounce") {
-            const minSpeed = 1.5
-            const minAngle = Math.PI / 9 // 20° — minimum angle away from any axis
-            for (const m of managed) {
-                if (m.body.isStatic) continue
-                if (drag && drag.managed === m) continue
-                const v = m.body.velocity
-                const speed = Math.sqrt(v.x * v.x + v.y * v.y)
-
-                if (speed < minSpeed) {
-                    // Boost in the current direction, or random if nearly stopped
-                    const angle = speed > 0.1
-                        ? Math.atan2(v.y, v.x)
-                        : Math.random() * Math.PI * 2
-                    Body.setVelocity(m.body, {
-                        x: Math.cos(angle) * minSpeed,
-                        y: Math.sin(angle) * minSpeed,
-                    })
-                } else {
-                    // Clamp angle away from pure horizontal/vertical (0°, 90°, 180°, 270°)
-                    let angle = Math.atan2(v.y, v.x)
-                    // Normalize to 0..2π
-                    if (angle < 0) angle += Math.PI * 2
-                    // Check proximity to each axis (0, π/2, π, 3π/2, 2π)
-                    const axes = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI * 2]
-                    let needsFix = false
-                    for (const ax of axes) {
-                        const diff = Math.abs(angle - ax)
-                        if (diff < minAngle) {
-                            // Push away from axis
-                            angle = ax + (angle >= ax ? minAngle : -minAngle)
-                            needsFix = true
-                            break
-                        }
-                    }
-                    if (needsFix) {
-                        Body.setVelocity(m.body, {
-                            x: Math.cos(angle) * speed,
-                            y: Math.sin(angle) * speed,
-                        })
-                    }
-                }
-            }
-        }
-
-        // Zero gravity: maintain energy and enforce minimum angle
-        if (pp.motionMode === "zeroGravity") {
-            const minSpeed = 2.0
-            const minAngle = Math.PI / 9 // 20°
-            for (const m of managed) {
-                if (m.body.isStatic) continue
-                if (drag && drag.managed === m) continue
-                const v = m.body.velocity
-                const speed = Math.sqrt(v.x * v.x + v.y * v.y)
-                if (speed < minSpeed) {
-                    const angle = speed > 0.5
-                        ? Math.atan2(v.y, v.x) + (Math.random() - 0.5) * 0.5
-                        : Math.random() * Math.PI * 2
-                    Body.setVelocity(m.body, {
-                        x: Math.cos(angle) * minSpeed,
-                        y: Math.sin(angle) * minSpeed,
-                    })
-                } else {
-                    // Same angle clamp as bounce mode
-                    let angle = Math.atan2(v.y, v.x)
-                    if (angle < 0) angle += Math.PI * 2
-                    const axes = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI * 2]
-                    let needsFix = false
-                    for (const ax of axes) {
-                        if (Math.abs(angle - ax) < minAngle) {
-                            angle = ax + (angle >= ax ? minAngle : -minAngle)
-                            needsFix = true
-                            break
-                        }
-                    }
-                    if (needsFix) {
-                        Body.setVelocity(m.body, {
-                            x: Math.cos(angle) * speed,
-                            y: Math.sin(angle) * speed,
-                        })
-                    }
-                }
-            }
-        }
-
         // Pre-step: cap velocity to prevent runaway buildup from forces
         for (const m of managed) {
             if (m.body.isStatic) continue
@@ -980,6 +894,48 @@ export default function Drift(props: DriftProps) {
                     Body.setPosition(m.body, { x: nx, y: ny })
                     Body.setVelocity(m.body, { x: 0, y: 0 })
                     Body.setAngularVelocity(m.body, 0)
+                }
+            }
+        }
+
+        // Post-step: perpetual mode energy maintenance — runs AFTER Engine.update
+        // so Matter.js collision resolver can't overwrite our velocity corrections
+        if (pp.motionMode === "bounce" || pp.motionMode === "zeroGravity") {
+            const minSpeed = pp.motionMode === "bounce" ? 1.5 : 2.0
+            const minAngle = Math.PI / 7 // ~25° — minimum angle away from any axis
+            for (const m of managed) {
+                if (m.body.isStatic) continue
+                if (drag && drag.managed === m) continue
+                const v = m.body.velocity
+                const speed = Math.sqrt(v.x * v.x + v.y * v.y)
+
+                if (speed < minSpeed) {
+                    const angle = speed > 0.1
+                        ? Math.atan2(v.y, v.x) + (Math.random() - 0.5) * 0.3
+                        : Math.random() * Math.PI * 2
+                    Body.setVelocity(m.body, {
+                        x: Math.cos(angle) * minSpeed,
+                        y: Math.sin(angle) * minSpeed,
+                    })
+                } else {
+                    // Clamp angle away from pure horizontal/vertical
+                    let angle = Math.atan2(v.y, v.x)
+                    if (angle < 0) angle += Math.PI * 2
+                    const axes = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI * 2]
+                    let needsFix = false
+                    for (const ax of axes) {
+                        if (Math.abs(angle - ax) < minAngle) {
+                            angle = ax + (angle >= ax ? minAngle : -minAngle)
+                            needsFix = true
+                            break
+                        }
+                    }
+                    if (needsFix) {
+                        Body.setVelocity(m.body, {
+                            x: Math.cos(angle) * speed,
+                            y: Math.sin(angle) * speed,
+                        })
+                    }
                 }
             }
         }
