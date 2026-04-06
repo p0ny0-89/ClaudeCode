@@ -228,6 +228,8 @@ interface DriftProps {
     selfCollide: boolean
     colliderPadding: number
 
+    wallBounceColorCycle: boolean
+
     debugView: boolean
     showColliderBounds: boolean
 
@@ -263,6 +265,7 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     collisionEnabled: true,
     selfCollide: true,
     colliderPadding: 0,
+    wallBounceColorCycle: false,
     debugView: false,
     showColliderBounds: false,
 }
@@ -559,7 +562,14 @@ export default function Drift(props: DriftProps) {
                 const m = managedRef.current.find(mb => mb.body === dynamicBody)
                 if (!m || m.role === "static") continue
 
-                console.log("[Drift] Wall bounce:", wallLabel, dynamicBody.label)
+                // Wall bounce color cycle — apply CSS filter hue shift directly
+                if (pp.wallBounceColorCycle) {
+                    const prev = parseFloat(m.el.dataset.driftHue || "0")
+                    const next = (prev + 47) % 360
+                    m.el.dataset.driftHue = String(next)
+                    m.el.style.filter = `brightness(0) sepia(1) saturate(5) hue-rotate(${next}deg)`
+                }
+
                 window.dispatchEvent(new CustomEvent("drift-wall-bounce", {
                     detail: {
                         wall: wallLabel.replace("wall-", ""),
@@ -801,7 +811,7 @@ export default function Drift(props: DriftProps) {
         // Bounce mode: maintain energy — keep both axes alive for clean bouncing
         if (pp.motionMode === "bounce") {
             const minSpeed = 1.5
-            const minAxis = 0.3 // minimum velocity per axis to prevent edge-sliding
+            const minAxisRatio = 0.25 // each axis must carry at least 25% of total speed
             for (const m of managed) {
                 if (m.body.isStatic) continue
                 if (drag && drag.managed === m) continue
@@ -817,12 +827,18 @@ export default function Drift(props: DriftProps) {
                         x: Math.cos(angle) * minSpeed,
                         y: Math.sin(angle) * minSpeed,
                     })
-                } else if (Math.abs(v.x) < minAxis || Math.abs(v.y) < minAxis) {
-                    // One axis died — inject a nudge to prevent edge-sliding
-                    Body.setVelocity(m.body, {
-                        x: Math.abs(v.x) < minAxis ? (Math.random() > 0.5 ? minAxis : -minAxis) : v.x,
-                        y: Math.abs(v.y) < minAxis ? (Math.random() > 0.5 ? minAxis : -minAxis) : v.y,
-                    })
+                } else {
+                    // Ensure both axes carry meaningful velocity to prevent edge-sliding
+                    const minAxis = Math.max(0.8, speed * minAxisRatio)
+                    if (Math.abs(v.x) < minAxis || Math.abs(v.y) < minAxis) {
+                        const sign = (val: number) => val >= 0 ? 1 : -1
+                        const ax = Math.abs(v.x) < minAxis ? sign(v.x || (Math.random() - 0.5)) * minAxis : v.x
+                        const ay = Math.abs(v.y) < minAxis ? sign(v.y || (Math.random() - 0.5)) * minAxis : v.y
+                        // Preserve total speed when redistributing
+                        const newSpeed = Math.sqrt(ax * ax + ay * ay)
+                        const scale = speed / newSpeed
+                        Body.setVelocity(m.body, { x: ax * scale, y: ay * scale })
+                    }
                 }
             }
         }
@@ -1520,6 +1536,14 @@ addPropertyControls(Drift, {
         max: 40,
         step: 1,
         defaultValue: 0,
+    },
+
+    wallBounceColorCycle: {
+        type: ControlType.Boolean,
+        title: "Wall Bounce Color",
+        defaultValue: false,
+        description: "Cycle hue on each wall bounce (DVD screensaver effect). Works best on white/light elements.",
+        hidden: (p: any) => p.motionMode !== "bounce" && p.motionMode !== "zeroGravity",
     },
 
     debugView: {
