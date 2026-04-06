@@ -387,17 +387,17 @@ export default function Drift(props: DriftProps) {
             const pad = pp.colliderPadding
             const isStatic = role === "static"
 
-            // Collision categories: 0x0001 = walls/statics, 0x0002 = dynamics
+            // Collision categories: 0x0001 = statics, 0x0002 = dynamics, 0x0004 = walls
             const CATEGORY_STATIC = 0x0001
             const CATEGORY_DYNAMIC = 0x0002
+            const CATEGORY_WALL = 0x0004
+            // In perpetual modes, dynamics don't collide with walls (handled manually)
+            const dynamicMask = isPerpetual
+                ? (pp.selfCollide ? CATEGORY_STATIC | CATEGORY_DYNAMIC : CATEGORY_STATIC)
+                : (pp.selfCollide ? CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_WALL : CATEGORY_STATIC | CATEGORY_WALL)
             const collisionFilter = isStatic
-                ? { category: CATEGORY_STATIC, mask: 0xFFFF } // statics collide with everything
-                : {
-                    category: CATEGORY_DYNAMIC,
-                    mask: pp.selfCollide
-                        ? CATEGORY_STATIC | CATEGORY_DYNAMIC // collide with statics + other dynamics
-                        : CATEGORY_STATIC,                    // collide with statics only
-                }
+                ? { category: CATEGORY_STATIC, mask: 0xFFFF }
+                : { category: CATEGORY_DYNAMIC, mask: dynamicMask }
 
             const matterBody = Bodies.rectangle(cx, cy, w + pad * 2, h + pad * 2, {
                 angle: homeAngle,
@@ -535,83 +535,35 @@ export default function Drift(props: DriftProps) {
                 Bodies.rectangle(W + wallThickness / 2, H / 2, wallThickness, H + wallThickness * 2, { isStatic: true, label: "wall-right" }),
             ]
             for (const w of walls) {
-                w.restitution = isZeroG ? 1.0 : isBounce ? 1.0 : pp.bounciness
-                w.friction = isZeroG ? 0 : isBounce ? 0 : pp.stickiness * 1.0
+                w.restitution = isPerpetual ? 1.0 : pp.bounciness
+                w.friction = isPerpetual ? 0 : pp.stickiness * 1.0
                 w.frictionStatic = 0
-                w.collisionFilter = { category: 0x0001, mask: 0xFFFF }
+                // Walls use CATEGORY_WALL so perpetual-mode dynamics can ignore them
+                w.collisionFilter = { category: 0x0004, mask: 0xFFFF }
             }
             Composite.add(engine.world, walls)
             wallsRef.current = walls
         }
 
-        // Wall bounce detection — dispatch custom event when a dynamic body hits a wall
-        Events.on(engine, "collisionStart", (event: any) => {
-            for (const pair of event.pairs) {
-                const labelA = pair.bodyA.label || ""
-                const labelB = pair.bodyB.label || ""
-                const isWallA = labelA.startsWith("wall-")
-                const isWallB = labelB.startsWith("wall-")
-                if (!isWallA && !isWallB) continue
-
-                const dynamicBody = isWallA ? pair.bodyB : pair.bodyA
-                const wallLabel = isWallA ? labelA : labelB
-
-                // Find the managed body to get the element
-                const m = managedRef.current.find(mb => mb.body === dynamicBody)
-                if (!m || m.role === "static") continue
-
-                // Wall bounce color cycle — apply CSS filter hue shift directly
-                if (pp.wallBounceColorCycle) {
-                    const prev = parseFloat(m.el.dataset.driftHue || "0")
-                    const next = (prev + 47) % 360
-                    m.el.dataset.driftHue = String(next)
-                    // sepia → saturate → hue-rotate colorizes non-black content
-                    m.el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
+        // Wall bounce detection for gravity mode (physics walls handle collision)
+        if (!isPerpetual) {
+            Events.on(engine, "collisionStart", (event: any) => {
+                for (const pair of event.pairs) {
+                    const labelA = pair.bodyA.label || ""
+                    const labelB = pair.bodyB.label || ""
+                    const isWallA = labelA.startsWith("wall-")
+                    const isWallB = labelB.startsWith("wall-")
+                    if (!isWallA && !isWallB) continue
+                    const dynamicBody = isWallA ? pair.bodyB : pair.bodyA
+                    const wallDir = (isWallA ? labelA : labelB).replace("wall-", "")
+                    const m = managedRef.current.find(mb => mb.body === dynamicBody)
+                    if (!m || m.role === "static") continue
+                    window.dispatchEvent(new CustomEvent("drift-wall-bounce", {
+                        detail: { wall: wallDir, bodyLabel: dynamicBody.label, element: m.el },
+                    }))
                 }
-
-                // Prevent edge-sliding: deflect velocity away from wall-parallel direction
-                const wallDir = wallLabel.replace("wall-", "")
-                const isPerpetual = pp.motionMode === "bounce" || pp.motionMode === "zeroGravity"
-                if (isPerpetual) {
-                    const v = dynamicBody.velocity
-                    const speed = Math.sqrt(v.x * v.x + v.y * v.y)
-                    if (speed > 0.1) {
-                        const minAngle = Math.PI / 9 // 20°
-                        let angle = Math.atan2(v.y, v.x)
-                        // For top/bottom walls, velocity should not be near horizontal (0° or 180°)
-                        // For left/right walls, velocity should not be near vertical (90° or 270°)
-                        let needsFix = false
-                        if (wallDir === "top" || wallDir === "bottom") {
-                            // Near 0 or ±π means sliding horizontally
-                            const absAngle = Math.abs(angle)
-                            if (absAngle < minAngle) { angle = angle >= 0 ? minAngle : -minAngle; needsFix = true }
-                            else if (Math.abs(absAngle - Math.PI) < minAngle) {
-                                angle = angle >= 0 ? Math.PI - minAngle : -(Math.PI - minAngle); needsFix = true
-                            }
-                        } else if (wallDir === "left" || wallDir === "right") {
-                            // Near ±π/2 means sliding vertically
-                            const halfPi = Math.PI / 2
-                            if (Math.abs(angle - halfPi) < minAngle) { angle = halfPi - minAngle; needsFix = true }
-                            else if (Math.abs(angle + halfPi) < minAngle) { angle = -(halfPi - minAngle); needsFix = true }
-                        }
-                        if (needsFix) {
-                            Body.setVelocity(dynamicBody, {
-                                x: Math.cos(angle) * speed,
-                                y: Math.sin(angle) * speed,
-                            })
-                        }
-                    }
-                }
-
-                window.dispatchEvent(new CustomEvent("drift-wall-bounce", {
-                    detail: {
-                        wall: wallDir,
-                        bodyLabel: dynamicBody.label,
-                        element: m.el,
-                    },
-                }))
-            }
-        })
+            })
+        }
 
         // Apply initial motion for zero-gravity and bounce modes
         for (const m of managed) {
@@ -877,8 +829,9 @@ export default function Drift(props: DriftProps) {
                 )
             }
 
-            // Bounds safety — if a body escapes the container, pull it back
-            if (pp.boundToContainer && bounds.width > 0) {
+            // Bounds safety — if a body escapes the container, pull it back (gravity mode only)
+            const isPerpetualMode = pp.motionMode === "bounce" || pp.motionMode === "zeroGravity"
+            if (pp.boundToContainer && bounds.width > 0 && !isPerpetualMode) {
                 const pos = m.body.position
                 const margin = 50
                 let clamped = false
@@ -898,44 +851,59 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Post-step: perpetual mode energy maintenance — runs AFTER Engine.update
-        // so Matter.js collision resolver can't overwrite our velocity corrections
-        if (pp.motionMode === "bounce" || pp.motionMode === "zeroGravity") {
+        // Perpetual modes: manual wall bouncing (dynamics bypass Matter.js walls)
+        if ((pp.motionMode === "bounce" || pp.motionMode === "zeroGravity") && pp.boundToContainer && bounds.width > 0) {
             const minSpeed = pp.motionMode === "bounce" ? 1.5 : 2.0
-            const minAngle = Math.PI / 7 // ~25° — minimum angle away from any axis
             for (const m of managed) {
                 if (m.body.isStatic) continue
                 if (drag && drag.managed === m) continue
-                const v = m.body.velocity
-                const speed = Math.sqrt(v.x * v.x + v.y * v.y)
 
+                const pos = m.body.position
+                const v = m.body.velocity
+                const bw = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
+                const bh = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
+                let vx = v.x, vy = v.y
+                let px = pos.x, py = pos.y
+                let bounced = false
+                let wallHit = ""
+
+                // Left wall
+                if (px - bw <= 0) { px = bw + 1; vx = Math.abs(vx) || minSpeed; bounced = true; wallHit = "left" }
+                // Right wall
+                else if (px + bw >= bounds.width) { px = bounds.width - bw - 1; vx = -Math.abs(vx) || -minSpeed; bounced = true; wallHit = "right" }
+                // Top wall
+                if (py - bh <= 0) { py = bh + 1; vy = Math.abs(vy) || minSpeed; bounced = true; wallHit = "top" }
+                // Bottom wall
+                else if (py + bh >= bounds.height) { py = bounds.height - bh - 1; vy = -Math.abs(vy) || -minSpeed; bounced = true; wallHit = "bottom" }
+
+                if (bounced) {
+                    Body.setPosition(m.body, { x: px, y: py })
+                    Body.setVelocity(m.body, { x: vx, y: vy })
+
+                    // Color cycle on wall bounce
+                    if (pp.wallBounceColorCycle) {
+                        const prev = parseFloat(m.el.dataset.driftHue || "0")
+                        const next = (prev + 47) % 360
+                        m.el.dataset.driftHue = String(next)
+                        m.el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
+                    }
+
+                    // Dispatch wall bounce event
+                    window.dispatchEvent(new CustomEvent("drift-wall-bounce", {
+                        detail: { wall: wallHit, bodyLabel: m.body.label, element: m.el },
+                    }))
+                }
+
+                // Ensure minimum speed
+                const speed = Math.sqrt(vx * vx + vy * vy)
                 if (speed < minSpeed) {
                     const angle = speed > 0.1
-                        ? Math.atan2(v.y, v.x) + (Math.random() - 0.5) * 0.3
+                        ? Math.atan2(vy, vx) + (Math.random() - 0.5) * 0.3
                         : Math.random() * Math.PI * 2
                     Body.setVelocity(m.body, {
                         x: Math.cos(angle) * minSpeed,
                         y: Math.sin(angle) * minSpeed,
                     })
-                } else {
-                    // Clamp angle away from pure horizontal/vertical
-                    let angle = Math.atan2(v.y, v.x)
-                    if (angle < 0) angle += Math.PI * 2
-                    const axes = [0, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI * 2]
-                    let needsFix = false
-                    for (const ax of axes) {
-                        if (Math.abs(angle - ax) < minAngle) {
-                            angle = ax + (angle >= ax ? minAngle : -minAngle)
-                            needsFix = true
-                            break
-                        }
-                    }
-                    if (needsFix) {
-                        Body.setVelocity(m.body, {
-                            x: Math.cos(angle) * speed,
-                            y: Math.sin(angle) * speed,
-                        })
-                    }
                 }
             }
         }
