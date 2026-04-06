@@ -19,6 +19,7 @@ interface ManagedBody {
     body: Matter.Body
     role: BodyRole
     isPointerLayer: boolean
+    childIndex: number // eligible child index (used for selector matching)
     homeCenter: { x: number; y: number }
     homeAngle: number
     originalTransform: string
@@ -382,6 +383,7 @@ export default function Drift(props: DriftProps) {
                 body: matterBody,
                 role,
                 isPointerLayer,
+                childIndex: ci,
                 homeCenter: { x: cx, y: cy },
                 homeAngle,
                 originalTransform,
@@ -404,8 +406,8 @@ export default function Drift(props: DriftProps) {
         if (pp.debugView) {
             console.log(
                 "[Drift] Detected layers:",
-                managed.map((m, idx) => ({
-                    index: `#${idx}`,
+                managed.map((m) => ({
+                    index: `#${m.childIndex}`,
                     name: getLayerName(m.el) || "(unnamed)",
                     identifiers: getLayerIdentifiers(m.el),
                     role: m.role,
@@ -418,6 +420,7 @@ export default function Drift(props: DriftProps) {
             )
 
             // Add visual index labels overlaid on parent (avoids child overflow:hidden clipping)
+            // Labels show the ELIGIBLE CHILD index (ci) — use this in selector fields
             const parentPos = getComputedStyle(parent).position
             if (parentPos === "static") parent.style.position = "relative"
 
@@ -430,7 +433,7 @@ export default function Drift(props: DriftProps) {
 
                 const roleSuffix = m.role === "static" ? " S" : m.isPointerLayer ? " L" : " D"
                 const label = document.createElement("div")
-                label.textContent = `#${idx}${roleSuffix}`
+                label.textContent = `#${m.childIndex}${roleSuffix}`
                 label.setAttribute("data-drift-debug", "true")
                 Object.assign(label.style, {
                     position: "absolute",
