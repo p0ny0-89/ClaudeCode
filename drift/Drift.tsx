@@ -219,7 +219,9 @@ interface DriftProps {
     viewThreshold: "top" | "center" | "bottom"
     eventName: string
 
+    defaultRole: "dynamic" | "static"
     staticColliders: string
+    dynamicLayers: string
     ignoredLayers: string
     pointerLayers: string
     collisionEnabled: boolean
@@ -253,7 +255,9 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     startTrigger: "immediate",
     viewThreshold: "center",
     eventName: "drift-start",
+    defaultRole: "dynamic",
     staticColliders: "",
+    dynamicLayers: "",
     ignoredLayers: "",
     pointerLayers: "",
     collisionEnabled: true,
@@ -326,8 +330,10 @@ export default function Drift(props: DriftProps) {
         engineRef.current = engine
 
         const staticSelectors = parseSelectorList(pp.staticColliders)
+        const dynamicSelectors = parseSelectorList(pp.dynamicLayers)
         const ignoredSelectors = parseSelectorList(pp.ignoredLayers)
         const pointerSelectors = parseSelectorList(pp.pointerLayers)
+        const invertedDefault = pp.defaultRole === "static"
 
         const managed: ManagedBody[] = []
         const selfEls = new Set<HTMLElement>()
@@ -358,8 +364,10 @@ export default function Drift(props: DriftProps) {
                 continue
             }
 
-            let role: BodyRole = "dynamic"
+            let role: BodyRole = invertedDefault ? "static" : "dynamic"
+            // Explicit overrides: staticColliders forces static, dynamicLayers forces dynamic
             if (matchesSelectorList(child, ci, staticSelectors)) role = "static"
+            if (matchesSelectorList(child, ci, dynamicSelectors)) role = "dynamic"
 
             const computedTransform = getComputedStyle(child).transform
             const originalTransform =
@@ -1386,12 +1394,29 @@ addPropertyControls(Drift, {
         hidden: (p) => !p.returnHome,
     },
 
+    defaultRole: {
+        type: ControlType.Enum,
+        title: "Default Role",
+        options: ["dynamic", "static"],
+        optionTitles: ["Dynamic", "Static"],
+        defaultValue: "dynamic",
+        description: "Default role for unlisted layers. Static = all layers are colliders unless listed as dynamic.",
+    },
     staticColliders: {
         type: ControlType.String,
         title: "Static Colliders",
         defaultValue: "",
         placeholder: "#0, #5-#15, COLLIDER",
         description: "Use #0, #1… for index, #5-#15 for range, or text/name. Enable Debug View to see indices.",
+        hidden: (p: any) => p.defaultRole === "static",
+    },
+    dynamicLayers: {
+        type: ControlType.String,
+        title: "Dynamic Layers",
+        defaultValue: "",
+        placeholder: "#0-#12, Rectangle",
+        description: "These layers will be dynamic (movable). All others are static colliders.",
+        hidden: (p: any) => p.defaultRole !== "static",
     },
     ignoredLayers: {
         type: ControlType.String,
