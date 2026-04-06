@@ -771,8 +771,29 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Perpetual modes: maintain energy — if a body slows below a minimum speed, nudge it
-        if (pp.motionMode === "bounce" || pp.motionMode === "zeroGravity") {
+        // Bounce mode: maintain energy — if a body slows below a minimum speed, nudge it
+        if (pp.motionMode === "bounce") {
+            const minSpeed = 1.5
+            for (const m of managed) {
+                if (m.body.isStatic) continue
+                if (drag && drag.managed === m) continue
+                const v = m.body.velocity
+                const speed = Math.sqrt(v.x * v.x + v.y * v.y)
+                if (speed < minSpeed) {
+                    // Boost in the current direction, or random if nearly stopped
+                    const angle = speed > 0.1
+                        ? Math.atan2(v.y, v.x)
+                        : Math.random() * Math.PI * 2
+                    Body.setVelocity(m.body, {
+                        x: Math.cos(angle) * minSpeed,
+                        y: Math.sin(angle) * minSpeed,
+                    })
+                }
+            }
+        }
+
+        // Zero gravity: maintain energy with random escape angles for wall/corner recovery
+        if (pp.motionMode === "zeroGravity") {
             const minSpeed = 2.0
             for (const m of managed) {
                 if (m.body.isStatic) continue
@@ -780,13 +801,9 @@ export default function Drift(props: DriftProps) {
                 const v = m.body.velocity
                 const speed = Math.sqrt(v.x * v.x + v.y * v.y)
                 if (speed < minSpeed) {
-                    // Use a random diagonal angle to escape walls/corners
-                    // Avoid pure horizontal/vertical which can cause sliding
-                    const baseAngle = Math.random() * Math.PI * 2
-                    // Ensure both x and y components have meaningful magnitude
                     const angle = speed > 0.5
                         ? Math.atan2(v.y, v.x) + (Math.random() - 0.5) * 0.5
-                        : baseAngle
+                        : Math.random() * Math.PI * 2
                     Body.setVelocity(m.body, {
                         x: Math.cos(angle) * minSpeed,
                         y: Math.sin(angle) * minSpeed,
