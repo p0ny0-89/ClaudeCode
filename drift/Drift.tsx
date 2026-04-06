@@ -258,6 +258,7 @@ export default function Drift(props: DriftProps) {
     const parentRef = useRef<HTMLElement | null>(null)
     const rafRef = useRef<number>(0)
     const lastTimeRef = useRef(0)
+    const debugOverlaysRef = useRef<HTMLElement[]>([])
     const cursorRef = useRef<{ x: number; y: number } | null>(null)
     const dragRef = useRef<{
         managed: ManagedBody
@@ -399,7 +400,7 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Debug: log detected layers and their roles
+        // Debug: visual index labels + console log
         if (pp.debugView) {
             console.log(
                 "[Drift] Detected layers:",
@@ -415,6 +416,47 @@ export default function Drift(props: DriftProps) {
             console.log(
                 "[Drift] Tip: Use #0, #1, etc. in Static Colliders / Ignored fields to select layers by index."
             )
+
+            // Add visual index labels on each child
+            for (let idx = 0; idx < managed.length; idx++) {
+                const m = managed[idx]
+                const label = document.createElement("div")
+                label.textContent = `#${idx}`
+                label.setAttribute("data-drift-debug", "true")
+                Object.assign(label.style, {
+                    position: "absolute",
+                    top: "4px",
+                    left: "4px",
+                    background: m.role === "static" ? "#ff6600" : "#0088ff",
+                    color: "#fff",
+                    fontSize: "11px",
+                    fontFamily: "monospace",
+                    fontWeight: "bold",
+                    padding: "2px 5px",
+                    borderRadius: "3px",
+                    zIndex: "99999",
+                    pointerEvents: "none",
+                    lineHeight: "1.2",
+                    whiteSpace: "nowrap",
+                })
+                // Ensure the parent is positioned so the label anchors correctly
+                const pos = getComputedStyle(m.el).position
+                if (pos === "static") m.el.style.position = "relative"
+                m.el.appendChild(label)
+                debugOverlaysRef.current.push(label)
+            }
+        }
+
+        // Show Bounds: add colored outlines to collider bodies
+        if (pp.showColliderBounds) {
+            for (const m of managed) {
+                const outline =
+                    m.role === "static"
+                        ? "2px solid rgba(255, 102, 0, 0.7)"
+                        : "2px solid rgba(0, 136, 255, 0.7)"
+                m.el.style.outline = outline
+                m.el.style.outlineOffset = "-2px"
+            }
         }
 
         // Container walls (if bounded)
@@ -894,11 +936,19 @@ export default function Drift(props: DriftProps) {
             parent.removeEventListener("pointerleave", handlePointerLeave)
         }
 
+        // Remove debug overlays
+        for (const el of debugOverlaysRef.current) {
+            el.remove()
+        }
+        debugOverlaysRef.current = []
+
         for (const m of managedRef.current) {
             m.el.style.translate = ""
             m.el.style.rotate = ""
             m.el.style.willChange = ""
             m.el.style.cursor = ""
+            m.el.style.outline = ""
+            m.el.style.outlineOffset = ""
         }
 
         if (engineRef.current) {
