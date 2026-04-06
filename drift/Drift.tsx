@@ -404,10 +404,10 @@ export default function Drift(props: DriftProps) {
                 // Bounce: near-perfect elasticity, minimal friction
                 // Zero gravity: perfect elasticity, zero friction
                 // Gravity: user-controlled
-                restitution: isZeroG ? 1.0 : isBounce ? Math.max(pp.bounciness, 0.95) : pp.bounciness,
-                friction: isZeroG ? 0 : isBounce ? 0.01 : pp.stickiness * 1.0,
-                frictionStatic: isZeroG ? 0 : isBounce ? 0.01 : pp.stickiness * 2.0,
-                frictionAir: isZeroG ? 0 : isBounce ? 0.0005 : pp.airResistance,
+                restitution: isPerpetual ? Math.max(pp.bounciness, 0.95) : pp.bounciness,
+                friction: isPerpetual ? Math.min(0.01, pp.stickiness * 1.0) : pp.stickiness * 1.0,
+                frictionStatic: isPerpetual ? Math.min(0.01, pp.stickiness * 2.0) : pp.stickiness * 2.0,
+                frictionAir: isPerpetual ? Math.min(0.0005, pp.airResistance) : pp.airResistance,
                 density: 0.001,
                 slop: 0.005,
                 sleepThreshold: isPerpetual ? Infinity : 30,
