@@ -567,12 +567,35 @@ export default function Drift(props: DriftProps) {
                     const prev = parseFloat(m.el.dataset.driftHue || "0")
                     const next = (prev + 47) % 360
                     m.el.dataset.driftHue = String(next)
-                    m.el.style.filter = `brightness(0) sepia(1) saturate(5) hue-rotate(${next}deg)`
+                    // sepia → saturate → hue-rotate colorizes non-black content
+                    m.el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
+                }
+
+                // Prevent edge-sliding: ensure reflected velocity has both axes alive
+                const wallDir = wallLabel.replace("wall-", "")
+                const isPerpetual = pp.motionMode === "bounce" || pp.motionMode === "zeroGravity"
+                if (isPerpetual) {
+                    const v = dynamicBody.velocity
+                    const speed = Math.sqrt(v.x * v.x + v.y * v.y)
+                    const minAxis = Math.max(0.8, speed * 0.3)
+                    // Top/bottom wall: Y should have bounced, ensure X is alive
+                    // Left/right wall: X should have bounced, ensure Y is alive
+                    if (wallDir === "top" || wallDir === "bottom") {
+                        if (Math.abs(v.x) < minAxis) {
+                            const nudge = (v.x >= 0 ? 1 : -1) * minAxis
+                            Body.setVelocity(dynamicBody, { x: nudge || minAxis, y: v.y })
+                        }
+                    } else if (wallDir === "left" || wallDir === "right") {
+                        if (Math.abs(v.y) < minAxis) {
+                            const nudge = (v.y >= 0 ? 1 : -1) * minAxis
+                            Body.setVelocity(dynamicBody, { x: v.x, y: nudge || minAxis })
+                        }
+                    }
                 }
 
                 window.dispatchEvent(new CustomEvent("drift-wall-bounce", {
                     detail: {
-                        wall: wallLabel.replace("wall-", ""),
+                        wall: wallDir,
                         bodyLabel: dynamicBody.label,
                         element: m.el,
                     },
