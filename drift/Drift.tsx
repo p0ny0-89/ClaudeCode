@@ -804,8 +804,34 @@ export default function Drift(props: DriftProps) {
             }
         }
 
+        // DEBUG: log velocity before and after physics step
+        const _debugBodies = managed.filter(m => !m.body.isStatic)
+        const _preSpeeds = _debugBodies.map(m => {
+            const v = m.body.velocity
+            return { label: m.body.label, vx: +v.x.toFixed(3), vy: +v.y.toFixed(3), speed: +Math.sqrt(v.x*v.x+v.y*v.y).toFixed(3), x: +m.body.position.x.toFixed(1), y: +m.body.position.y.toFixed(1) }
+        })
+
         // Step the engine with FIXED timestep for stability
         Engine.update(engine, FIXED_DT)
+
+        // DEBUG: log post-step
+        if (Math.random() < 0.02) { // ~1 log per second at 60fps
+            const _postSpeeds = _debugBodies.map((m, i) => {
+                const v = m.body.velocity
+                const pre = _preSpeeds[i]
+                return {
+                    label: m.body.label,
+                    pre: `vx:${pre.vx} vy:${pre.vy} spd:${pre.speed}`,
+                    post: `vx:${v.x.toFixed(3)} vy:${v.y.toFixed(3)} spd:${Math.sqrt(v.x*v.x+v.y*v.y).toFixed(3)}`,
+                    pos: `x:${m.body.position.x.toFixed(1)} y:${m.body.position.y.toFixed(1)}`,
+                    restitution: m.body.restitution,
+                    friction: m.body.friction,
+                    frictionStatic: m.body.frictionStatic,
+                    frictionAir: m.body.frictionAir,
+                }
+            })
+            console.log("[Drift DEBUG]", _postSpeeds)
+        }
 
         // Post-step: safety net only — allow bounce rebounds up to 2x the cap,
         // only clamp truly extreme spikes from collision glitches
