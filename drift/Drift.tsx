@@ -417,16 +417,25 @@ export default function Drift(props: DriftProps) {
                 "[Drift] Tip: Use #0, #1, etc. in Static Colliders / Ignored fields to select layers by index."
             )
 
-            // Add visual index labels on each child
+            // Add visual index labels overlaid on parent (avoids child overflow:hidden clipping)
+            const parentPos = getComputedStyle(parent).position
+            if (parentPos === "static") parent.style.position = "relative"
+
             for (let idx = 0; idx < managed.length; idx++) {
                 const m = managed[idx]
+                const childRect = m.el.getBoundingClientRect()
+                const parentRect2 = parent.getBoundingClientRect()
+                const offsetX = childRect.left - parentRect2.left
+                const offsetY = childRect.top - parentRect2.top
+
+                const roleSuffix = m.role === "static" ? " S" : m.isPointerLayer ? " L" : " D"
                 const label = document.createElement("div")
-                label.textContent = `#${idx}`
+                label.textContent = `#${idx}${roleSuffix}`
                 label.setAttribute("data-drift-debug", "true")
                 Object.assign(label.style, {
                     position: "absolute",
-                    top: "4px",
-                    left: "4px",
+                    top: `${offsetY + 4}px`,
+                    left: `${offsetX + 4}px`,
                     background: m.role === "static" ? "#ff6600" : "#0088ff",
                     color: "#fff",
                     fontSize: "11px",
@@ -438,17 +447,20 @@ export default function Drift(props: DriftProps) {
                     pointerEvents: "none",
                     lineHeight: "1.2",
                     whiteSpace: "nowrap",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
                 })
-                // Ensure the parent is positioned so the label anchors correctly
-                const pos = getComputedStyle(m.el).position
-                if (pos === "static") m.el.style.position = "relative"
-                m.el.appendChild(label)
+                parent.appendChild(label)
                 debugOverlaysRef.current.push(label)
+
+                // Also add a colored border to the element itself
+                const color = m.role === "static" ? "rgba(255, 102, 0, 0.8)" : "rgba(0, 136, 255, 0.8)"
+                m.el.style.outline = `2px solid ${color}`
+                m.el.style.outlineOffset = "-2px"
             }
         }
 
-        // Show Bounds: add colored outlines to collider bodies
-        if (pp.showColliderBounds) {
+        // Show Bounds: add colored outlines to collider bodies (independent of debugView)
+        if (pp.showColliderBounds && !pp.debugView) {
             for (const m of managed) {
                 const outline =
                     m.role === "static"
