@@ -136,14 +136,15 @@ function getLayerIdentifiers(el: HTMLElement): string[] {
 }
 
 interface ParsedSelector {
-    type: "index" | "name"
-    value: string // lowercase name, or index as string
+    type: "index" | "range" | "name"
+    value: string // lowercase name, index as string, or "start-end" for range
 }
 
 /**
  * Parse a comma-separated identifier list. Supports:
- *  - "#0", "#3"  → index-based (0-indexed child position, excluding Drift itself)
- *  - "COLLIDER"  → name/text-based matching
+ *  - "#0", "#3"      → index-based (0-indexed child position, excluding Drift itself)
+ *  - "#1-#15"         → index range (inclusive)
+ *  - "COLLIDER"       → name/text-based matching
  */
 function parseSelectorList(input: string): ParsedSelector[] {
     if (!input || !input.trim()) return []
@@ -152,6 +153,12 @@ function parseSelectorList(input: string): ParsedSelector[] {
         .map((s) => s.trim())
         .filter(Boolean)
         .map((s) => {
+            // Range: #0-#5 or #0-5
+            const rangeMatch = s.match(/^#(\d+)\s*-\s*#?(\d+)$/)
+            if (rangeMatch) {
+                return { type: "range" as const, value: `${rangeMatch[1]}-${rangeMatch[2]}` }
+            }
+            // Single index: #3
             if (s.startsWith("#") && /^#\d+$/.test(s)) {
                 return { type: "index" as const, value: s.slice(1) }
             }
@@ -170,6 +177,12 @@ function matchesSelectorList(
     return selectors.some((sel) => {
         if (sel.type === "index") {
             return childIndex === parseInt(sel.value, 10)
+        }
+        if (sel.type === "range") {
+            const [startStr, endStr] = sel.value.split("-")
+            const start = parseInt(startStr, 10)
+            const end = parseInt(endStr, 10)
+            return childIndex >= start && childIndex <= end
         }
         // Name matching: check if any identifier contains the pattern
         if (identifiers.length === 0) return false
@@ -1377,22 +1390,22 @@ addPropertyControls(Drift, {
         type: ControlType.String,
         title: "Static Colliders",
         defaultValue: "",
-        placeholder: "#0, COLLIDER, #3",
-        description: "Use #0, #1… for index or text/name to match. Enable Debug View to see indices.",
+        placeholder: "#0, #5-#15, COLLIDER",
+        description: "Use #0, #1… for index, #5-#15 for range, or text/name. Enable Debug View to see indices.",
     },
     ignoredLayers: {
         type: ControlType.String,
         title: "Ignored Layers",
         defaultValue: "",
-        placeholder: "#2, Background",
-        description: "Use #index or text/name. These layers won't participate in physics.",
+        placeholder: "#2, #10-#12, Background",
+        description: "Use #index, #5-#15 for range, or text/name. These layers won't participate in physics.",
     },
     pointerLayers: {
         type: ControlType.String,
         title: "Link Layers",
         defaultValue: "",
-        placeholder: "#2, Button",
-        description: "These elements show a pointer cursor and pass clicks through for links/buttons.",
+        placeholder: "#2, #5-#8, Button",
+        description: "Use #index, #5-#15 for range, or text/name. Pointer cursor and click-through for links/buttons.",
     },
 
     collisionEnabled: {
