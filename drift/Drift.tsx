@@ -619,10 +619,19 @@ export default function Drift(props: DriftProps) {
                             fx = nx * strength
                             fy = ny * strength
                             break
-                        case "attract":
+                        case "attract": {
+                            // Spring-like attract with velocity damping to prevent jitter
                             fx = -nx * strength
                             fy = -ny * strength
+                            // Dampen velocity as object gets closer to cursor
+                            const closeness = 1 - dist / pp.cursorRadius
+                            const damping = 0.85 - closeness * 0.15 // stronger damping when closer
+                            Body.setVelocity(m.body, {
+                                x: m.body.velocity.x * damping,
+                                y: m.body.velocity.y * damping,
+                            })
                             break
+                        }
                     }
                     Body.applyForce(m.body, m.body.position, { x: fx, y: fy })
                 }
