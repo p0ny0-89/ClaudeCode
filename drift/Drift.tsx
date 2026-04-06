@@ -210,6 +210,7 @@ interface DriftProps {
     ignoredLayers: string
     pointerLayers: string
     collisionEnabled: boolean
+    selfCollide: boolean
     colliderPadding: number
 
     debugView: boolean
@@ -243,6 +244,7 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     ignoredLayers: "",
     pointerLayers: "",
     collisionEnabled: true,
+    selfCollide: true,
     colliderPadding: 0,
     debugView: false,
     showColliderBounds: false,
@@ -361,6 +363,18 @@ export default function Drift(props: DriftProps) {
             const pad = pp.colliderPadding
             const isStatic = role === "static"
 
+            // Collision categories: 0x0001 = walls/statics, 0x0002 = dynamics
+            const CATEGORY_STATIC = 0x0001
+            const CATEGORY_DYNAMIC = 0x0002
+            const collisionFilter = isStatic
+                ? { category: CATEGORY_STATIC, mask: 0xFFFF } // statics collide with everything
+                : {
+                    category: CATEGORY_DYNAMIC,
+                    mask: pp.selfCollide
+                        ? CATEGORY_STATIC | CATEGORY_DYNAMIC // collide with statics + other dynamics
+                        : CATEGORY_STATIC,                    // collide with statics only
+                }
+
             const matterBody = Bodies.rectangle(cx, cy, w + pad * 2, h + pad * 2, {
                 angle: homeAngle,
                 isStatic,
@@ -373,6 +387,7 @@ export default function Drift(props: DriftProps) {
                 slop: 0.005,
                 sleepThreshold: isBounce ? Infinity : 30,
                 label: getLayerName(child) || `body-${ci}`,
+                collisionFilter,
             })
 
             if (!pp.rotationEnabled && !isStatic) {
@@ -496,6 +511,7 @@ export default function Drift(props: DriftProps) {
             for (const w of walls) {
                 w.restitution = isBounce ? 1.0 : pp.bounciness
                 w.friction = isBounce ? 0 : pp.stickiness * 1.0
+                w.collisionFilter = { category: 0x0001, mask: 0xFFFF }
             }
             Composite.add(engine.world, walls)
             wallsRef.current = walls
@@ -1383,6 +1399,12 @@ addPropertyControls(Drift, {
         type: ControlType.Boolean,
         title: "Collisions",
         defaultValue: true,
+    },
+    selfCollide: {
+        type: ControlType.Boolean,
+        title: "Self Collide",
+        defaultValue: true,
+        description: "When off, dynamic objects pass through each other but still collide with static colliders and walls.",
     },
     colliderPadding: {
         type: ControlType.Number,
