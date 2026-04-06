@@ -401,13 +401,15 @@ export default function Drift(props: DriftProps) {
             const matterBody = Bodies.rectangle(cx, cy, w + pad * 2, h + pad * 2, {
                 angle: homeAngle,
                 isStatic,
-                // Perpetual modes (bounce/zeroGravity): perfect elasticity, zero friction
-                restitution: isPerpetual ? 1.0 : pp.bounciness,
-                friction: isPerpetual ? 0 : pp.stickiness * 1.0,
-                frictionStatic: isPerpetual ? 0 : pp.stickiness * 2.0,
-                frictionAir: isPerpetual ? 0 : pp.airResistance,
+                // Bounce: near-perfect elasticity, minimal friction
+                // Zero gravity: perfect elasticity, zero friction
+                // Gravity: user-controlled
+                restitution: isZeroG ? 1.0 : isBounce ? Math.max(pp.bounciness, 0.95) : pp.bounciness,
+                friction: isZeroG ? 0 : isBounce ? 0.01 : pp.stickiness * 1.0,
+                frictionStatic: isZeroG ? 0 : isBounce ? 0.01 : pp.stickiness * 2.0,
+                frictionAir: isZeroG ? 0 : isBounce ? 0.0005 : pp.airResistance,
                 density: 0.001,
-                slop: isPerpetual ? 0.01 : 0.005,
+                slop: 0.005,
                 sleepThreshold: isPerpetual ? Infinity : 30,
                 label: getLayerName(child) || `body-${ci}`,
                 collisionFilter,
@@ -532,8 +534,8 @@ export default function Drift(props: DriftProps) {
                 Bodies.rectangle(W + wallThickness / 2, H / 2, wallThickness, H + wallThickness * 2, { isStatic: true, label: "wall-right" }),
             ]
             for (const w of walls) {
-                w.restitution = isPerpetual ? 1.0 : pp.bounciness
-                w.friction = isPerpetual ? 0 : pp.stickiness * 1.0
+                w.restitution = isZeroG ? 1.0 : isBounce ? 1.0 : pp.bounciness
+                w.friction = isZeroG ? 0 : isBounce ? 0 : pp.stickiness * 1.0
                 w.frictionStatic = 0
                 w.collisionFilter = { category: 0x0001, mask: 0xFFFF }
             }
