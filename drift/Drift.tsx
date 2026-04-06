@@ -943,6 +943,12 @@ export default function Drift(props: DriftProps) {
     const initedRef = useRef(false)
     const pausedRef = useRef(false)
 
+    // Refs for event handlers so listeners always call the latest version
+    const startSimRef = useRef<() => void>(() => {})
+    const pauseSimRef = useRef<() => void>(() => {})
+    const resetSimRef = useRef<() => void>(() => {})
+    const replaySimRef = useRef<() => void>(() => {})
+
     const pauseSimulation = useCallback(() => {
         pausedRef.current = !pausedRef.current
         // If unpausing, restart the animation loop
@@ -959,6 +965,9 @@ export default function Drift(props: DriftProps) {
         // Full teardown so startSimulation can re-init cleanly
         stopSimulation()
     }, [stopSimulation])
+
+    pauseSimRef.current = pauseSimulation
+    resetSimRef.current = resetSimulation
 
     const replaySimulation = useCallback(() => {
         if (!initedRef.current) return
@@ -1008,9 +1017,12 @@ export default function Drift(props: DriftProps) {
         rafRef.current = requestAnimationFrame(animate)
     }, [animate])
 
+    replaySimRef.current = replaySimulation
+
     const startSimulation = useCallback(() => {
         if (initedRef.current) return
         initedRef.current = true
+        pausedRef.current = false
 
         init()
 
@@ -1025,6 +1037,8 @@ export default function Drift(props: DriftProps) {
         lastTimeRef.current = 0
         rafRef.current = requestAnimationFrame(animate)
     }, [init, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, animate])
+
+    startSimRef.current = startSimulation
 
     const stopSimulation = useCallback(() => {
         initedRef.current = false
@@ -1113,7 +1127,7 @@ export default function Drift(props: DriftProps) {
         } else if (pp.startTrigger === "event") {
             // Listen for a custom DOM event
             const eventName = pp.eventName || "drift-start"
-            const handler = () => startSimulation()
+            const handler = () => startSimRef.current()
             window.addEventListener(eventName, handler)
             cleanup = () => window.removeEventListener(eventName, handler)
         }
@@ -1124,9 +1138,9 @@ export default function Drift(props: DriftProps) {
         // Strip "-start" suffix if present to get the base
         const base = baseName.replace(/-start$/, "") || "drift"
 
-        const pauseHandler = () => pauseSimulation()
-        const resetHandler = () => resetSimulation()
-        const replayHandler = () => replaySimulation()
+        const pauseHandler = () => pauseSimRef.current()
+        const resetHandler = () => resetSimRef.current()
+        const replayHandler = () => replaySimRef.current()
 
         window.addEventListener(`${base}-pause`, pauseHandler)
         window.addEventListener(`${base}-reset`, resetHandler)
