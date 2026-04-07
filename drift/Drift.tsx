@@ -328,16 +328,17 @@ export default function Drift(props: DriftProps) {
 
     const init = useCallback(() => {
         const self = selfRef.current
-        if (!self) return
+        if (!self) { console.warn("[Drift] init: selfRef is null"); return }
 
         const parent = findParentContainer(self)
-        if (!parent) return
+        if (!parent) { console.warn("[Drift] init: no parent found"); return }
         parentRef.current = parent
 
         const parentRect = parent.getBoundingClientRect()
         const W = parentRect.width
         const H = parentRect.height
         boundsRef.current = { width: W, height: H }
+        console.log(`[Drift] init: parent found, ${W}x${H}, children: ${parent.children.length}`)
 
         const pp = propsRef.current
 
@@ -1341,18 +1342,21 @@ export default function Drift(props: DriftProps) {
 
     const handleTouchStart = useCallback((e: TouchEvent) => {
         const pp = propsRef.current
-        if (!pp.touchEnabled) return
-        if (!pp.dragEnabled && pp.cursorInfluence === "off") return
+        if (!pp.touchEnabled) { console.log("[Drift] touch: disabled"); return }
+        if (!pp.dragEnabled && pp.cursorInfluence === "off") { console.log("[Drift] touch: no drag/cursor"); return }
         const parent = parentRef.current
-        if (!parent) return
+        if (!parent) { console.log("[Drift] touch: no parent"); return }
         const touch = e.touches[0]
         if (!touch) return
         const parentRect = parent.getBoundingClientRect()
         const px = touch.clientX - parentRect.left
         const py = touch.clientY - parentRect.top
 
+        const inCluster = isTouchInCluster(px, py)
+        console.log(`[Drift] touchstart: (${Math.round(px)}, ${Math.round(py)}) inCluster=${inCluster} bodies=${managedRef.current.length}`)
+
         // Outside the body cluster? Let scroll happen normally.
-        if (!isTouchInCluster(px, py)) {
+        if (!inCluster) {
             touchActiveRef.current = false
             return
         }
@@ -1515,6 +1519,7 @@ export default function Drift(props: DriftProps) {
     const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const startSimulation = useCallback((retryCount = 0) => {
+        console.log(`[Drift] startSimulation attempt ${retryCount}, inited: ${initedRef.current}`)
         if (initedRef.current) return
         initedRef.current = true
         pausedRef.current = false
@@ -1522,13 +1527,18 @@ export default function Drift(props: DriftProps) {
         init()
 
         const parent = parentRef.current
+        const bodyCount = managedRef.current.length
+        console.log(`[Drift] after init: parent=${!!parent}, bodies=${bodyCount}`)
         // If init failed to find a parent or no bodies found (DOM not ready),
         // retry with backoff up to ~3 seconds total
-        if (!parent || managedRef.current.length === 0) {
+        if (!parent || bodyCount === 0) {
             initedRef.current = false
             if (retryCount < 10) {
                 const delay = Math.min(100 * (retryCount + 1), 500)
+                console.log(`[Drift] retrying in ${delay}ms`)
                 retryTimerRef.current = setTimeout(() => startSimulation(retryCount + 1), delay)
+            } else {
+                console.warn("[Drift] gave up after 10 retries")
             }
             return
         }
@@ -1625,6 +1635,7 @@ export default function Drift(props: DriftProps) {
     replaySimRef.current = replaySimulation
 
     useEffect(() => {
+        console.log("[Drift] useEffect mount, isCanvas:", isFramerCanvas())
         if (isFramerCanvas()) return
 
         const pp = propsRef.current
@@ -1632,6 +1643,7 @@ export default function Drift(props: DriftProps) {
 
         if (pp.startTrigger === "immediate") {
             // Start after a short delay for DOM to settle
+            console.log("[Drift] scheduling startSimulation in 100ms")
             const timer = setTimeout(startSimulation, 100)
             cleanup = () => clearTimeout(timer)
 
