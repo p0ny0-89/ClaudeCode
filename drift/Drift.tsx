@@ -469,19 +469,19 @@ export default function Drift(props: DriftProps) {
 
         managedRef.current = managed
 
-        // Disable browser touch gestures on parent so pointer events work for touch.
-        // This prevents scroll/zoom within the Drift container on mobile.
-        if (pp.touchEnabled) {
-            parent.style.touchAction = "none"
-        }
-
-        // Set cursor on dynamic elements: grab for draggable, pointer for link layers
+        // Set cursor and touch-action on dynamic elements
         for (const m of managed) {
             if (m.role !== "dynamic") continue
             if (m.isPointerLayer) {
                 m.el.style.cursor = "pointer"
             } else if (pp.dragEnabled) {
                 m.el.style.cursor = "grab"
+            }
+            // Disable browser touch gestures on each dynamic body element.
+            // This prevents scroll when touching a body directly, while
+            // empty space between/around bodies still allows page scrolling.
+            if (pp.touchEnabled) {
+                m.el.style.touchAction = "none"
             }
         }
 
@@ -1342,7 +1342,6 @@ export default function Drift(props: DriftProps) {
             parent.removeEventListener("pointerup", handlePointerUp, true)
             parent.removeEventListener("pointercancel", handlePointerUp as any, true)
             parent.removeEventListener("pointerleave", handlePointerLeave)
-            parent.style.touchAction = ""
         }
 
         // Remove debug overlays
@@ -1361,6 +1360,7 @@ export default function Drift(props: DriftProps) {
             m.el.style.filter = ""
             m.el.style.outline = ""
             m.el.style.outlineOffset = ""
+            m.el.style.touchAction = ""
             delete m.el.dataset.driftHue
             delete m.el.dataset.driftHueTime
         }
