@@ -423,8 +423,10 @@ export default function Drift(props: DriftProps) {
                     : ""
             const homeAngle = parseRotation(originalTransform)
 
-            const w = child.offsetWidth
-            const h = child.offsetHeight
+            // Use offsetWidth/Height for HTML elements, fall back to getBoundingClientRect
+            // for SVG elements (which don't have offsetWidth/Height)
+            const w = child.offsetWidth || childRect.width
+            const h = child.offsetHeight || childRect.height
             const cx = childRect.left + childRect.width / 2 - parentRect.left
             const cy = childRect.top + childRect.height / 2 - parentRect.top
 
