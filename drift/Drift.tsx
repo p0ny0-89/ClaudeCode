@@ -229,6 +229,9 @@ interface DriftProps {
     colliderPadding: number
 
     wallBounceColorCycle: boolean
+    motionTrail: boolean
+    trailLength: number
+    squishOnBounce: boolean
 
     debugView: boolean
     showColliderBounds: boolean
@@ -266,6 +269,9 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     selfCollide: true,
     colliderPadding: 0,
     wallBounceColorCycle: false,
+    motionTrail: false,
+    trailLength: 5,
+    squishOnBounce: false,
     debugView: false,
     showColliderBounds: false,
 }
@@ -285,6 +291,8 @@ export default function Drift(props: DriftProps) {
     const debugOverlaysRef = useRef<HTMLElement[]>([])
     const ignoredElsRef = useRef<Set<HTMLElement>>(new Set())
     const cursorRef = useRef<{ x: number; y: number } | null>(null)
+    const trailFrameRef = useRef(0)
+    const trailGhostsRef = useRef<HTMLElement[]>([])
     const dragRef = useRef<{
         managed: ManagedBody
         offset: { x: number; y: number }
@@ -545,25 +553,48 @@ export default function Drift(props: DriftProps) {
             wallsRef.current = walls
         }
 
-        // Wall bounce detection for gravity mode (physics walls handle collision)
-        if (!isPerpetual) {
-            Events.on(engine, "collisionStart", (event: any) => {
-                for (const pair of event.pairs) {
-                    const labelA = pair.bodyA.label || ""
-                    const labelB = pair.bodyB.label || ""
-                    const isWallA = labelA.startsWith("wall-")
-                    const isWallB = labelB.startsWith("wall-")
-                    if (!isWallA && !isWallB) continue
+        // Collision events and squish effect
+        Events.on(engine, "collisionStart", (event: any) => {
+            for (const pair of event.pairs) {
+                const labelA = pair.bodyA.label || ""
+                const labelB = pair.bodyB.label || ""
+                const isWallA = labelA.startsWith("wall-")
+                const isWallB = labelB.startsWith("wall-")
+
+                // Wall bounce (gravity mode only — perpetual uses manual bounce)
+                if ((isWallA || isWallB) && !isPerpetual) {
                     const dynamicBody = isWallA ? pair.bodyB : pair.bodyA
                     const wallDir = (isWallA ? labelA : labelB).replace("wall-", "")
                     const m = managedRef.current.find(mb => mb.body === dynamicBody)
                     if (!m || m.role === "static") continue
+
+                    if (pp.squishOnBounce) {
+                        const isH = wallDir === "top" || wallDir === "bottom"
+                        const sx = isH ? 1.25 : 0.75, sy = isH ? 0.75 : 1.25
+                        m.el.style.transition = "scale 0.08s ease-in"
+                        m.el.style.scale = `${sx} ${sy}`
+                        setTimeout(() => { m.el.style.transition = "scale 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)"; m.el.style.scale = "1 1" }, 80)
+                        setTimeout(() => { m.el.style.transition = ""; m.el.style.scale = "" }, 350)
+                    }
+
                     window.dispatchEvent(new CustomEvent("drift-wall-bounce", {
                         detail: { wall: wallDir, bodyLabel: dynamicBody.label, element: m.el },
                     }))
                 }
-            })
-        }
+
+                // Body-to-body squish
+                if (!isWallA && !isWallB && pp.squishOnBounce) {
+                    for (const b of [pair.bodyA, pair.bodyB]) {
+                        const m = managedRef.current.find(mb => mb.body === b)
+                        if (!m || m.role === "static") continue
+                        m.el.style.transition = "scale 0.06s ease-in"
+                        m.el.style.scale = "0.85 0.85"
+                        setTimeout(() => { m.el.style.transition = "scale 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)"; m.el.style.scale = "1 1" }, 60)
+                        setTimeout(() => { m.el.style.transition = ""; m.el.style.scale = "" }, 280)
+                    }
+                }
+            }
+        })
 
         // Apply initial motion for zero-gravity and bounce modes
         for (const m of managed) {
@@ -888,6 +919,25 @@ export default function Drift(props: DriftProps) {
                         m.el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
                     }
 
+                    // Squish on bounce — squash in impact axis, stretch perpendicular
+                    if (pp.squishOnBounce) {
+                        const isHorizontalWall = wallHit === "top" || wallHit === "bottom"
+                        const sx = isHorizontalWall ? 1.25 : 0.75
+                        const sy = isHorizontalWall ? 0.75 : 1.25
+                        m.el.style.transition = "scale 0.08s ease-in"
+                        m.el.style.scale = `${sx} ${sy}`
+                        // Spring back
+                        setTimeout(() => {
+                            m.el.style.transition = "scale 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)"
+                            m.el.style.scale = "1 1"
+                        }, 80)
+                        // Clean up transition
+                        setTimeout(() => {
+                            m.el.style.transition = ""
+                            m.el.style.scale = ""
+                        }, 350)
+                    }
+
                     // Dispatch wall bounce event
                     window.dispatchEvent(new CustomEvent("drift-wall-bounce", {
                         detail: { wall: wallHit, bodyLabel: m.body.label, element: m.el },
@@ -933,6 +983,54 @@ export default function Drift(props: DriftProps) {
                 const bh = m.body.bounds.max.y - m.body.bounds.min.y
                 m.debugLabel.style.top = `${m.body.position.y - bh / 2 + 4}px`
                 m.debugLabel.style.left = `${m.body.position.x - bw / 2 + 4}px`
+            }
+        }
+
+        // Motion trail: spawn ghost clones every few frames
+        if (pp.motionTrail) {
+            trailFrameRef.current++
+            if (trailFrameRef.current % 3 === 0) { // every 3 frames
+                const parent = parentRef.current
+                if (parent) {
+                    for (const m of managed) {
+                        if (m.role === "static") continue
+                        if (drag && drag.managed === m) continue
+
+                        const ghost = m.el.cloneNode(true) as HTMLElement
+                        // Position ghost absolutely at body's current position
+                        const bw = m.body.bounds.max.x - m.body.bounds.min.x
+                        const bh = m.body.bounds.max.y - m.body.bounds.min.y
+                        ghost.style.position = "absolute"
+                        ghost.style.left = `${m.body.position.x - bw / 2}px`
+                        ghost.style.top = `${m.body.position.y - bh / 2}px`
+                        ghost.style.width = `${bw}px`
+                        ghost.style.height = `${bh}px`
+                        ghost.style.translate = "none"
+                        ghost.style.rotate = m.el.style.rotate || "0deg"
+                        ghost.style.opacity = "0.4"
+                        ghost.style.pointerEvents = "none"
+                        ghost.style.transition = "opacity 0.5s ease-out"
+                        ghost.style.zIndex = "-1"
+                        ghost.dataset.driftGhost = "1"
+                        parent.appendChild(ghost)
+                        trailGhostsRef.current.push(ghost)
+
+                        // Fade out and remove
+                        requestAnimationFrame(() => { ghost.style.opacity = "0" })
+                        setTimeout(() => {
+                            ghost.remove()
+                            const idx = trailGhostsRef.current.indexOf(ghost)
+                            if (idx >= 0) trailGhostsRef.current.splice(idx, 1)
+                        }, 500)
+                    }
+
+                    // Limit total ghost count based on trail length
+                    const maxGhosts = pp.trailLength * managed.filter(m => m.role !== "static").length
+                    while (trailGhostsRef.current.length > maxGhosts) {
+                        const old = trailGhostsRef.current.shift()
+                        old?.remove()
+                    }
+                }
             }
         }
 
@@ -1077,13 +1175,23 @@ export default function Drift(props: DriftProps) {
         }
         debugOverlaysRef.current = []
 
+        // Remove trail ghosts
+        for (const el of trailGhostsRef.current) {
+            el.remove()
+        }
+        trailGhostsRef.current = []
+
         for (const m of managedRef.current) {
             m.el.style.translate = ""
             m.el.style.rotate = ""
             m.el.style.willChange = ""
             m.el.style.cursor = ""
+            m.el.style.scale = ""
+            m.el.style.transition = ""
+            m.el.style.filter = ""
             m.el.style.outline = ""
             m.el.style.outlineOffset = ""
+            delete m.el.dataset.driftHue
         }
 
         if (engineRef.current) {
@@ -1532,6 +1640,28 @@ addPropertyControls(Drift, {
         defaultValue: false,
         description: "Cycle hue on each wall bounce (DVD screensaver effect). Works best on white/light elements.",
         hidden: (p: any) => p.motionMode !== "bounce" && p.motionMode !== "zeroGravity",
+    },
+    motionTrail: {
+        type: ControlType.Boolean,
+        title: "Motion Trail",
+        defaultValue: false,
+        description: "Leave fading afterimages behind moving objects.",
+    },
+    trailLength: {
+        type: ControlType.Number,
+        title: "Trail Length",
+        min: 1,
+        max: 15,
+        step: 1,
+        defaultValue: 5,
+        hidden: (p: any) => !p.motionTrail,
+        description: "Number of ghost images per object.",
+    },
+    squishOnBounce: {
+        type: ControlType.Boolean,
+        title: "Squish on Bounce",
+        defaultValue: false,
+        description: "Objects squash and stretch on wall and body collisions.",
     },
 
     debugView: {
