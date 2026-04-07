@@ -986,48 +986,47 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Motion trail: spawn silhouette ghosts every few frames
+        // Motion trail: spawn ghost clones every few frames
         if (pp.motionTrail) {
             trailFrameRef.current++
             if (trailFrameRef.current % 3 === 0) {
                 const parent = parentRef.current
                 if (parent) {
+                    // Ensure parent supports absolute positioning
+                    if (!parent.style.position || parent.style.position === "static") {
+                        parent.style.position = "relative"
+                    }
                     for (const m of managed) {
                         if (m.role === "static") continue
                         if (drag && drag.managed === m) continue
 
                         const bw = m.body.bounds.max.x - m.body.bounds.min.x
                         const bh = m.body.bounds.max.y - m.body.bounds.min.y
-                        const ghost = document.createElement("div")
-                        // Sample the element's dominant color for the ghost
-                        const cs = getComputedStyle(m.el)
-                        const bgColor = cs.backgroundColor
-                        const hasVisibleBg = bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent"
                         const fadeMs = 300 + pp.trailLength * 40
-                        ghost.style.cssText = [
-                            "position:absolute",
-                            `left:${m.body.position.x - bw / 2}px`,
-                            `top:${m.body.position.y - bh / 2}px`,
-                            `width:${bw}px`,
-                            `height:${bh}px`,
-                            `border-radius:${cs.borderRadius || "0"}`,
-                            `background:${hasVisibleBg ? bgColor : cs.color || "rgba(128,128,128,0.5)"}`,
-                            "opacity:0.3",
-                            "pointer-events:none",
-                            "z-index:9999",
-                            `transition:opacity ${fadeMs}ms ease-out`,
-                        ].join(";")
-                        // Framer containers use overflow:hidden — ensure parent allows absolute children
-                        if (!parent.style.position || parent.style.position === "static") {
-                            parent.style.position = "relative"
-                        }
-                        if (pp.rotationEnabled && m.el.style.rotate) {
-                            ghost.style.rotate = m.el.style.rotate
-                        }
+
+                        // Clone the actual element for a faithful visual copy
+                        const ghost = m.el.cloneNode(true) as HTMLElement
+                        ghost.style.position = "absolute"
+                        ghost.style.left = `${m.body.position.x - bw / 2}px`
+                        ghost.style.top = `${m.body.position.y - bh / 2}px`
+                        ghost.style.width = `${bw}px`
+                        ghost.style.height = `${bh}px`
+                        ghost.style.margin = "0"
+                        // Clear the physics translate — ghost is positioned via left/top
+                        ghost.style.translate = "0px 0px"
+                        ghost.style.rotate = m.el.style.rotate || ""
+                        ghost.style.scale = ""
+                        ghost.style.opacity = "0.3"
+                        ghost.style.pointerEvents = "none"
+                        ghost.style.zIndex = "1"
+                        ghost.style.transition = `opacity ${fadeMs}ms ease-out`
+                        ghost.style.willChange = "opacity"
+                        ghost.dataset.driftGhost = "1"
+
                         parent.appendChild(ghost)
                         trailGhostsRef.current.push(ghost)
 
-                        // Trigger fade on next frame so transition runs
+                        // Double-rAF ensures the browser paints at 0.3 before starting fade
                         requestAnimationFrame(() => {
                             requestAnimationFrame(() => { ghost.style.opacity = "0" })
                         })
@@ -1035,7 +1034,7 @@ export default function Drift(props: DriftProps) {
                             ghost.remove()
                             const idx = trailGhostsRef.current.indexOf(ghost)
                             if (idx >= 0) trailGhostsRef.current.splice(idx, 1)
-                        }, fadeMs)
+                        }, fadeMs + 50)
                     }
 
                     // Cap total ghost count
