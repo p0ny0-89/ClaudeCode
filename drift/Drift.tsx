@@ -195,7 +195,7 @@ function matchesSelectorList(
 // ─── Props ──────────────────────────────────────────────────────────────────
 
 interface DriftProps {
-    motionMode: "zeroGravity" | "bounce" | "gravity"
+    motionMode: "zeroGravity" | "bounce" | "gravity" | "swarm"
     gravityStrength: number
     bounciness: number
     airResistance: number
@@ -227,6 +227,12 @@ interface DriftProps {
     collisionEnabled: boolean
     selfCollide: boolean
     colliderPadding: number
+
+    swarmRadius: number
+    separationWeight: number
+    alignmentWeight: number
+    cohesionWeight: number
+    swarmSpeed: number
 
     wallBounceColorCycle: boolean
     squishOnBounce: boolean
@@ -266,6 +272,11 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     collisionEnabled: true,
     selfCollide: true,
     colliderPadding: 0,
+    swarmRadius: 150,
+    separationWeight: 1.5,
+    alignmentWeight: 1.0,
+    cohesionWeight: 1.0,
+    swarmSpeed: 3,
     wallBounceColorCycle: false,
     squishOnBounce: false,
     debugView: false,
@@ -316,7 +327,8 @@ export default function Drift(props: DriftProps) {
         // Create engine
         const isBounce = pp.motionMode === "bounce"
         const isZeroG = pp.motionMode === "zeroGravity"
-        const isPerpetual = isBounce || isZeroG // modes that need energy preservation
+        const isSwarm = pp.motionMode === "swarm"
+        const isPerpetual = isBounce || isZeroG || isSwarm // modes that need energy preservation
         const engine = Engine.create({
             gravity: {
                 x: 0,
@@ -613,6 +625,13 @@ export default function Drift(props: DriftProps) {
                 if (pp.rotationEnabled) {
                     Body.setAngularVelocity(m.body, (Math.random() - 0.5) * 0.04)
                 }
+            } else if (pp.motionMode === "swarm") {
+                const angle = Math.random() * Math.PI * 2
+                const speed = pp.swarmSpeed * (0.8 + Math.random() * 0.4)
+                Body.setVelocity(m.body, {
+                    x: Math.cos(angle) * speed,
+                    y: Math.sin(angle) * speed,
+                })
             }
         }
 
@@ -711,6 +730,106 @@ export default function Drift(props: DriftProps) {
                         m.body.angularVelocity + angleDiff * pp.returnStrength * 0.5
                     )
                 }
+            }
+        }
+
+        // ── Swarm / Boid forces ────────────────────────────────────────
+        if (pp.motionMode === "swarm") {
+            const dynamics = managed.filter(m => m.role !== "static" && !m.body.isStatic && !(drag && drag.managed === m))
+            const r = pp.swarmRadius
+            const rSq = r * r
+            const maxForce = 0.005
+
+            for (const m of dynamics) {
+                let sepX = 0, sepY = 0
+                let aliVx = 0, aliVy = 0
+                let cohX = 0, cohY = 0
+                let neighbors = 0
+
+                for (const n of dynamics) {
+                    if (n === m) continue
+                    const dx = m.body.position.x - n.body.position.x
+                    const dy = m.body.position.y - n.body.position.y
+                    const dSq = dx * dx + dy * dy
+                    if (dSq > rSq || dSq < 0.01) continue
+
+                    const dist = Math.sqrt(dSq)
+                    neighbors++
+
+                    // Separation: inversely proportional to distance
+                    sepX += (dx / dist) / dist
+                    sepY += (dy / dist) / dist
+
+                    // Alignment: accumulate neighbor velocities
+                    aliVx += n.body.velocity.x
+                    aliVy += n.body.velocity.y
+
+                    // Cohesion: accumulate neighbor positions
+                    cohX += n.body.position.x
+                    cohY += n.body.position.y
+                }
+
+                let fx = 0, fy = 0
+
+                if (neighbors > 0) {
+                    // Separation steer
+                    const sepLen = Math.sqrt(sepX * sepX + sepY * sepY)
+                    if (sepLen > 0) {
+                        fx += (sepX / sepLen) * pp.separationWeight * maxForce
+                        fy += (sepY / sepLen) * pp.separationWeight * maxForce
+                    }
+
+                    // Alignment steer (toward average heading)
+                    aliVx /= neighbors; aliVy /= neighbors
+                    const aSteerX = aliVx - m.body.velocity.x
+                    const aSteerY = aliVy - m.body.velocity.y
+                    const aLen = Math.sqrt(aSteerX * aSteerX + aSteerY * aSteerY)
+                    if (aLen > 0) {
+                        fx += (aSteerX / aLen) * pp.alignmentWeight * maxForce
+                        fy += (aSteerY / aLen) * pp.alignmentWeight * maxForce
+                    }
+
+                    // Cohesion steer (toward average position)
+                    cohX /= neighbors; cohY /= neighbors
+                    const cDx = cohX - m.body.position.x
+                    const cDy = cohY - m.body.position.y
+                    const cLen = Math.sqrt(cDx * cDx + cDy * cDy)
+                    if (cLen > 0) {
+                        fx += (cDx / cLen) * pp.cohesionWeight * maxForce
+                        fy += (cDy / cLen) * pp.cohesionWeight * maxForce
+                    }
+                }
+
+                // Soft boundary steering — steer inward when near edges
+                if (pp.boundToContainer && bounds.width > 0) {
+                    const margin = r * 0.6
+                    const pos = m.body.position
+                    const bw = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
+                    const bh = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
+                    if (pos.x - bw < margin) fx += maxForce * 3 * (1 - (pos.x - bw) / margin)
+                    if (pos.x + bw > bounds.width - margin) fx -= maxForce * 3 * (1 - (bounds.width - pos.x - bw) / margin)
+                    if (pos.y - bh < margin) fy += maxForce * 3 * (1 - (pos.y - bh) / margin)
+                    if (pos.y + bh > bounds.height - margin) fy -= maxForce * 3 * (1 - (bounds.height - pos.y - bh) / margin)
+                }
+
+                // Speed regulation: gently steer toward swarmSpeed
+                const speed = Math.sqrt(m.body.velocity.x ** 2 + m.body.velocity.y ** 2)
+                if (speed > 0.1) {
+                    const target = pp.swarmSpeed
+                    const correction = (target - speed) / speed * 0.02
+                    fx += m.body.velocity.x * correction
+                    fy += m.body.velocity.y * correction
+                }
+
+                // Clamp total force
+                const fLen = Math.sqrt(fx * fx + fy * fy)
+                const fCap = maxForce * 4
+                if (fLen > fCap) {
+                    fx = (fx / fLen) * fCap
+                    fy = (fy / fLen) * fCap
+                }
+
+                Body.applyForce(m.body, m.body.position, { x: fx, y: fy })
             }
         }
 
@@ -855,7 +974,7 @@ export default function Drift(props: DriftProps) {
             }
 
             // Bounds safety — if a body escapes the container, pull it back (gravity mode only)
-            const isPerpetualMode = pp.motionMode === "bounce" || pp.motionMode === "zeroGravity"
+            const isPerpetualMode = pp.motionMode === "bounce" || pp.motionMode === "zeroGravity" || pp.motionMode === "swarm"
             if (pp.boundToContainer && bounds.width > 0 && !isPerpetualMode) {
                 const pos = m.body.position
                 const margin = 50
@@ -948,6 +1067,26 @@ export default function Drift(props: DriftProps) {
                         x: Math.cos(angle) * minSpeed,
                         y: Math.sin(angle) * minSpeed,
                     })
+                }
+            }
+        }
+
+        // Swarm: hard boundary safety net — reflect if soft steering wasn't enough
+        if (pp.motionMode === "swarm" && pp.boundToContainer && bounds.width > 0) {
+            for (const m of managed) {
+                if (m.body.isStatic) continue
+                const pos = m.body.position
+                const v = m.body.velocity
+                const bw = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
+                const bh = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
+                let px = pos.x, py = pos.y, vx = v.x, vy = v.y, fix = false
+                if (px - bw < 0) { px = bw + 1; vx = Math.abs(vx); fix = true }
+                else if (px + bw > bounds.width) { px = bounds.width - bw - 1; vx = -Math.abs(vx); fix = true }
+                if (py - bh < 0) { py = bh + 1; vy = Math.abs(vy); fix = true }
+                else if (py + bh > bounds.height) { py = bounds.height - bh - 1; vy = -Math.abs(vy); fix = true }
+                if (fix) {
+                    Body.setPosition(m.body, { x: px, y: py })
+                    Body.setVelocity(m.body, { x: vx, y: vy })
                 }
             }
         }
@@ -1218,6 +1357,13 @@ export default function Drift(props: DriftProps) {
                 if (pp.rotationEnabled) {
                     Body.setAngularVelocity(m.body, (Math.random() - 0.5) * 0.04)
                 }
+            } else if (pp.motionMode === "swarm") {
+                const angle = Math.random() * Math.PI * 2
+                const speed = pp.swarmSpeed * (0.8 + Math.random() * 0.4)
+                Body.setVelocity(m.body, {
+                    x: Math.cos(angle) * speed,
+                    y: Math.sin(angle) * speed,
+                })
             }
         }
 
@@ -1387,8 +1533,8 @@ addPropertyControls(Drift, {
     motionMode: {
         type: ControlType.Enum,
         title: "Motion Mode",
-        options: ["zeroGravity", "bounce", "gravity"],
-        optionTitles: ["Zero Gravity", "Bounce", "Gravity"],
+        options: ["zeroGravity", "bounce", "gravity", "swarm"],
+        optionTitles: ["Zero Gravity", "Bounce", "Gravity", "Swarm"],
         defaultValue: "zeroGravity",
     },
     gravityStrength: {
@@ -1398,8 +1544,58 @@ addPropertyControls(Drift, {
         max: 10,
         step: 0.1,
         defaultValue: 4,
-        hidden: (p) => p.motionMode === "zeroGravity",
+        hidden: (p) => p.motionMode !== "gravity",
         description: "Strength of downward pull (Matter.js scale)",
+    },
+    swarmRadius: {
+        type: ControlType.Number,
+        title: "Perception Radius",
+        min: 30,
+        max: 400,
+        step: 10,
+        defaultValue: 150,
+        hidden: (p: any) => p.motionMode !== "swarm",
+        description: "How far each body detects neighbors.",
+    },
+    separationWeight: {
+        type: ControlType.Number,
+        title: "Separation",
+        min: 0,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1.5,
+        hidden: (p: any) => p.motionMode !== "swarm",
+        description: "Avoidance strength — steer away from nearby bodies.",
+    },
+    alignmentWeight: {
+        type: ControlType.Number,
+        title: "Alignment",
+        min: 0,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1.0,
+        hidden: (p: any) => p.motionMode !== "swarm",
+        description: "Heading matching — steer toward neighbors' average direction.",
+    },
+    cohesionWeight: {
+        type: ControlType.Number,
+        title: "Cohesion",
+        min: 0,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1.0,
+        hidden: (p: any) => p.motionMode !== "swarm",
+        description: "Flock centering — steer toward neighbors' average position.",
+    },
+    swarmSpeed: {
+        type: ControlType.Number,
+        title: "Swarm Speed",
+        min: 0.5,
+        max: 15,
+        step: 0.5,
+        defaultValue: 3,
+        hidden: (p: any) => p.motionMode !== "swarm",
+        description: "Target cruising speed for the flock.",
     },
     bounciness: {
         type: ControlType.Number,
@@ -1580,7 +1776,7 @@ addPropertyControls(Drift, {
         title: "Wall Bounce Color",
         defaultValue: false,
         description: "Cycle hue on each wall bounce (DVD screensaver effect). Works best on white/light elements.",
-        hidden: (p: any) => p.motionMode !== "bounce" && p.motionMode !== "zeroGravity",
+        hidden: (p: any) => p.motionMode === "gravity" || p.motionMode === "swarm",
     },
     squishOnBounce: {
         type: ControlType.Boolean,
