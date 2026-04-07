@@ -1195,37 +1195,34 @@ export default function Drift(props: DriftProps) {
 
     // ── Pointer events ──────────────────────────────────────────────────
 
-    // Check if a touch point is near any dynamic body.
-    // When cursor influence is active (repel/attract/nudge), use cursorRadius
-    // so the touch zone matches the interaction distance the user expects.
-    // Otherwise use tight body bounds + 30px for drag-only scenarios.
+    // Check if a touch point is within the dynamic body cluster.
+    // Uses the bounding box of ALL dynamic bodies + padding, so touching
+    // inside the cluster (e.g. the heart shape) blocks scroll for interaction,
+    // while touching outside the cluster allows normal scrolling.
     const isTouchNearBody = useCallback((px: number, py: number): boolean => {
-        const pp = propsRef.current
-        const useCursorZone = pp.cursorInfluence !== "off"
+        const managed = managedRef.current
+        const pad = 40
 
-        if (useCursorZone) {
-            const r = pp.cursorRadius
-            const rSq = r * r
-            for (const m of managedRef.current) {
-                if (m.role === "static" || m.body.isStatic) continue
-                const dx = px - m.body.position.x
-                const dy = py - m.body.position.y
-                if (dx * dx + dy * dy < rSq) return true
-            }
-        } else {
-            const pad = 30
-            for (const m of managedRef.current) {
-                if (m.role === "static" || m.body.isStatic) continue
-                const b = m.body.bounds
-                if (
-                    px >= b.min.x - pad &&
-                    px <= b.max.x + pad &&
-                    py >= b.min.y - pad &&
-                    py <= b.max.y + pad
-                ) return true
-            }
+        // Compute bounding box of all dynamic bodies
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        let hasDynamic = false
+        for (const m of managed) {
+            if (m.role === "static" || m.body.isStatic) continue
+            hasDynamic = true
+            const b = m.body.bounds
+            if (b.min.x < minX) minX = b.min.x
+            if (b.min.y < minY) minY = b.min.y
+            if (b.max.x > maxX) maxX = b.max.x
+            if (b.max.y > maxY) maxY = b.max.y
         }
-        return false
+        if (!hasDynamic) return false
+
+        return (
+            px >= minX - pad &&
+            px <= maxX + pad &&
+            py >= minY - pad &&
+            py <= maxY + pad
+        )
     }, [])
 
     const handlePointerDown = useCallback((e: PointerEvent) => {
