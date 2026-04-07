@@ -1310,6 +1310,42 @@ export default function Drift(props: DriftProps) {
         if (dragRef.current) handlePointerUp()
     }, [handlePointerUp])
 
+    // ── Touch event handlers (needed to reliably block scroll on mobile) ──
+    // On mobile, the browser processes touchstart/touchmove for scroll decisions
+    // BEFORE pointer events fire. We must intercept at the touch level.
+
+    const touchActiveRef = useRef(false)
+
+    const handleTouchStart = useCallback((e: TouchEvent) => {
+        if (!propsRef.current.touchEnabled) return
+        const parent = parentRef.current
+        if (!parent) return
+        const touch = e.touches[0]
+        if (!touch) return
+        const parentRect = parent.getBoundingClientRect()
+        const px = touch.clientX - parentRect.left
+        const py = touch.clientY - parentRect.top
+
+        if (isTouchNearBody(px, py)) {
+            touchActiveRef.current = true
+            e.preventDefault()
+        } else {
+            touchActiveRef.current = false
+        }
+    }, [isTouchNearBody])
+
+    const handleTouchMove = useCallback((e: TouchEvent) => {
+        if (!propsRef.current.touchEnabled) return
+        // If touch started near a body, or we're actively dragging, block scroll
+        if (touchActiveRef.current || dragRef.current) {
+            e.preventDefault()
+        }
+    }, [])
+
+    const handleTouchEnd = useCallback(() => {
+        touchActiveRef.current = false
+    }, [])
+
     // ── Setup and teardown ──────────────────────────────────────────────
 
     const initedRef = useRef(false)
@@ -1327,11 +1363,15 @@ export default function Drift(props: DriftProps) {
 
         const parent = parentRef.current
         if (parent) {
-            parent.removeEventListener("pointerdown", handlePointerDown, true)
-            parent.removeEventListener("pointermove", handlePointerMove, true)
+            parent.removeEventListener("pointerdown", handlePointerDown, { capture: true })
+            parent.removeEventListener("pointermove", handlePointerMove, { capture: true })
             parent.removeEventListener("pointerup", handlePointerUp, true)
             parent.removeEventListener("pointercancel", handlePointerUp as any, true)
             parent.removeEventListener("pointerleave", handlePointerLeave)
+            parent.removeEventListener("touchstart", handleTouchStart, { capture: true })
+            parent.removeEventListener("touchmove", handleTouchMove, { capture: true })
+            parent.removeEventListener("touchend", handleTouchEnd, { capture: true })
+            parent.removeEventListener("touchcancel", handleTouchEnd, { capture: true })
         }
 
         // Remove debug overlays
@@ -1363,7 +1403,7 @@ export default function Drift(props: DriftProps) {
         managedRef.current = []
         wallsRef.current = []
         ignoredElsRef.current = new Set()
-    }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave])
+    }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, handleTouchStart, handleTouchMove, handleTouchEnd])
 
     const startSimulation = useCallback(() => {
         if (initedRef.current) return
@@ -1374,16 +1414,22 @@ export default function Drift(props: DriftProps) {
 
         const parent = parentRef.current
         if (parent) {
-            parent.addEventListener("pointerdown", handlePointerDown, true)
-            parent.addEventListener("pointermove", handlePointerMove, true)
+            // passive: false is required so preventDefault() can block scroll on touch
+            parent.addEventListener("pointerdown", handlePointerDown, { capture: true, passive: false })
+            parent.addEventListener("pointermove", handlePointerMove, { capture: true, passive: false })
             parent.addEventListener("pointerup", handlePointerUp, true)
             parent.addEventListener("pointercancel", handlePointerUp as any, true)
             parent.addEventListener("pointerleave", handlePointerLeave)
+            // Touch-level listeners to reliably block scroll on mobile
+            parent.addEventListener("touchstart", handleTouchStart, { capture: true, passive: false })
+            parent.addEventListener("touchmove", handleTouchMove, { capture: true, passive: false })
+            parent.addEventListener("touchend", handleTouchEnd, { capture: true })
+            parent.addEventListener("touchcancel", handleTouchEnd, { capture: true })
         }
 
         lastTimeRef.current = 0
         rafRef.current = requestAnimationFrame(animate)
-    }, [init, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, animate])
+    }, [init, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, handleTouchStart, handleTouchMove, handleTouchEnd, animate])
 
     const pauseSimulation = useCallback(() => {
         pausedRef.current = !pausedRef.current
