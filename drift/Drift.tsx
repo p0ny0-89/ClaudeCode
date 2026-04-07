@@ -79,6 +79,24 @@ function cycleColor(el: HTMLElement) {
     el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
 }
 
+// ─── Debug overlay (temporary) ──────────────────────────────────────────────
+
+let _debugEl: HTMLElement | null = null
+const _debugLines: string[] = []
+function dlog(msg: string) {
+    console.log(msg)
+    _debugLines.push(msg)
+    if (_debugLines.length > 12) _debugLines.shift()
+    if (!_debugEl) {
+        _debugEl = document.createElement("div")
+        _debugEl.style.cssText =
+            "position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.85);" +
+            "color:#0f0;font:11px/1.4 monospace;padding:6px 8px;pointer-events:none;white-space:pre-wrap;"
+        document.body.appendChild(_debugEl)
+    }
+    _debugEl.textContent = _debugLines.join("\n")
+}
+
 // ─── DOM helpers ────────────────────────────────────────────────────────────
 
 function findParentContainer(self: HTMLElement): HTMLElement | null {
@@ -328,17 +346,17 @@ export default function Drift(props: DriftProps) {
 
     const init = useCallback(() => {
         const self = selfRef.current
-        if (!self) { console.warn("[Drift] init: selfRef is null"); return }
+        if (!self) { dlog("[Drift] init: selfRef is null"); return }
 
         const parent = findParentContainer(self)
-        if (!parent) { console.warn("[Drift] init: no parent found"); return }
+        if (!parent) { dlog("[Drift] init: no parent found"); return }
         parentRef.current = parent
 
         const parentRect = parent.getBoundingClientRect()
         const W = parentRect.width
         const H = parentRect.height
         boundsRef.current = { width: W, height: H }
-        console.log(`[Drift] init: parent found, ${W}x${H}, children: ${parent.children.length}`)
+        dlog(`[Drift] init: parent ${W}x${H}, ${parent.children.length} children`)
 
         const pp = propsRef.current
 
@@ -1342,10 +1360,10 @@ export default function Drift(props: DriftProps) {
 
     const handleTouchStart = useCallback((e: TouchEvent) => {
         const pp = propsRef.current
-        if (!pp.touchEnabled) { console.log("[Drift] touch: disabled"); return }
-        if (!pp.dragEnabled && pp.cursorInfluence === "off") { console.log("[Drift] touch: no drag/cursor"); return }
+        if (!pp.touchEnabled) { dlog("[Drift] touch: disabled"); return }
+        if (!pp.dragEnabled && pp.cursorInfluence === "off") { dlog("[Drift] touch: no drag/cursor"); return }
         const parent = parentRef.current
-        if (!parent) { console.log("[Drift] touch: no parent"); return }
+        if (!parent) { dlog("[Drift] touch: no parent"); return }
         const touch = e.touches[0]
         if (!touch) return
         const parentRect = parent.getBoundingClientRect()
@@ -1353,7 +1371,7 @@ export default function Drift(props: DriftProps) {
         const py = touch.clientY - parentRect.top
 
         const inCluster = isTouchInCluster(px, py)
-        console.log(`[Drift] touchstart: (${Math.round(px)}, ${Math.round(py)}) inCluster=${inCluster} bodies=${managedRef.current.length}`)
+        dlog(`[Drift] touch (${Math.round(px)},${Math.round(py)}) cluster=${inCluster} bodies=${managedRef.current.length}`)
 
         // Outside the body cluster? Let scroll happen normally.
         if (!inCluster) {
@@ -1519,7 +1537,7 @@ export default function Drift(props: DriftProps) {
     const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const startSimulation = useCallback((retryCount = 0) => {
-        console.log(`[Drift] startSimulation attempt ${retryCount}, inited: ${initedRef.current}`)
+        dlog(`[Drift] start attempt ${retryCount}`)
         if (initedRef.current) return
         initedRef.current = true
         pausedRef.current = false
@@ -1528,17 +1546,17 @@ export default function Drift(props: DriftProps) {
 
         const parent = parentRef.current
         const bodyCount = managedRef.current.length
-        console.log(`[Drift] after init: parent=${!!parent}, bodies=${bodyCount}`)
+        dlog(`[Drift] parent=${!!parent} bodies=${bodyCount}`)
         // If init failed to find a parent or no bodies found (DOM not ready),
         // retry with backoff up to ~3 seconds total
         if (!parent || bodyCount === 0) {
             initedRef.current = false
             if (retryCount < 10) {
                 const delay = Math.min(100 * (retryCount + 1), 500)
-                console.log(`[Drift] retrying in ${delay}ms`)
+                dlog(`[Drift] retry in ${delay}ms`)
                 retryTimerRef.current = setTimeout(() => startSimulation(retryCount + 1), delay)
             } else {
-                console.warn("[Drift] gave up after 10 retries")
+                dlog("[Drift] GAVE UP after 10 retries")
             }
             return
         }
@@ -1635,7 +1653,7 @@ export default function Drift(props: DriftProps) {
     replaySimRef.current = replaySimulation
 
     useEffect(() => {
-        console.log("[Drift] useEffect mount, isCanvas:", isFramerCanvas())
+        dlog("[Drift] useEffect mount, isCanvas:" + isFramerCanvas())
         if (isFramerCanvas()) return
 
         const pp = propsRef.current
@@ -1643,7 +1661,7 @@ export default function Drift(props: DriftProps) {
 
         if (pp.startTrigger === "immediate") {
             // Start after a short delay for DOM to settle
-            console.log("[Drift] scheduling startSimulation in 100ms")
+            dlog("[Drift] scheduling start in 100ms")
             const timer = setTimeout(startSimulation, 100)
             cleanup = () => clearTimeout(timer)
 
