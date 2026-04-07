@@ -741,6 +741,8 @@ export default function Drift(props: DriftProps) {
 
         // Return-home spring with snap-to-home when close & slow
         if (pp.returnHome) {
+            const cursor = cursorRef.current
+            const cursorActive = cursor !== null
             for (const m of managed) {
                 if (m.role === "static") continue
                 if (m.body.isStatic) continue
@@ -749,10 +751,12 @@ export default function Drift(props: DriftProps) {
                 const dx = m.homeCenter.x - m.body.position.x
                 const dy = m.homeCenter.y - m.body.position.y
                 const distSq = dx * dx + dy * dy
+                const dist = Math.sqrt(distSq)
                 const speed = m.body.speed
 
-                // Snap to exact home position when very close and nearly stopped
-                if (distSq < 4 && speed < 0.3) {
+                // Snap to exact home position when close and slow enough
+                // Use larger threshold (10px) so bodies reliably reach home
+                if (dist < 10 && speed < 1.0) {
                     Body.setPosition(m.body, { x: m.homeCenter.x, y: m.homeCenter.y })
                     Body.setVelocity(m.body, { x: 0, y: 0 })
                     if (pp.rotationEnabled) {
@@ -762,14 +766,19 @@ export default function Drift(props: DriftProps) {
                     continue
                 }
 
+                // Stronger spring force that scales up when no cursor is active
+                // so bodies return decisively once interaction ends
+                const baseMul = cursorActive ? 0.001 : 0.002
                 Body.applyForce(m.body, m.body.position, {
-                    x: dx * pp.returnStrength * m.body.mass * 0.001,
-                    y: dy * pp.returnStrength * m.body.mass * 0.001,
+                    x: dx * pp.returnStrength * m.body.mass * baseMul,
+                    y: dy * pp.returnStrength * m.body.mass * baseMul,
                 })
 
-                // Dampen velocity as body approaches home to prevent oscillation
-                if (distSq < 400) {
-                    const dampFactor = 0.92
+                // Velocity damping proportional to proximity — stronger as body nears home
+                // but never so strong that the body stalls before reaching snap zone
+                if (dist < 50) {
+                    const t = 1 - dist / 50 // 0 at 50px, 1 at 0px
+                    const dampFactor = 1 - t * 0.15 // 1.0 at 50px, 0.85 at 0px
                     Body.setVelocity(m.body, {
                         x: m.body.velocity.x * dampFactor,
                         y: m.body.velocity.y * dampFactor,
