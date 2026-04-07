@@ -1365,12 +1365,11 @@ export default function Drift(props: DriftProps) {
         const px = touch.clientX - parentRect.left
         const py = touch.clientY - parentRect.top
 
-        if (isTouchNearBody(px, py)) {
-            touchActiveRef.current = true
-            e.preventDefault()
-        } else {
-            touchActiveRef.current = false
-        }
+        // Only mark as active — do NOT call preventDefault here.
+        // Preventing default on touchstart blocks pointerdown from firing
+        // in some mobile browsers, which breaks drag/cursor interaction.
+        // Scroll blocking is handled in touchmove instead.
+        touchActiveRef.current = isTouchNearBody(px, py)
     }, [isTouchNearBody])
 
     const handleTouchMove = useCallback((e: TouchEvent) => {
