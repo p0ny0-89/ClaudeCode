@@ -986,13 +986,13 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Motion trail: spawn ghost clones every few frames
+        // Motion trail: spawn ghost clones at spaced intervals
         if (pp.motionTrail) {
             trailFrameRef.current++
-            if (trailFrameRef.current % 3 === 0) {
+            // Spawn every 6 frames (~10fps at 60fps) for visible spacing between ghosts
+            if (trailFrameRef.current % 6 === 0) {
                 const parent = parentRef.current
                 if (parent) {
-                    // Ensure parent supports absolute positioning
                     if (!parent.style.position || parent.style.position === "static") {
                         parent.style.position = "relative"
                     }
@@ -1002,9 +1002,9 @@ export default function Drift(props: DriftProps) {
 
                         const bw = m.body.bounds.max.x - m.body.bounds.min.x
                         const bh = m.body.bounds.max.y - m.body.bounds.min.y
-                        const fadeMs = 300 + pp.trailLength * 40
+                        // Longer fade = more visible stagger between old and new ghosts
+                        const fadeMs = 400 + pp.trailLength * 80
 
-                        // Clone the actual element for a faithful visual copy
                         const ghost = m.el.cloneNode(true) as HTMLElement
                         ghost.style.position = "absolute"
                         ghost.style.left = `${m.body.position.x - bw / 2}px`
@@ -1012,21 +1012,22 @@ export default function Drift(props: DriftProps) {
                         ghost.style.width = `${bw}px`
                         ghost.style.height = `${bh}px`
                         ghost.style.margin = "0"
-                        // Clear the physics translate — ghost is positioned via left/top
                         ghost.style.translate = "0px 0px"
                         ghost.style.rotate = m.el.style.rotate || ""
                         ghost.style.scale = ""
-                        ghost.style.opacity = "0.3"
+                        // Start bright so newest ghost is clearly visible
+                        ghost.style.opacity = "0.6"
                         ghost.style.pointerEvents = "none"
                         ghost.style.zIndex = "1"
-                        ghost.style.transition = `opacity ${fadeMs}ms ease-out`
+                        // Linear fade makes the stagger between ghosts even and readable
+                        ghost.style.transition = `opacity ${fadeMs}ms linear`
                         ghost.style.willChange = "opacity"
                         ghost.dataset.driftGhost = "1"
 
                         parent.appendChild(ghost)
                         trailGhostsRef.current.push(ghost)
 
-                        // Double-rAF ensures the browser paints at 0.3 before starting fade
+                        // Double-rAF: paint at 0.6 first, then start linear fade to 0
                         requestAnimationFrame(() => {
                             requestAnimationFrame(() => { ghost.style.opacity = "0" })
                         })
