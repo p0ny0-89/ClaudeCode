@@ -273,9 +273,9 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     selfCollide: true,
     colliderPadding: 0,
     swarmRadius: 150,
-    separationWeight: 1.5,
-    alignmentWeight: 1.0,
-    cohesionWeight: 1.0,
+    separationWeight: 0.6,
+    alignmentWeight: 2.5,
+    cohesionWeight: 1.5,
     swarmSpeed: 3,
     wallBounceColorCycle: false,
     squishOnBounce: false,
@@ -817,30 +817,29 @@ export default function Drift(props: DriftProps) {
                     if (pos.y + bh > bounds.height - margin) fy -= bf * Math.max(0, 1 - (bounds.height - pos.y - bh) / margin)
                 }
 
-                // Speed regulation: gently steer toward swarmSpeed
+                // Speed regulation: steer toward swarmSpeed so flock keeps moving
                 const speed = Math.sqrt(m.body.velocity.x ** 2 + m.body.velocity.y ** 2)
                 if (speed > 0.1) {
                     const target = pp.swarmSpeed
-                    const correction = (target - speed) / speed * 0.01
+                    const correction = (target - speed) / speed * 0.03
                     fx += m.body.velocity.x * correction * mass
                     fy += m.body.velocity.y * correction * mass
+                } else {
+                    // Kickstart stalled bodies with a random direction
+                    const angle = Math.random() * Math.PI * 2
+                    fx += Math.cos(angle) * maxForce * mass * 2
+                    fy += Math.sin(angle) * maxForce * mass * 2
                 }
 
                 // Clamp total force relative to mass
                 const fLen = Math.sqrt(fx * fx + fy * fy)
-                const fCap = maxForce * 3 * mass
+                const fCap = maxForce * 4 * mass
                 if (fLen > fCap) {
                     fx = (fx / fLen) * fCap
                     fy = (fy / fLen) * fCap
                 }
 
                 Body.applyForce(m.body, m.body.position, { x: fx, y: fy })
-
-                // Gentle velocity damping to smooth out oscillation
-                Body.setVelocity(m.body, {
-                    x: m.body.velocity.x * 0.98,
-                    y: m.body.velocity.y * 0.98,
-                })
             }
         }
 
@@ -1574,7 +1573,7 @@ addPropertyControls(Drift, {
         min: 0,
         max: 5,
         step: 0.1,
-        defaultValue: 1.5,
+        defaultValue: 0.6,
         hidden: (p: any) => p.motionMode !== "swarm",
         description: "Avoidance strength — steer away from nearby bodies.",
     },
@@ -1584,7 +1583,7 @@ addPropertyControls(Drift, {
         min: 0,
         max: 5,
         step: 0.1,
-        defaultValue: 1.0,
+        defaultValue: 2.5,
         hidden: (p: any) => p.motionMode !== "swarm",
         description: "Heading matching — steer toward neighbors' average direction.",
     },
@@ -1594,7 +1593,7 @@ addPropertyControls(Drift, {
         min: 0,
         max: 5,
         step: 0.1,
-        defaultValue: 1.0,
+        defaultValue: 1.5,
         hidden: (p: any) => p.motionMode !== "swarm",
         description: "Flock centering — steer toward neighbors' average position.",
     },
