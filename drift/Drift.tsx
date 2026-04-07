@@ -234,7 +234,7 @@ interface DriftProps {
     cohesionWeight: number
     swarmSpeed: number
 
-    wallBounceColorCycle: boolean
+    collisionColorCycle: boolean
     squishOnBounce: boolean
 
     debugView: boolean
@@ -277,7 +277,7 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     alignmentWeight: 2.5,
     cohesionWeight: 1.5,
     swarmSpeed: 3,
-    wallBounceColorCycle: false,
+    collisionColorCycle: false,
     squishOnBounce: false,
     debugView: false,
     showColliderBounds: false,
@@ -574,6 +574,13 @@ export default function Drift(props: DriftProps) {
                     const m = managedRef.current.find(mb => mb.body === dynamicBody)
                     if (!m || m.role === "static") continue
 
+                    if (pp.collisionColorCycle) {
+                        const prev = parseFloat(m.el.dataset.driftHue || "0")
+                        const next = (prev + 47) % 360
+                        m.el.dataset.driftHue = String(next)
+                        m.el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
+                    }
+
                     if (pp.squishOnBounce) {
                         const isH = wallDir === "top" || wallDir === "bottom"
                         const sx = isH ? 1.25 : 0.75, sy = isH ? 0.75 : 1.25
@@ -588,15 +595,25 @@ export default function Drift(props: DriftProps) {
                     }))
                 }
 
-                // Body-to-body squish
-                if (!isWallA && !isWallB && pp.squishOnBounce) {
+                // Body-to-body collisions
+                if (!isWallA && !isWallB) {
                     for (const b of [pair.bodyA, pair.bodyB]) {
                         const m = managedRef.current.find(mb => mb.body === b)
                         if (!m || m.role === "static") continue
-                        m.el.style.transition = "scale 0.06s ease-in"
-                        m.el.style.scale = "0.85 0.85"
-                        setTimeout(() => { m.el.style.transition = "scale 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)"; m.el.style.scale = "1 1" }, 60)
-                        setTimeout(() => { m.el.style.transition = ""; m.el.style.scale = "" }, 280)
+
+                        if (pp.collisionColorCycle) {
+                            const prev = parseFloat(m.el.dataset.driftHue || "0")
+                            const next = (prev + 47) % 360
+                            m.el.dataset.driftHue = String(next)
+                            m.el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
+                        }
+
+                        if (pp.squishOnBounce) {
+                            m.el.style.transition = "scale 0.06s ease-in"
+                            m.el.style.scale = "0.85 0.85"
+                            setTimeout(() => { m.el.style.transition = "scale 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)"; m.el.style.scale = "1 1" }, 60)
+                            setTimeout(() => { m.el.style.transition = ""; m.el.style.scale = "" }, 280)
+                        }
                     }
                 }
             }
@@ -1035,7 +1052,7 @@ export default function Drift(props: DriftProps) {
                     Body.setVelocity(m.body, { x: vx, y: vy })
 
                     // Color cycle on wall bounce
-                    if (pp.wallBounceColorCycle) {
+                    if (pp.collisionColorCycle) {
                         const prev = parseFloat(m.el.dataset.driftHue || "0")
                         const next = (prev + 47) % 360
                         m.el.dataset.driftHue = String(next)
@@ -1781,12 +1798,11 @@ addPropertyControls(Drift, {
         defaultValue: 0,
     },
 
-    wallBounceColorCycle: {
+    collisionColorCycle: {
         type: ControlType.Boolean,
-        title: "Wall Bounce Color",
+        title: "Collision Color",
         defaultValue: false,
-        description: "Cycle hue on each wall bounce (DVD screensaver effect). Works best on white/light elements.",
-        hidden: (p: any) => p.motionMode === "gravity" || p.motionMode === "swarm",
+        description: "Cycle hue on wall bounces and body-to-body collisions. Works best on white/light elements.",
     },
     squishOnBounce: {
         type: ControlType.Boolean,
