@@ -388,33 +388,90 @@ export default function Drift(props: DriftProps) {
 
         for (let ci = 0; ci < eligibleChildren.length; ci++) {
             let child = eligibleChildren[ci]
+            const originalChild = child // Keep reference for selector matching
             if (!child.getBoundingClientRect) continue
 
             let childRect = child.getBoundingClientRect()
             // Framer wraps components in display:contents divs that have 0x0 size.
-            // Unwrap to the first child with actual dimensions.
-            if (childRect.width === 0 && childRect.height === 0 && child.children.length > 0) {
+            // Vector/SVG elements can be nested several levels deep.
+            // Unwrap through zero-size wrappers until we find actual dimensions.
+            let unwrapDepth = 0
+            while (
+                childRect.width === 0 &&
+                childRect.height === 0 &&
+                child.children.length > 0 &&
+                unwrapDepth < 5
+            ) {
                 const inner = child.children[0] as HTMLElement
-                if (inner && inner.getBoundingClientRect) {
-                    const innerRect = inner.getBoundingClientRect()
-                    if (innerRect.width > 0 || innerRect.height > 0) {
-                        child = inner
-                        childRect = innerRect
-                    }
+                if (!inner || !inner.getBoundingClientRect) break
+                const innerRect = inner.getBoundingClientRect()
+                if (innerRect.width > 0 || innerRect.height > 0) {
+                    child = inner
+                    childRect = innerRect
+                    break
+                }
+                // Inner also zero — keep unwrapping
+                child = inner
+                childRect = innerRect
+                unwrapDepth++
+            }
+            // SVG elements may report 0x0 from getBoundingClientRect but have
+            // a viewBox or getBBox with real dimensions
+            if (childRect.width === 0 && childRect.height === 0) {
+                const svgEl =
+                    child.tagName === "svg"
+                        ? (child as unknown as SVGSVGElement)
+                        : child.querySelector?.("svg")
+                if (svgEl) {
+                    // Try getBBox for rendered SVG bounds
+                    try {
+                        const bbox = (svgEl as SVGSVGElement).getBBox()
+                        if (bbox.width > 0 || bbox.height > 0) {
+                            // Use the SVG element (or its container) with the parent-relative position
+                            const svgRect = svgEl.getBoundingClientRect()
+                            if (svgRect.width > 0 || svgRect.height > 0) {
+                                child = svgEl as unknown as HTMLElement
+                                childRect = svgRect
+                            } else {
+                                // SVG has internal dimensions via viewBox but no layout size;
+                                // use the viewBox dimensions and the original element's position
+                                const vb = svgEl.getAttribute("viewBox")
+                                const vbW =
+                                    parseFloat(svgEl.getAttribute("width") || "") ||
+                                    (vb ? parseFloat(vb.split(/[\s,]+/)[2]) : 0)
+                                const vbH =
+                                    parseFloat(svgEl.getAttribute("height") || "") ||
+                                    (vb ? parseFloat(vb.split(/[\s,]+/)[3]) : 0)
+                                if (vbW > 0 && vbH > 0) {
+                                    // Synthesize a rect using the original child's position
+                                    const origRect = eligibleChildren[ci].getBoundingClientRect()
+                                    childRect = {
+                                        width: vbW,
+                                        height: vbH,
+                                        left: origRect.left,
+                                        top: origRect.top,
+                                        right: origRect.left + vbW,
+                                        bottom: origRect.top + vbH,
+                                    } as DOMRect
+                                }
+                            }
+                        }
+                    } catch {}
                 }
             }
             if (childRect.width === 0 && childRect.height === 0) continue
 
             // Role — ci is the 0-based index among non-Drift siblings
-            if (matchesSelectorList(child, ci, ignoredSelectors)) {
+            // Use originalChild for selector matching (it has data-framer-name etc.)
+            if (matchesSelectorList(originalChild, ci, ignoredSelectors)) {
                 ignoredElsRef.current.add(child)
                 continue
             }
 
             let role: BodyRole = invertedDefault ? "static" : "dynamic"
             // Explicit overrides: staticColliders forces static, dynamicLayers forces dynamic
-            if (matchesSelectorList(child, ci, staticSelectors)) role = "static"
-            if (matchesSelectorList(child, ci, dynamicSelectors)) role = "dynamic"
+            if (matchesSelectorList(originalChild, ci, staticSelectors)) role = "static"
+            if (matchesSelectorList(originalChild, ci, dynamicSelectors)) role = "dynamic"
 
             const computedTransform = getComputedStyle(child).transform
             const originalTransform =
@@ -458,7 +515,7 @@ export default function Drift(props: DriftProps) {
                 density: 0.001,
                 slop: 0.005,
                 sleepThreshold: isPerpetual ? Infinity : 30,
-                label: getLayerName(child) || `body-${ci}`,
+                label: getLayerName(originalChild) || getLayerName(child) || `body-${ci}`,
                 collisionFilter,
             })
 
@@ -468,7 +525,7 @@ export default function Drift(props: DriftProps) {
 
             Composite.add(engine.world, matterBody)
 
-            const isPointerLayer = matchesSelectorList(child, ci, pointerSelectors)
+            const isPointerLayer = matchesSelectorList(originalChild, ci, pointerSelectors)
 
             managed.push({
                 el: child,
