@@ -469,19 +469,19 @@ export default function Drift(props: DriftProps) {
 
         managedRef.current = managed
 
-        // Set cursor and touch-action on dynamic elements
+        // Set touch-action on parent to prevent browser scroll within container.
+        // We manually handle scroll passthrough for touches outside the body cluster.
+        if (pp.touchEnabled) {
+            parent.style.touchAction = "none"
+        }
+
+        // Set cursor on dynamic elements
         for (const m of managed) {
             if (m.role !== "dynamic") continue
             if (m.isPointerLayer) {
                 m.el.style.cursor = "pointer"
             } else if (pp.dragEnabled) {
                 m.el.style.cursor = "grab"
-            }
-            // Disable browser touch gestures on each dynamic body element.
-            // This prevents scroll when touching a body directly, while
-            // empty space between/around bodies still allows page scrolling.
-            if (pp.touchEnabled) {
-                m.el.style.touchAction = "none"
             }
         }
 
@@ -1240,6 +1240,7 @@ export default function Drift(props: DriftProps) {
                         offset,
                         history: [{ pos: { x: px, y: py }, time: performance.now() }],
                     }
+                    cursorRef.current = { x: px, y: py }
                     Matter.Sleeping.set(m.body, false)
                     m.el.style.cursor = "grabbing"
                     return
@@ -1320,6 +1321,62 @@ export default function Drift(props: DriftProps) {
         if (dragRef.current) handlePointerUp()
     }, [handlePointerUp])
 
+    // ── Programmatic scroll passthrough for touch ──────────────────────
+    // touch-action: none on the parent blocks native scroll. We manually
+    // scroll the page when the touch is outside the dynamic body cluster.
+    const touchScrollRef = useRef<{ lastY: number; active: boolean }>({ lastY: 0, active: false })
+
+    const isTouchInCluster = useCallback((px: number, py: number): boolean => {
+        const managed = managedRef.current
+        const pad = 40
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        let hasDynamic = false
+        for (const m of managed) {
+            if (m.role === "static" || m.body.isStatic) continue
+            hasDynamic = true
+            const b = m.body.bounds
+            if (b.min.x < minX) minX = b.min.x
+            if (b.min.y < minY) minY = b.min.y
+            if (b.max.x > maxX) maxX = b.max.x
+            if (b.max.y > maxY) maxY = b.max.y
+        }
+        if (!hasDynamic) return false
+        return px >= minX - pad && px <= maxX + pad && py >= minY - pad && py <= maxY + pad
+    }, [])
+
+    const handleTouchStart = useCallback((e: TouchEvent) => {
+        if (!propsRef.current.touchEnabled) return
+        const parent = parentRef.current
+        if (!parent) return
+        const touch = e.touches[0]
+        if (!touch) return
+        const parentRect = parent.getBoundingClientRect()
+        const px = touch.clientX - parentRect.left
+        const py = touch.clientY - parentRect.top
+
+        // If touch is outside the body cluster, enable manual scroll passthrough
+        if (!isTouchInCluster(px, py)) {
+            touchScrollRef.current = { lastY: touch.clientY, active: true }
+        } else {
+            touchScrollRef.current = { lastY: 0, active: false }
+        }
+    }, [isTouchInCluster])
+
+    const handleTouchMove = useCallback((e: TouchEvent) => {
+        const ts = touchScrollRef.current
+        if (!ts.active) return
+        const touch = e.touches[0]
+        if (!touch) return
+        // Manually scroll the nearest scrollable ancestor (or window)
+        const deltaY = ts.lastY - touch.clientY
+        ts.lastY = touch.clientY
+        window.scrollBy(0, deltaY)
+    }, [])
+
+    const handleTouchEnd = useCallback(() => {
+        touchScrollRef.current = { lastY: 0, active: false }
+    }, [])
+
     // ── Setup and teardown ──────────────────────────────────────────────
 
     const initedRef = useRef(false)
@@ -1342,6 +1399,11 @@ export default function Drift(props: DriftProps) {
             parent.removeEventListener("pointerup", handlePointerUp, true)
             parent.removeEventListener("pointercancel", handlePointerUp as any, true)
             parent.removeEventListener("pointerleave", handlePointerLeave)
+            parent.removeEventListener("touchstart", handleTouchStart)
+            parent.removeEventListener("touchmove", handleTouchMove)
+            parent.removeEventListener("touchend", handleTouchEnd)
+            parent.removeEventListener("touchcancel", handleTouchEnd)
+            parent.style.touchAction = ""
         }
 
         // Remove debug overlays
@@ -1360,7 +1422,6 @@ export default function Drift(props: DriftProps) {
             m.el.style.filter = ""
             m.el.style.outline = ""
             m.el.style.outlineOffset = ""
-            m.el.style.touchAction = ""
             delete m.el.dataset.driftHue
             delete m.el.dataset.driftHueTime
         }
@@ -1374,7 +1435,7 @@ export default function Drift(props: DriftProps) {
         managedRef.current = []
         wallsRef.current = []
         ignoredElsRef.current = new Set()
-    }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave])
+    }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, handleTouchStart, handleTouchMove, handleTouchEnd])
 
     const startSimulation = useCallback(() => {
         if (initedRef.current) return
@@ -1390,11 +1451,16 @@ export default function Drift(props: DriftProps) {
             parent.addEventListener("pointerup", handlePointerUp, true)
             parent.addEventListener("pointercancel", handlePointerUp as any, true)
             parent.addEventListener("pointerleave", handlePointerLeave)
+            // Touch listeners for programmatic scroll passthrough
+            parent.addEventListener("touchstart", handleTouchStart, { passive: true })
+            parent.addEventListener("touchmove", handleTouchMove, { passive: true })
+            parent.addEventListener("touchend", handleTouchEnd, { passive: true })
+            parent.addEventListener("touchcancel", handleTouchEnd, { passive: true })
         }
 
         lastTimeRef.current = 0
         rafRef.current = requestAnimationFrame(animate)
-    }, [init, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, animate])
+    }, [init, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, handleTouchStart, handleTouchMove, handleTouchEnd, animate])
 
     const pauseSimulation = useCallback(() => {
         pausedRef.current = !pausedRef.current
