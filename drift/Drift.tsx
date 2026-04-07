@@ -1003,19 +1003,24 @@ export default function Drift(props: DriftProps) {
                         const cs = getComputedStyle(m.el)
                         const bgColor = cs.backgroundColor
                         const hasVisibleBg = bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent"
-                        ghost.style.cssText = `
-                            position: absolute;
-                            left: ${m.body.position.x - bw / 2}px;
-                            top: ${m.body.position.y - bh / 2}px;
-                            width: ${bw}px;
-                            height: ${bh}px;
-                            border-radius: ${cs.borderRadius || "0"};
-                            background: ${hasVisibleBg ? bgColor : cs.color || "rgba(128,128,128,0.5)"};
-                            opacity: 0.35;
-                            pointer-events: none;
-                            z-index: -1;
-                            transition: opacity ${300 + pp.trailLength * 40}ms ease-out;
-                        `
+                        const fadeMs = 300 + pp.trailLength * 40
+                        ghost.style.cssText = [
+                            "position:absolute",
+                            `left:${m.body.position.x - bw / 2}px`,
+                            `top:${m.body.position.y - bh / 2}px`,
+                            `width:${bw}px`,
+                            `height:${bh}px`,
+                            `border-radius:${cs.borderRadius || "0"}`,
+                            `background:${hasVisibleBg ? bgColor : cs.color || "rgba(128,128,128,0.5)"}`,
+                            "opacity:0.3",
+                            "pointer-events:none",
+                            "z-index:9999",
+                            `transition:opacity ${fadeMs}ms ease-out`,
+                        ].join(";")
+                        // Framer containers use overflow:hidden — ensure parent allows absolute children
+                        if (!parent.style.position || parent.style.position === "static") {
+                            parent.style.position = "relative"
+                        }
                         if (pp.rotationEnabled && m.el.style.rotate) {
                             ghost.style.rotate = m.el.style.rotate
                         }
@@ -1026,7 +1031,6 @@ export default function Drift(props: DriftProps) {
                         requestAnimationFrame(() => {
                             requestAnimationFrame(() => { ghost.style.opacity = "0" })
                         })
-                        const fadeMs = 350 + pp.trailLength * 40
                         setTimeout(() => {
                             ghost.remove()
                             const idx = trailGhostsRef.current.indexOf(ghost)
