@@ -229,8 +229,6 @@ interface DriftProps {
     colliderPadding: number
 
     wallBounceColorCycle: boolean
-    motionTrail: boolean
-    trailLength: number
     squishOnBounce: boolean
 
     debugView: boolean
@@ -269,8 +267,6 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     selfCollide: true,
     colliderPadding: 0,
     wallBounceColorCycle: false,
-    motionTrail: false,
-    trailLength: 5,
     squishOnBounce: false,
     debugView: false,
     showColliderBounds: false,
@@ -291,8 +287,6 @@ export default function Drift(props: DriftProps) {
     const debugOverlaysRef = useRef<HTMLElement[]>([])
     const ignoredElsRef = useRef<Set<HTMLElement>>(new Set())
     const cursorRef = useRef<{ x: number; y: number } | null>(null)
-    const trailFrameRef = useRef(0)
-    const trailGhostsRef = useRef<HTMLElement[]>([])
     const dragRef = useRef<{
         managed: ManagedBody
         offset: { x: number; y: number }
@@ -986,67 +980,6 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Motion trail: spawn ghost clones at spaced intervals
-        if (pp.motionTrail) {
-            trailFrameRef.current++
-            // Spawn every 6 frames (~10fps at 60fps) for visible spacing between ghosts
-            if (trailFrameRef.current % 6 === 0) {
-                const parent = parentRef.current
-                if (parent) {
-                    if (!parent.style.position || parent.style.position === "static") {
-                        parent.style.position = "relative"
-                    }
-                    for (const m of managed) {
-                        if (m.role === "static") continue
-                        if (drag && drag.managed === m) continue
-
-                        const bw = m.body.bounds.max.x - m.body.bounds.min.x
-                        const bh = m.body.bounds.max.y - m.body.bounds.min.y
-                        // Longer fade = more visible stagger between old and new ghosts
-                        const fadeMs = 400 + pp.trailLength * 80
-
-                        const ghost = m.el.cloneNode(true) as HTMLElement
-                        ghost.style.position = "absolute"
-                        ghost.style.left = `${m.body.position.x - bw / 2}px`
-                        ghost.style.top = `${m.body.position.y - bh / 2}px`
-                        ghost.style.width = `${bw}px`
-                        ghost.style.height = `${bh}px`
-                        ghost.style.margin = "0"
-                        ghost.style.translate = "0px 0px"
-                        ghost.style.rotate = m.el.style.rotate || ""
-                        ghost.style.scale = ""
-                        // Start bright so newest ghost is clearly visible
-                        ghost.style.opacity = "0.6"
-                        ghost.style.pointerEvents = "none"
-                        ghost.style.zIndex = "1"
-                        // Linear fade makes the stagger between ghosts even and readable
-                        ghost.style.transition = `opacity ${fadeMs}ms linear`
-                        ghost.style.willChange = "opacity"
-                        ghost.dataset.driftGhost = "1"
-
-                        parent.appendChild(ghost)
-                        trailGhostsRef.current.push(ghost)
-
-                        // Double-rAF: paint at 0.6 first, then start linear fade to 0
-                        requestAnimationFrame(() => {
-                            requestAnimationFrame(() => { ghost.style.opacity = "0" })
-                        })
-                        setTimeout(() => {
-                            ghost.remove()
-                            const idx = trailGhostsRef.current.indexOf(ghost)
-                            if (idx >= 0) trailGhostsRef.current.splice(idx, 1)
-                        }, fadeMs + 50)
-                    }
-
-                    // Cap total ghost count
-                    const maxGhosts = pp.trailLength * managed.filter(m => m.role !== "static").length * 2
-                    while (trailGhostsRef.current.length > maxGhosts) {
-                        const old = trailGhostsRef.current.shift()
-                        old?.remove()
-                    }
-                }
-            }
-        }
 
         rafRef.current = requestAnimationFrame(animate)
     }, [])
@@ -1188,12 +1121,6 @@ export default function Drift(props: DriftProps) {
             el.remove()
         }
         debugOverlaysRef.current = []
-
-        // Remove trail ghosts
-        for (const el of trailGhostsRef.current) {
-            el.remove()
-        }
-        trailGhostsRef.current = []
 
         for (const m of managedRef.current) {
             m.el.style.translate = ""
@@ -1654,22 +1581,6 @@ addPropertyControls(Drift, {
         defaultValue: false,
         description: "Cycle hue on each wall bounce (DVD screensaver effect). Works best on white/light elements.",
         hidden: (p: any) => p.motionMode !== "bounce" && p.motionMode !== "zeroGravity",
-    },
-    motionTrail: {
-        type: ControlType.Boolean,
-        title: "Motion Trail",
-        defaultValue: false,
-        description: "Leave fading afterimages behind moving objects.",
-    },
-    trailLength: {
-        type: ControlType.Number,
-        title: "Trail Length",
-        min: 1,
-        max: 15,
-        step: 1,
-        defaultValue: 5,
-        hidden: (p: any) => !p.motionTrail,
-        description: "Number of ghost images per object.",
     },
     squishOnBounce: {
         type: ControlType.Boolean,
