@@ -404,12 +404,13 @@ export default function Drift(props: DriftProps) {
             eligibleChildren.push(child)
         }
 
+        let skippedZero = 0
         for (let ci = 0; ci < eligibleChildren.length; ci++) {
             const child = eligibleChildren[ci]
             if (!child.getBoundingClientRect) continue
 
             const childRect = child.getBoundingClientRect()
-            if (childRect.width === 0 && childRect.height === 0) continue
+            if (childRect.width === 0 && childRect.height === 0) { skippedZero++; continue }
 
             // Role — ci is the 0-based index among non-Drift siblings
             if (matchesSelectorList(child, ci, ignoredSelectors)) {
@@ -486,6 +487,7 @@ export default function Drift(props: DriftProps) {
             })
         }
 
+        dlog(`[Drift] eligible=${eligibleChildren.length} zero=${skippedZero} managed=${managed.length}`)
         managedRef.current = managed
 
         // Set cursor on dynamic elements
