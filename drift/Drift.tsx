@@ -1160,16 +1160,20 @@ export default function Drift(props: DriftProps) {
 
     // ── Pointer events ──────────────────────────────────────────────────
 
-    // Check if a point is near any dynamic body (within cursor radius)
+    // Check if a touch point is near any dynamic body.
+    // Uses body bounds + small padding (30px) rather than cursorRadius,
+    // so scroll is only blocked when actually touching/near a body.
     const isTouchNearBody = useCallback((px: number, py: number): boolean => {
-        const pp = propsRef.current
-        const r = pp.cursorRadius
-        const rSq = r * r
+        const pad = 30
         for (const m of managedRef.current) {
             if (m.role === "static" || m.body.isStatic) continue
-            const dx = px - m.body.position.x
-            const dy = py - m.body.position.y
-            if (dx * dx + dy * dy < rSq) return true
+            const b = m.body.bounds
+            if (
+                px >= b.min.x - pad &&
+                px <= b.max.x + pad &&
+                py >= b.min.y - pad &&
+                py <= b.max.y + pad
+            ) return true
         }
         return false
     }, [])
