@@ -559,6 +559,18 @@ export default function Drift(props: DriftProps) {
             wallsRef.current = walls
         }
 
+        // Color cycle helper with cooldown to prevent flicker during sustained contact
+        const cycleColor = (el: HTMLElement) => {
+            const now = Date.now()
+            const last = parseFloat(el.dataset.driftHueTime || "0")
+            if (now - last < 250) return // 250ms cooldown
+            const prev = parseFloat(el.dataset.driftHue || "0")
+            const next = (prev + 47) % 360
+            el.dataset.driftHue = String(next)
+            el.dataset.driftHueTime = String(now)
+            el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
+        }
+
         // Collision events and squish effect
         Events.on(engine, "collisionStart", (event: any) => {
             for (const pair of event.pairs) {
@@ -574,12 +586,7 @@ export default function Drift(props: DriftProps) {
                     const m = managedRef.current.find(mb => mb.body === dynamicBody)
                     if (!m || m.role === "static") continue
 
-                    if (pp.collisionColorCycle) {
-                        const prev = parseFloat(m.el.dataset.driftHue || "0")
-                        const next = (prev + 47) % 360
-                        m.el.dataset.driftHue = String(next)
-                        m.el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
-                    }
+                    if (pp.collisionColorCycle) cycleColor(m.el)
 
                     if (pp.squishOnBounce) {
                         const isH = wallDir === "top" || wallDir === "bottom"
@@ -1052,12 +1059,7 @@ export default function Drift(props: DriftProps) {
                     Body.setVelocity(m.body, { x: vx, y: vy })
 
                     // Color cycle on wall bounce
-                    if (pp.collisionColorCycle) {
-                        const prev = parseFloat(m.el.dataset.driftHue || "0")
-                        const next = (prev + 47) % 360
-                        m.el.dataset.driftHue = String(next)
-                        m.el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
-                    }
+                    if (pp.collisionColorCycle) cycleColor(m.el)
 
                     // Squish on bounce — squash in impact axis, stretch perpendicular
                     if (pp.squishOnBounce) {
@@ -1299,6 +1301,7 @@ export default function Drift(props: DriftProps) {
             m.el.style.outline = ""
             m.el.style.outlineOffset = ""
             delete m.el.dataset.driftHue
+            delete m.el.dataset.driftHueTime
         }
 
         if (engineRef.current) {
