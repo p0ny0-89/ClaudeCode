@@ -739,7 +739,7 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Return-home spring
+        // Return-home spring with snap-to-home when close & slow
         if (pp.returnHome) {
             for (const m of managed) {
                 if (m.role === "static") continue
@@ -748,10 +748,33 @@ export default function Drift(props: DriftProps) {
 
                 const dx = m.homeCenter.x - m.body.position.x
                 const dy = m.homeCenter.y - m.body.position.y
+                const distSq = dx * dx + dy * dy
+                const speed = m.body.speed
+
+                // Snap to exact home position when very close and nearly stopped
+                if (distSq < 4 && speed < 0.3) {
+                    Body.setPosition(m.body, { x: m.homeCenter.x, y: m.homeCenter.y })
+                    Body.setVelocity(m.body, { x: 0, y: 0 })
+                    if (pp.rotationEnabled) {
+                        Body.setAngle(m.body, m.homeAngle)
+                        Body.setAngularVelocity(m.body, 0)
+                    }
+                    continue
+                }
+
                 Body.applyForce(m.body, m.body.position, {
                     x: dx * pp.returnStrength * m.body.mass * 0.001,
                     y: dy * pp.returnStrength * m.body.mass * 0.001,
                 })
+
+                // Dampen velocity as body approaches home to prevent oscillation
+                if (distSq < 400) {
+                    const dampFactor = 0.92
+                    Body.setVelocity(m.body, {
+                        x: m.body.velocity.x * dampFactor,
+                        y: m.body.velocity.y * dampFactor,
+                    })
+                }
 
                 if (pp.rotationEnabled) {
                     const angleDiff = m.homeAngle - m.body.angle
