@@ -65,6 +65,20 @@ function parseRotation(transform: string): number {
     return 0
 }
 
+// ─── Color cycle helper ─────────────────────────────────────────────────────
+
+/** Shift element hue by 47° with a 250ms cooldown to prevent flicker */
+function cycleColor(el: HTMLElement) {
+    const now = Date.now()
+    const last = parseFloat(el.dataset.driftHueTime || "0")
+    if (now - last < 250) return
+    const prev = parseFloat(el.dataset.driftHue || "0")
+    const next = (prev + 47) % 360
+    el.dataset.driftHue = String(next)
+    el.dataset.driftHueTime = String(now)
+    el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
+}
+
 // ─── DOM helpers ────────────────────────────────────────────────────────────
 
 function findParentContainer(self: HTMLElement): HTMLElement | null {
@@ -557,18 +571,6 @@ export default function Drift(props: DriftProps) {
             }
             Composite.add(engine.world, walls)
             wallsRef.current = walls
-        }
-
-        // Color cycle helper with cooldown to prevent flicker during sustained contact
-        const cycleColor = (el: HTMLElement) => {
-            const now = Date.now()
-            const last = parseFloat(el.dataset.driftHueTime || "0")
-            if (now - last < 250) return // 250ms cooldown
-            const prev = parseFloat(el.dataset.driftHue || "0")
-            const next = (prev + 47) % 360
-            el.dataset.driftHue = String(next)
-            el.dataset.driftHueTime = String(now)
-            el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
         }
 
         // Collision events and squish effect
