@@ -1160,17 +1160,27 @@ export default function Drift(props: DriftProps) {
 
     // ── Pointer events ──────────────────────────────────────────────────
 
+    // Check if a point is near any dynamic body (within cursor radius)
+    const isTouchNearBody = useCallback((px: number, py: number): boolean => {
+        const pp = propsRef.current
+        const r = pp.cursorRadius
+        const rSq = r * r
+        for (const m of managedRef.current) {
+            if (m.role === "static" || m.body.isStatic) continue
+            const dx = px - m.body.position.x
+            const dy = py - m.body.position.y
+            if (dx * dx + dy * dy < rSq) return true
+        }
+        return false
+    }, [])
+
     const handlePointerDown = useCallback((e: PointerEvent) => {
         const pp = propsRef.current
-        // Block touch interactions if touchEnabled is off
         const isTouch = e.pointerType === "touch"
         if (isTouch && !pp.touchEnabled) return
         if (!pp.dragEnabled && pp.cursorInfluence === "off") return
         const parent = parentRef.current
         if (!parent) return
-
-        // Prevent scroll on touch so the interaction isn't stolen by the browser
-        if (isTouch) e.preventDefault()
 
         // If the click target is inside an ignored element, don't interfere
         const target = e.target as HTMLElement
@@ -1182,34 +1192,43 @@ export default function Drift(props: DriftProps) {
         const px = e.clientX - parentRect.left
         const py = e.clientY - parentRect.top
 
+        // On touch: only prevent scroll if near a dynamic body, otherwise let scroll pass through
+        if (isTouch && !isTouchNearBody(px, py)) return
+
+        if (isTouch) e.preventDefault()
+
         // Hit test — check managed bodies in reverse order (topmost first)
         const managed = managedRef.current
-        for (let i = managed.length - 1; i >= 0; i--) {
-            const m = managed[i]
-            if (m.role === "static") continue
-            if (m.body.isStatic) continue
+        if (pp.dragEnabled) {
+            for (let i = managed.length - 1; i >= 0; i--) {
+                const m = managed[i]
+                if (m.role === "static") continue
+                if (m.body.isStatic) continue
 
-            if (Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
-                Matter.Vertices.contains(m.body.vertices, { x: px, y: py })) {
-                // Pointer layers: let the click through for links/buttons
-                if (m.isPointerLayer) return
+                if (Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
+                    Matter.Vertices.contains(m.body.vertices, { x: px, y: py })) {
+                    if (m.isPointerLayer) return
 
-                const offset = {
-                    x: px - m.body.position.x,
-                    y: py - m.body.position.y,
+                    const offset = {
+                        x: px - m.body.position.x,
+                        y: py - m.body.position.y,
+                    }
+                    dragRef.current = {
+                        managed: m,
+                        offset,
+                        history: [{ pos: { x: px, y: py }, time: performance.now() }],
+                    }
+                    Matter.Sleeping.set(m.body, false)
+                    m.el.style.cursor = "grabbing"
+                    e.preventDefault()
+                    return
                 }
-                dragRef.current = {
-                    managed: m,
-                    offset,
-                    history: [{ pos: { x: px, y: py }, time: performance.now() }],
-                }
-                Matter.Sleeping.set(m.body, false)
-                m.el.style.cursor = "grabbing"
-                e.preventDefault()
-                return
             }
         }
-    }, [])
+
+        // Set cursor for cursor influence (even if no drag started)
+        cursorRef.current = { x: px, y: py }
+    }, [isTouchNearBody])
 
     const handlePointerMove = useCallback((e: PointerEvent) => {
         const isTouch = e.pointerType === "touch"
@@ -1217,12 +1236,20 @@ export default function Drift(props: DriftProps) {
         const parent = parentRef.current
         if (!parent) return
 
-        // Prevent scroll during touch interaction
-        if (isTouch) e.preventDefault()
-
         const parentRect = parent.getBoundingClientRect()
         const px = e.clientX - parentRect.left
         const py = e.clientY - parentRect.top
+
+        // On touch: only prevent scroll if dragging or near a body
+        if (isTouch) {
+            if (dragRef.current || isTouchNearBody(px, py)) {
+                e.preventDefault()
+            } else {
+                // Not near anything — let scroll happen, clear cursor
+                cursorRef.current = null
+                return
+            }
+        }
 
         cursorRef.current = { x: px, y: py }
 
@@ -1305,7 +1332,6 @@ export default function Drift(props: DriftProps) {
             parent.removeEventListener("pointerup", handlePointerUp, true)
             parent.removeEventListener("pointercancel", handlePointerUp as any, true)
             parent.removeEventListener("pointerleave", handlePointerLeave)
-            parent.style.touchAction = ""
         }
 
         // Remove debug overlays
@@ -1353,10 +1379,6 @@ export default function Drift(props: DriftProps) {
             parent.addEventListener("pointerup", handlePointerUp, true)
             parent.addEventListener("pointercancel", handlePointerUp as any, true)
             parent.addEventListener("pointerleave", handlePointerLeave)
-            // Prevent browser scroll/zoom when touching the physics container
-            if (propsRef.current.touchEnabled) {
-                parent.style.touchAction = "none"
-            }
         }
 
         lastTimeRef.current = 0
