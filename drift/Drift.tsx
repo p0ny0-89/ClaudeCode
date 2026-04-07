@@ -1437,7 +1437,7 @@ export default function Drift(props: DriftProps) {
         ignoredElsRef.current = new Set()
     }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, handleTouchStart, handleTouchMove, handleTouchEnd])
 
-    const startSimulation = useCallback(() => {
+    const startSimulation = useCallback((retryCount = 0) => {
         if (initedRef.current) return
         initedRef.current = true
         pausedRef.current = false
@@ -1445,6 +1445,17 @@ export default function Drift(props: DriftProps) {
         init()
 
         const parent = parentRef.current
+        // If init failed to find a parent or no bodies found (DOM not ready),
+        // retry with backoff up to ~3 seconds total
+        if (!parent || managedRef.current.length === 0) {
+            initedRef.current = false
+            if (retryCount < 10) {
+                const delay = Math.min(100 * (retryCount + 1), 500)
+                setTimeout(() => startSimulation(retryCount + 1), delay)
+            }
+            return
+        }
+
         if (parent) {
             parent.addEventListener("pointerdown", handlePointerDown, { capture: true })
             parent.addEventListener("pointermove", handlePointerMove, { capture: true })
