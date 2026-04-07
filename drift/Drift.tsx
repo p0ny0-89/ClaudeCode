@@ -986,46 +986,56 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Motion trail: spawn ghost clones every few frames
+        // Motion trail: spawn silhouette ghosts every few frames
         if (pp.motionTrail) {
             trailFrameRef.current++
-            if (trailFrameRef.current % 3 === 0) { // every 3 frames
+            if (trailFrameRef.current % 3 === 0) {
                 const parent = parentRef.current
                 if (parent) {
                     for (const m of managed) {
                         if (m.role === "static") continue
                         if (drag && drag.managed === m) continue
 
-                        const ghost = m.el.cloneNode(true) as HTMLElement
-                        // Position ghost absolutely at body's current position
                         const bw = m.body.bounds.max.x - m.body.bounds.min.x
                         const bh = m.body.bounds.max.y - m.body.bounds.min.y
-                        ghost.style.position = "absolute"
-                        ghost.style.left = `${m.body.position.x - bw / 2}px`
-                        ghost.style.top = `${m.body.position.y - bh / 2}px`
-                        ghost.style.width = `${bw}px`
-                        ghost.style.height = `${bh}px`
-                        ghost.style.translate = "none"
-                        ghost.style.rotate = m.el.style.rotate || "0deg"
-                        ghost.style.opacity = "0.4"
-                        ghost.style.pointerEvents = "none"
-                        ghost.style.transition = "opacity 0.5s ease-out"
-                        ghost.style.zIndex = "-1"
-                        ghost.dataset.driftGhost = "1"
+                        const ghost = document.createElement("div")
+                        // Sample the element's dominant color for the ghost
+                        const cs = getComputedStyle(m.el)
+                        const bgColor = cs.backgroundColor
+                        const hasVisibleBg = bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent"
+                        ghost.style.cssText = `
+                            position: absolute;
+                            left: ${m.body.position.x - bw / 2}px;
+                            top: ${m.body.position.y - bh / 2}px;
+                            width: ${bw}px;
+                            height: ${bh}px;
+                            border-radius: ${cs.borderRadius || "0"};
+                            background: ${hasVisibleBg ? bgColor : cs.color || "rgba(128,128,128,0.5)"};
+                            opacity: 0.35;
+                            pointer-events: none;
+                            z-index: -1;
+                            transition: opacity ${300 + pp.trailLength * 40}ms ease-out;
+                        `
+                        if (pp.rotationEnabled && m.el.style.rotate) {
+                            ghost.style.rotate = m.el.style.rotate
+                        }
                         parent.appendChild(ghost)
                         trailGhostsRef.current.push(ghost)
 
-                        // Fade out and remove
-                        requestAnimationFrame(() => { ghost.style.opacity = "0" })
+                        // Trigger fade on next frame so transition runs
+                        requestAnimationFrame(() => {
+                            requestAnimationFrame(() => { ghost.style.opacity = "0" })
+                        })
+                        const fadeMs = 350 + pp.trailLength * 40
                         setTimeout(() => {
                             ghost.remove()
                             const idx = trailGhostsRef.current.indexOf(ghost)
                             if (idx >= 0) trailGhostsRef.current.splice(idx, 1)
-                        }, 500)
+                        }, fadeMs)
                     }
 
-                    // Limit total ghost count based on trail length
-                    const maxGhosts = pp.trailLength * managed.filter(m => m.role !== "static").length
+                    // Cap total ghost count
+                    const maxGhosts = pp.trailLength * managed.filter(m => m.role !== "static").length * 2
                     while (trailGhostsRef.current.length > maxGhosts) {
                         const old = trailGhostsRef.current.shift()
                         old?.remove()
