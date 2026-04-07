@@ -254,6 +254,8 @@ interface DriftProps {
     collisionColorCycle: boolean
     squishOnBounce: boolean
 
+    simulationPadding: number
+
     debugView: boolean
     showColliderBounds: boolean
 
@@ -295,6 +297,7 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     cohesionWeight: 1.5,
     swarmSpeed: 3,
     touchEnabled: true,
+    simulationPadding: 0,
     collisionColorCycle: false,
     squishOnBounce: false,
     debugView: false,
@@ -323,7 +326,9 @@ export default function Drift(props: DriftProps) {
     } | null>(null)
     const propsRef = useRef(p)
     propsRef.current = p
-    const boundsRef = useRef({ width: 0, height: 0 })
+    // Simulation bounds: minX/minY..maxX/maxY define the padded area;
+    // visW/visH store the original visual container size for render offsets
+    const boundsRef = useRef({ minX: 0, minY: 0, maxX: 0, maxY: 0, visW: 0, visH: 0 })
 
     // ── Build Matter.js world from DOM ──────────────────────────────────
 
@@ -338,9 +343,10 @@ export default function Drift(props: DriftProps) {
         const parentRect = parent.getBoundingClientRect()
         const W = parentRect.width
         const H = parentRect.height
-        boundsRef.current = { width: W, height: H }
 
         const pp = propsRef.current
+        const sp = pp.simulationPadding
+        boundsRef.current = { minX: -sp, minY: -sp, maxX: W + sp, maxY: H + sp, visW: W, visH: H }
 
         // Create engine
         const isBounce = pp.motionMode === "bounce"
@@ -624,18 +630,22 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Container walls (if bounded)
+        // Container walls (if bounded) — expanded by simulationPadding
         if (pp.boundToContainer) {
             const wallThickness = 60
+            const simW = W + sp * 2 // padded simulation width
+            const simH = H + sp * 2 // padded simulation height
+            const simCx = W / 2     // center X stays at visual center
+            const simCy = H / 2     // center Y stays at visual center
             const walls = [
                 // top
-                Bodies.rectangle(W / 2, -wallThickness / 2, W + wallThickness * 2, wallThickness, { isStatic: true, label: "wall-top" }),
+                Bodies.rectangle(simCx, -sp - wallThickness / 2, simW + wallThickness * 2, wallThickness, { isStatic: true, label: "wall-top" }),
                 // bottom
-                Bodies.rectangle(W / 2, H + wallThickness / 2, W + wallThickness * 2, wallThickness, { isStatic: true, label: "wall-bottom" }),
+                Bodies.rectangle(simCx, H + sp + wallThickness / 2, simW + wallThickness * 2, wallThickness, { isStatic: true, label: "wall-bottom" }),
                 // left
-                Bodies.rectangle(-wallThickness / 2, H / 2, wallThickness, H + wallThickness * 2, { isStatic: true, label: "wall-left" }),
+                Bodies.rectangle(-sp - wallThickness / 2, simCy, wallThickness, simH + wallThickness * 2, { isStatic: true, label: "wall-left" }),
                 // right
-                Bodies.rectangle(W + wallThickness / 2, H / 2, wallThickness, H + wallThickness * 2, { isStatic: true, label: "wall-right" }),
+                Bodies.rectangle(W + sp + wallThickness / 2, simCy, wallThickness, simH + wallThickness * 2, { isStatic: true, label: "wall-right" }),
             ]
             for (const w of walls) {
                 w.restitution = isPerpetual ? 1.0 : pp.bounciness
@@ -942,16 +952,16 @@ export default function Drift(props: DriftProps) {
                 }
 
                 // Soft boundary steering — steer inward when near edges
-                if (pp.boundToContainer && bounds.width > 0) {
+                if (pp.boundToContainer && bounds.visW > 0) {
                     const margin = r * 0.6
                     const pos = m.body.position
                     const bw = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
                     const bh = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
                     const bf = maxForce * 2 * mass
-                    if (pos.x - bw < margin) fx += bf * Math.max(0, 1 - (pos.x - bw) / margin)
-                    if (pos.x + bw > bounds.width - margin) fx -= bf * Math.max(0, 1 - (bounds.width - pos.x - bw) / margin)
-                    if (pos.y - bh < margin) fy += bf * Math.max(0, 1 - (pos.y - bh) / margin)
-                    if (pos.y + bh > bounds.height - margin) fy -= bf * Math.max(0, 1 - (bounds.height - pos.y - bh) / margin)
+                    if (pos.x - bw < bounds.minX + margin) fx += bf * Math.max(0, 1 - (pos.x - bw - bounds.minX) / margin)
+                    if (pos.x + bw > bounds.maxX - margin) fx -= bf * Math.max(0, 1 - (bounds.maxX - pos.x - bw) / margin)
+                    if (pos.y - bh < bounds.minY + margin) fy += bf * Math.max(0, 1 - (pos.y - bh - bounds.minY) / margin)
+                    if (pos.y + bh > bounds.maxY - margin) fy -= bf * Math.max(0, 1 - (bounds.maxY - pos.y - bh) / margin)
                 }
 
                 // Speed regulation: steer toward swarmSpeed so flock keeps moving
@@ -1122,17 +1132,17 @@ export default function Drift(props: DriftProps) {
 
             // Bounds safety — if a body escapes the container, pull it back (gravity mode only)
             const isPerpetualMode = pp.motionMode === "bounce" || pp.motionMode === "zeroGravity" || pp.motionMode === "swarm"
-            if (pp.boundToContainer && bounds.width > 0 && !isPerpetualMode) {
+            if (pp.boundToContainer && bounds.visW > 0 && !isPerpetualMode) {
                 const pos = m.body.position
                 const margin = 50
                 let clamped = false
                 let nx = pos.x
                 let ny = pos.y
 
-                if (pos.x < -margin) { nx = 10; clamped = true }
-                if (pos.x > bounds.width + margin) { nx = bounds.width - 10; clamped = true }
-                if (pos.y < -margin) { ny = 10; clamped = true }
-                if (pos.y > bounds.height + margin) { ny = bounds.height - 10; clamped = true }
+                if (pos.x < bounds.minX - margin) { nx = bounds.minX + 10; clamped = true }
+                if (pos.x > bounds.maxX + margin) { nx = bounds.maxX - 10; clamped = true }
+                if (pos.y < bounds.minY - margin) { ny = bounds.minY + 10; clamped = true }
+                if (pos.y > bounds.maxY + margin) { ny = bounds.maxY - 10; clamped = true }
 
                 if (clamped) {
                     Body.setPosition(m.body, { x: nx, y: ny })
@@ -1143,7 +1153,7 @@ export default function Drift(props: DriftProps) {
         }
 
         // Perpetual modes: manual wall bouncing (dynamics bypass Matter.js walls)
-        if ((pp.motionMode === "bounce" || pp.motionMode === "zeroGravity") && pp.boundToContainer && bounds.width > 0) {
+        if ((pp.motionMode === "bounce" || pp.motionMode === "zeroGravity") && pp.boundToContainer && bounds.visW > 0) {
             const minSpeed = pp.motionMode === "bounce" ? 1.5 : 2.0
             for (const m of managed) {
                 if (m.body.isStatic) continue
@@ -1159,13 +1169,13 @@ export default function Drift(props: DriftProps) {
                 let wallHit = ""
 
                 // Left wall
-                if (px - bw <= 0) { px = bw + 1; vx = Math.abs(vx) || minSpeed; bounced = true; wallHit = "left" }
+                if (px - bw <= bounds.minX) { px = bounds.minX + bw + 1; vx = Math.abs(vx) || minSpeed; bounced = true; wallHit = "left" }
                 // Right wall
-                else if (px + bw >= bounds.width) { px = bounds.width - bw - 1; vx = -Math.abs(vx) || -minSpeed; bounced = true; wallHit = "right" }
+                else if (px + bw >= bounds.maxX) { px = bounds.maxX - bw - 1; vx = -Math.abs(vx) || -minSpeed; bounced = true; wallHit = "right" }
                 // Top wall
-                if (py - bh <= 0) { py = bh + 1; vy = Math.abs(vy) || minSpeed; bounced = true; wallHit = "top" }
+                if (py - bh <= bounds.minY) { py = bounds.minY + bh + 1; vy = Math.abs(vy) || minSpeed; bounced = true; wallHit = "top" }
                 // Bottom wall
-                else if (py + bh >= bounds.height) { py = bounds.height - bh - 1; vy = -Math.abs(vy) || -minSpeed; bounced = true; wallHit = "bottom" }
+                else if (py + bh >= bounds.maxY) { py = bounds.maxY - bh - 1; vy = -Math.abs(vy) || -minSpeed; bounced = true; wallHit = "bottom" }
 
                 if (bounced) {
                     Body.setPosition(m.body, { x: px, y: py })
@@ -1214,7 +1224,7 @@ export default function Drift(props: DriftProps) {
         }
 
         // Swarm: hard boundary safety net — reflect if soft steering wasn't enough
-        if (pp.motionMode === "swarm" && pp.boundToContainer && bounds.width > 0) {
+        if (pp.motionMode === "swarm" && pp.boundToContainer && bounds.visW > 0) {
             for (const m of managed) {
                 if (m.body.isStatic) continue
                 const pos = m.body.position
@@ -1222,10 +1232,10 @@ export default function Drift(props: DriftProps) {
                 const bw = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
                 const bh = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
                 let px = pos.x, py = pos.y, vx = v.x, vy = v.y, fix = false
-                if (px - bw < 0) { px = bw + 1; vx = Math.abs(vx); fix = true }
-                else if (px + bw > bounds.width) { px = bounds.width - bw - 1; vx = -Math.abs(vx); fix = true }
-                if (py - bh < 0) { py = bh + 1; vy = Math.abs(vy); fix = true }
-                else if (py + bh > bounds.height) { py = bounds.height - bh - 1; vy = -Math.abs(vy); fix = true }
+                if (px - bw < bounds.minX) { px = bounds.minX + bw + 1; vx = Math.abs(vx); fix = true }
+                else if (px + bw > bounds.maxX) { px = bounds.maxX - bw - 1; vx = -Math.abs(vx); fix = true }
+                if (py - bh < bounds.minY) { py = bounds.minY + bh + 1; vy = Math.abs(vy); fix = true }
+                else if (py + bh > bounds.maxY) { py = bounds.maxY - bh - 1; vy = -Math.abs(vy); fix = true }
                 if (fix) {
                     Body.setPosition(m.body, { x: px, y: py })
                     Body.setVelocity(m.body, { x: vx, y: vy })
@@ -1788,16 +1798,17 @@ export default function Drift(props: DriftProps) {
             const rect = parent.getBoundingClientRect()
             const W = rect.width
             const H = rect.height
-            boundsRef.current = { width: W, height: H }
+            const sp = propsRef.current.simulationPadding
+            boundsRef.current = { minX: -sp, minY: -sp, maxX: W + sp, maxY: H + sp, visW: W, visH: H }
 
-            // Update wall positions
+            // Update wall positions (expanded by simulation padding)
             const walls = wallsRef.current
             if (walls.length === 4) {
                 const t = 60
-                Body.setPosition(walls[0], { x: W / 2, y: -t / 2 })
-                Body.setPosition(walls[1], { x: W / 2, y: H + t / 2 })
-                Body.setPosition(walls[2], { x: -t / 2, y: H / 2 })
-                Body.setPosition(walls[3], { x: W + t / 2, y: H / 2 })
+                Body.setPosition(walls[0], { x: W / 2, y: -sp - t / 2 })
+                Body.setPosition(walls[1], { x: W / 2, y: H + sp + t / 2 })
+                Body.setPosition(walls[2], { x: -sp - t / 2, y: H / 2 })
+                Body.setPosition(walls[3], { x: W + sp + t / 2, y: H / 2 })
             }
         })
 
@@ -1958,6 +1969,16 @@ addPropertyControls(Drift, {
         type: ControlType.Boolean,
         title: "Contain in Bounds",
         defaultValue: true,
+    },
+    simulationPadding: {
+        type: ControlType.Number,
+        title: "Simulation Padding",
+        min: 0,
+        max: 500,
+        step: 10,
+        defaultValue: 0,
+        description: "Adds invisible space around the container so objects can move beyond the visible frame before bouncing back.",
+        hidden: (p) => !p.boundToContainer,
     },
 
     rotationEnabled: {
