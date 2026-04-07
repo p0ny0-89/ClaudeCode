@@ -248,6 +248,8 @@ interface DriftProps {
     cohesionWeight: number
     swarmSpeed: number
 
+    touchEnabled: boolean
+
     collisionColorCycle: boolean
     squishOnBounce: boolean
 
@@ -291,6 +293,7 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     alignmentWeight: 2.5,
     cohesionWeight: 1.5,
     swarmSpeed: 3,
+    touchEnabled: true,
     collisionColorCycle: false,
     squishOnBounce: false,
     debugView: false,
@@ -1158,9 +1161,16 @@ export default function Drift(props: DriftProps) {
     // ── Pointer events ──────────────────────────────────────────────────
 
     const handlePointerDown = useCallback((e: PointerEvent) => {
-        if (!propsRef.current.dragEnabled) return
+        const pp = propsRef.current
+        // Block touch interactions if touchEnabled is off
+        const isTouch = e.pointerType === "touch"
+        if (isTouch && !pp.touchEnabled) return
+        if (!pp.dragEnabled && pp.cursorInfluence === "off") return
         const parent = parentRef.current
         if (!parent) return
+
+        // Prevent scroll on touch so the interaction isn't stolen by the browser
+        if (isTouch) e.preventDefault()
 
         // If the click target is inside an ignored element, don't interfere
         const target = e.target as HTMLElement
@@ -1202,8 +1212,13 @@ export default function Drift(props: DriftProps) {
     }, [])
 
     const handlePointerMove = useCallback((e: PointerEvent) => {
+        const isTouch = e.pointerType === "touch"
+        if (isTouch && !propsRef.current.touchEnabled) return
         const parent = parentRef.current
         if (!parent) return
+
+        // Prevent scroll during touch interaction
+        if (isTouch) e.preventDefault()
 
         const parentRect = parent.getBoundingClientRect()
         const px = e.clientX - parentRect.left
@@ -1219,7 +1234,11 @@ export default function Drift(props: DriftProps) {
         }
     }, [])
 
-    const handlePointerUp = useCallback(() => {
+    const handlePointerUp = useCallback((e?: PointerEvent) => {
+        // On touch release, clear cursor position — no hover state on mobile
+        if (!e || e.pointerType === "touch") {
+            cursorRef.current = null
+        }
         const drag = dragRef.current
         if (drag && propsRef.current.throwEnabled) {
             const pp = propsRef.current
@@ -1284,7 +1303,9 @@ export default function Drift(props: DriftProps) {
             parent.removeEventListener("pointerdown", handlePointerDown, true)
             parent.removeEventListener("pointermove", handlePointerMove, true)
             parent.removeEventListener("pointerup", handlePointerUp, true)
+            parent.removeEventListener("pointercancel", handlePointerUp as any, true)
             parent.removeEventListener("pointerleave", handlePointerLeave)
+            parent.style.touchAction = ""
         }
 
         // Remove debug overlays
@@ -1330,7 +1351,12 @@ export default function Drift(props: DriftProps) {
             parent.addEventListener("pointerdown", handlePointerDown, true)
             parent.addEventListener("pointermove", handlePointerMove, true)
             parent.addEventListener("pointerup", handlePointerUp, true)
+            parent.addEventListener("pointercancel", handlePointerUp as any, true)
             parent.addEventListener("pointerleave", handlePointerLeave)
+            // Prevent browser scroll/zoom when touching the physics container
+            if (propsRef.current.touchEnabled) {
+                parent.style.touchAction = "none"
+            }
         }
 
         lastTimeRef.current = 0
@@ -1723,6 +1749,12 @@ addPropertyControls(Drift, {
         type: ControlType.Boolean,
         title: "Drag",
         defaultValue: true,
+    },
+    touchEnabled: {
+        type: ControlType.Boolean,
+        title: "Touch Interaction",
+        defaultValue: true,
+        description: "Enable touch drag and cursor effects on mobile. When off, touch only scrolls.",
     },
     throwEnabled: {
         type: ControlType.Boolean,
