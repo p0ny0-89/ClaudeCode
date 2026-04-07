@@ -738,7 +738,10 @@ export default function Drift(props: DriftProps) {
             const dynamics = managed.filter(m => m.role !== "static" && !m.body.isStatic && !(drag && drag.managed === m))
             const r = pp.swarmRadius
             const rSq = r * r
-            const maxForce = 0.005
+            const maxForce = 0.003
+
+            // Minimum separation distance — prevents force spikes when bodies overlap
+            const minSepDist = 20
 
             for (const m of dynamics) {
                 let sepX = 0, sepY = 0
@@ -753,12 +756,12 @@ export default function Drift(props: DriftProps) {
                     const dSq = dx * dx + dy * dy
                     if (dSq > rSq || dSq < 0.01) continue
 
-                    const dist = Math.sqrt(dSq)
+                    const dist = Math.max(Math.sqrt(dSq), minSepDist)
                     neighbors++
 
-                    // Separation: inversely proportional to distance
-                    sepX += (dx / dist) / dist
-                    sepY += (dy / dist) / dist
+                    // Separation: capped inverse distance (linear falloff, not 1/d²)
+                    sepX += (dx / dist) * (1 - dist / r)
+                    sepY += (dy / dist) * (1 - dist / r)
 
                     // Alignment: accumulate neighbor velocities
                     aliVx += n.body.velocity.x
@@ -770,13 +773,14 @@ export default function Drift(props: DriftProps) {
                 }
 
                 let fx = 0, fy = 0
+                const mass = m.body.mass
 
                 if (neighbors > 0) {
-                    // Separation steer
+                    // Separation steer — scale by mass so small bodies aren't flung
                     const sepLen = Math.sqrt(sepX * sepX + sepY * sepY)
                     if (sepLen > 0) {
-                        fx += (sepX / sepLen) * pp.separationWeight * maxForce
-                        fy += (sepY / sepLen) * pp.separationWeight * maxForce
+                        fx += (sepX / sepLen) * pp.separationWeight * maxForce * mass
+                        fy += (sepY / sepLen) * pp.separationWeight * maxForce * mass
                     }
 
                     // Alignment steer (toward average heading)
@@ -785,8 +789,8 @@ export default function Drift(props: DriftProps) {
                     const aSteerY = aliVy - m.body.velocity.y
                     const aLen = Math.sqrt(aSteerX * aSteerX + aSteerY * aSteerY)
                     if (aLen > 0) {
-                        fx += (aSteerX / aLen) * pp.alignmentWeight * maxForce
-                        fy += (aSteerY / aLen) * pp.alignmentWeight * maxForce
+                        fx += (aSteerX / aLen) * pp.alignmentWeight * maxForce * mass
+                        fy += (aSteerY / aLen) * pp.alignmentWeight * maxForce * mass
                     }
 
                     // Cohesion steer (toward average position)
@@ -795,8 +799,8 @@ export default function Drift(props: DriftProps) {
                     const cDy = cohY - m.body.position.y
                     const cLen = Math.sqrt(cDx * cDx + cDy * cDy)
                     if (cLen > 0) {
-                        fx += (cDx / cLen) * pp.cohesionWeight * maxForce
-                        fy += (cDy / cLen) * pp.cohesionWeight * maxForce
+                        fx += (cDx / cLen) * pp.cohesionWeight * maxForce * mass
+                        fy += (cDy / cLen) * pp.cohesionWeight * maxForce * mass
                     }
                 }
 
@@ -806,30 +810,37 @@ export default function Drift(props: DriftProps) {
                     const pos = m.body.position
                     const bw = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
                     const bh = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
-                    if (pos.x - bw < margin) fx += maxForce * 3 * (1 - (pos.x - bw) / margin)
-                    if (pos.x + bw > bounds.width - margin) fx -= maxForce * 3 * (1 - (bounds.width - pos.x - bw) / margin)
-                    if (pos.y - bh < margin) fy += maxForce * 3 * (1 - (pos.y - bh) / margin)
-                    if (pos.y + bh > bounds.height - margin) fy -= maxForce * 3 * (1 - (bounds.height - pos.y - bh) / margin)
+                    const bf = maxForce * 2 * mass
+                    if (pos.x - bw < margin) fx += bf * Math.max(0, 1 - (pos.x - bw) / margin)
+                    if (pos.x + bw > bounds.width - margin) fx -= bf * Math.max(0, 1 - (bounds.width - pos.x - bw) / margin)
+                    if (pos.y - bh < margin) fy += bf * Math.max(0, 1 - (pos.y - bh) / margin)
+                    if (pos.y + bh > bounds.height - margin) fy -= bf * Math.max(0, 1 - (bounds.height - pos.y - bh) / margin)
                 }
 
                 // Speed regulation: gently steer toward swarmSpeed
                 const speed = Math.sqrt(m.body.velocity.x ** 2 + m.body.velocity.y ** 2)
                 if (speed > 0.1) {
                     const target = pp.swarmSpeed
-                    const correction = (target - speed) / speed * 0.02
-                    fx += m.body.velocity.x * correction
-                    fy += m.body.velocity.y * correction
+                    const correction = (target - speed) / speed * 0.01
+                    fx += m.body.velocity.x * correction * mass
+                    fy += m.body.velocity.y * correction * mass
                 }
 
-                // Clamp total force
+                // Clamp total force relative to mass
                 const fLen = Math.sqrt(fx * fx + fy * fy)
-                const fCap = maxForce * 4
+                const fCap = maxForce * 3 * mass
                 if (fLen > fCap) {
                     fx = (fx / fLen) * fCap
                     fy = (fy / fLen) * fCap
                 }
 
                 Body.applyForce(m.body, m.body.position, { x: fx, y: fy })
+
+                // Gentle velocity damping to smooth out oscillation
+                Body.setVelocity(m.body, {
+                    x: m.body.velocity.x * 0.98,
+                    y: m.body.velocity.y * 0.98,
+                })
             }
         }
 
