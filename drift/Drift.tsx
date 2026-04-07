@@ -79,23 +79,6 @@ function cycleColor(el: HTMLElement) {
     el.style.filter = `sepia(1) saturate(20) hue-rotate(${next}deg)`
 }
 
-// ─── Debug overlay (temporary) ──────────────────────────────────────────────
-
-let _debugEl: HTMLElement | null = null
-const _debugLines: string[] = []
-function dlog(msg: string) {
-    console.log(msg)
-    _debugLines.push(msg)
-    if (_debugLines.length > 12) _debugLines.shift()
-    if (!_debugEl) {
-        _debugEl = document.createElement("div")
-        _debugEl.style.cssText =
-            "position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.85);" +
-            "color:#0f0;font:11px/1.4 monospace;padding:6px 8px;pointer-events:none;white-space:pre-wrap;"
-        document.body.appendChild(_debugEl)
-    }
-    _debugEl.textContent = _debugLines.join("\n")
-}
 
 // ─── DOM helpers ────────────────────────────────────────────────────────────
 
@@ -346,17 +329,16 @@ export default function Drift(props: DriftProps) {
 
     const init = useCallback(() => {
         const self = selfRef.current
-        if (!self) { dlog("[Drift] init: selfRef is null"); return }
+        if (!self) return
 
         const parent = findParentContainer(self)
-        if (!parent) { dlog("[Drift] init: no parent found"); return }
+        if (!parent) return
         parentRef.current = parent
 
         const parentRect = parent.getBoundingClientRect()
         const W = parentRect.width
         const H = parentRect.height
         boundsRef.current = { width: W, height: H }
-        dlog(`[Drift] init: parent ${W}x${H}, ${parent.children.length} children`)
 
         const pp = propsRef.current
 
@@ -404,7 +386,6 @@ export default function Drift(props: DriftProps) {
             eligibleChildren.push(child)
         }
 
-        let skippedZero = 0
         for (let ci = 0; ci < eligibleChildren.length; ci++) {
             let child = eligibleChildren[ci]
             if (!child.getBoundingClientRect) continue
@@ -422,7 +403,7 @@ export default function Drift(props: DriftProps) {
                     }
                 }
             }
-            if (childRect.width === 0 && childRect.height === 0) { skippedZero++; continue }
+            if (childRect.width === 0 && childRect.height === 0) continue
 
             // Role — ci is the 0-based index among non-Drift siblings
             if (matchesSelectorList(child, ci, ignoredSelectors)) {
@@ -499,7 +480,6 @@ export default function Drift(props: DriftProps) {
             })
         }
 
-        dlog(`[Drift] eligible=${eligibleChildren.length} zero=${skippedZero} managed=${managed.length}`)
         managedRef.current = managed
 
         // Set cursor on dynamic elements
@@ -1374,10 +1354,10 @@ export default function Drift(props: DriftProps) {
 
     const handleTouchStart = useCallback((e: TouchEvent) => {
         const pp = propsRef.current
-        if (!pp.touchEnabled) { dlog("[Drift] touch: disabled"); return }
-        if (!pp.dragEnabled && pp.cursorInfluence === "off") { dlog("[Drift] touch: no drag/cursor"); return }
+        if (!pp.touchEnabled) return
+        if (!pp.dragEnabled && pp.cursorInfluence === "off") return
         const parent = parentRef.current
-        if (!parent) { dlog("[Drift] touch: no parent"); return }
+        if (!parent) return
         const touch = e.touches[0]
         if (!touch) return
         const parentRect = parent.getBoundingClientRect()
@@ -1385,7 +1365,7 @@ export default function Drift(props: DriftProps) {
         const py = touch.clientY - parentRect.top
 
         const inCluster = isTouchInCluster(px, py)
-        dlog(`[Drift] touch (${Math.round(px)},${Math.round(py)}) cluster=${inCluster} bodies=${managedRef.current.length}`)
+
 
         // Outside the body cluster? Let scroll happen normally.
         if (!inCluster) {
@@ -1551,7 +1531,6 @@ export default function Drift(props: DriftProps) {
     const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const startSimulation = useCallback((retryCount = 0) => {
-        dlog(`[Drift] start attempt ${retryCount}`)
         if (initedRef.current) return
         initedRef.current = true
         pausedRef.current = false
@@ -1559,18 +1538,14 @@ export default function Drift(props: DriftProps) {
         init()
 
         const parent = parentRef.current
-        const bodyCount = managedRef.current.length
-        dlog(`[Drift] parent=${!!parent} bodies=${bodyCount}`)
         // If init failed to find a parent or no bodies found (DOM not ready),
         // retry with backoff up to ~3 seconds total
-        if (!parent || bodyCount === 0) {
+        if (!parent || managedRef.current.length === 0) {
             initedRef.current = false
             if (retryCount < 10) {
                 const delay = Math.min(100 * (retryCount + 1), 500)
-                dlog(`[Drift] retry in ${delay}ms`)
                 retryTimerRef.current = setTimeout(() => startSimulation(retryCount + 1), delay)
             } else {
-                dlog("[Drift] GAVE UP after 10 retries")
             }
             return
         }
@@ -1667,7 +1642,6 @@ export default function Drift(props: DriftProps) {
     replaySimRef.current = replaySimulation
 
     useEffect(() => {
-        dlog("[Drift] useEffect mount, isCanvas:" + isFramerCanvas())
         if (isFramerCanvas()) return
 
         const pp = propsRef.current
@@ -1675,7 +1649,6 @@ export default function Drift(props: DriftProps) {
 
         if (pp.startTrigger === "immediate") {
             // Start after a short delay for DOM to settle
-            dlog("[Drift] scheduling start in 100ms")
             const timer = setTimeout(startSimulation, 100)
             cleanup = () => clearTimeout(timer)
 
