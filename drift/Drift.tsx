@@ -739,10 +739,8 @@ export default function Drift(props: DriftProps) {
             }
         }
 
-        // Return-home spring with snap-to-home when close & slow
+        // Return-home: soft spring + velocity steering for organic feel
         if (pp.returnHome) {
-            const cursor = cursorRef.current
-            const cursorActive = cursor !== null
             for (const m of managed) {
                 if (m.role === "static") continue
                 if (m.body.isStatic) continue
@@ -750,13 +748,11 @@ export default function Drift(props: DriftProps) {
 
                 const dx = m.homeCenter.x - m.body.position.x
                 const dy = m.homeCenter.y - m.body.position.y
-                const distSq = dx * dx + dy * dy
-                const dist = Math.sqrt(distSq)
+                const dist = Math.sqrt(dx * dx + dy * dy)
                 const speed = m.body.speed
 
-                // Snap to exact home position when close and slow enough
-                // Use larger threshold (10px) so bodies reliably reach home
-                if (dist < 10 && speed < 1.0) {
+                // Snap to exact home when close and slow
+                if (dist < 6 && speed < 0.5) {
                     Body.setPosition(m.body, { x: m.homeCenter.x, y: m.homeCenter.y })
                     Body.setVelocity(m.body, { x: 0, y: 0 })
                     if (pp.rotationEnabled) {
@@ -766,22 +762,29 @@ export default function Drift(props: DriftProps) {
                     continue
                 }
 
-                // Stronger spring force that scales up when no cursor is active
-                // so bodies return decisively once interaction ends
-                const baseMul = cursorActive ? 0.001 : 0.002
+                // Gentle spring force — constant multiplier, let returnStrength control feel
                 Body.applyForce(m.body, m.body.position, {
-                    x: dx * pp.returnStrength * m.body.mass * baseMul,
-                    y: dy * pp.returnStrength * m.body.mass * baseMul,
+                    x: dx * pp.returnStrength * m.body.mass * 0.001,
+                    y: dy * pp.returnStrength * m.body.mass * 0.001,
                 })
 
-                // Velocity damping proportional to proximity — stronger as body nears home
-                // but never so strong that the body stalls before reaching snap zone
-                if (dist < 50) {
-                    const t = 1 - dist / 50 // 0 at 50px, 1 at 0px
-                    const dampFactor = 1 - t * 0.15 // 1.0 at 50px, 0.85 at 0px
+                // Velocity steering: instead of braking, gently blend velocity
+                // toward the home direction. This feels like a soft current pulling
+                // the body home rather than a stiff spring.
+                if (dist > 0.1) {
+                    const nx = dx / dist  // unit vector toward home
+                    const ny = dy / dist
+                    const vx = m.body.velocity.x
+                    const vy = m.body.velocity.y
+
+                    // How much of current velocity is already going home?
+                    const dot = vx * nx + vy * ny
+                    // Blend factor: steer more as body gets closer
+                    const steer = Math.min(0.08, 3 / (dist + 30))
+
                     Body.setVelocity(m.body, {
-                        x: m.body.velocity.x * dampFactor,
-                        y: m.body.velocity.y * dampFactor,
+                        x: vx + (nx * Math.max(dot, 0.5) - vx) * steer,
+                        y: vy + (ny * Math.max(dot, 0.5) - vy) * steer,
                     })
                 }
 
@@ -789,7 +792,7 @@ export default function Drift(props: DriftProps) {
                     const angleDiff = m.homeAngle - m.body.angle
                     Body.setAngularVelocity(
                         m.body,
-                        m.body.angularVelocity + angleDiff * pp.returnStrength * 0.5
+                        m.body.angularVelocity + angleDiff * pp.returnStrength * 0.3
                     )
                 }
             }
