@@ -1946,6 +1946,7 @@ addPropertyControls(Drift, {
         max: 0.2,
         step: 0.005,
         defaultValue: 0.02,
+        description: "Higher values make objects slow down faster in motion.",
     },
     velocityCap: {
         type: ControlType.Number,
