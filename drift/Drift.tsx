@@ -2083,7 +2083,7 @@ addPropertyControls(Drift, {
         title: "Dynamic Layers",
         defaultValue: "",
         placeholder: "#0-#12, Rectangle",
-        description: "These layers will be dynamic (movable). All others are static colliders.",
+        description: "Use #index, ranges, or name/prefix matching. Matching layers become movable; all others stay static colliders.",
         hidden: (p: any) => p.defaultRole !== "static",
     },
     ignoredLayers: {
@@ -2091,14 +2091,14 @@ addPropertyControls(Drift, {
         title: "Ignored Layers",
         defaultValue: "",
         placeholder: "#2, #10-#12, Background",
-        description: "Use #index, #5-#15 for range, or text/name. These layers won't participate in physics.",
+        description: "Use #index, ranges like #5-#15, or name/prefix matching. These layers won't participate in physics.",
     },
     pointerLayers: {
         type: ControlType.String,
         title: "Link Layers",
         defaultValue: "",
         placeholder: "#2, #5-#8, Button",
-        description: "Use #index, #5-#15 for range, or text/name. Pointer cursor and click-through for links/buttons.",
+        description: "Use #index, ranges, or name/prefix matching. Adds pointer cursor and click-through for links or buttons.",
     },
 
     collisionEnabled: {
@@ -2110,7 +2110,7 @@ addPropertyControls(Drift, {
         type: ControlType.Boolean,
         title: "Self Collide",
         defaultValue: true,
-        description: "When off, dynamic objects pass through each other but still collide with static colliders and walls.",
+        description: "When off, dynamic objects pass through each other but still collide with static colliders and scene bounds.",
     },
     colliderPadding: {
         type: ControlType.Number,
