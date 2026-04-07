@@ -693,7 +693,6 @@ export default function Drift(props: DriftProps) {
             for (const m of managed) {
                 if (m.role === "static") continue
                 if (m.body.isStatic) continue
-                if (m.body.isSleeping) continue
                 if (drag && drag.managed === m) continue
 
                 const dx = m.body.position.x - cursor.x
@@ -701,6 +700,8 @@ export default function Drift(props: DriftProps) {
                 const dist = Math.sqrt(dx * dx + dy * dy)
 
                 if (dist < pp.cursorRadius && dist > 1) {
+                    // Wake sleeping bodies so they respond to cursor
+                    if (m.body.isSleeping) Matter.Sleeping.set(m.body, false)
                     const strength = pp.cursorStrength * (1 - dist / pp.cursorRadius)
                     const nx = dx / dist
                     const ny = dy / dist
