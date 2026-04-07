@@ -1460,6 +1460,11 @@ export default function Drift(props: DriftProps) {
 
     const stopSimulation = useCallback(() => {
         initedRef.current = false
+        // Cancel any pending retry timer from startSimulation
+        if (retryTimerRef.current) {
+            clearTimeout(retryTimerRef.current)
+            retryTimerRef.current = null
+        }
         cancelAnimationFrame(rafRef.current)
 
         const parent = parentRef.current
@@ -1506,6 +1511,9 @@ export default function Drift(props: DriftProps) {
         ignoredElsRef.current = new Set()
     }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, handleTouchStart, handleTouchMove, handleTouchEnd])
 
+    // Track retry timers so they can be cancelled on unmount
+    const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
     const startSimulation = useCallback((retryCount = 0) => {
         if (initedRef.current) return
         initedRef.current = true
@@ -1520,7 +1528,7 @@ export default function Drift(props: DriftProps) {
             initedRef.current = false
             if (retryCount < 10) {
                 const delay = Math.min(100 * (retryCount + 1), 500)
-                setTimeout(() => startSimulation(retryCount + 1), delay)
+                retryTimerRef.current = setTimeout(() => startSimulation(retryCount + 1), delay)
             }
             return
         }
