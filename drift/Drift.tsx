@@ -1226,9 +1226,10 @@ export default function Drift(props: DriftProps) {
     }, [])
 
     const handlePointerDown = useCallback((e: PointerEvent) => {
+        // Touch is handled entirely by touch event handlers — skip here
+        if (e.pointerType === "touch") return
+
         const pp = propsRef.current
-        const isTouch = e.pointerType === "touch"
-        if (isTouch && !pp.touchEnabled) return
         if (!pp.dragEnabled && pp.cursorInfluence === "off") return
         const parent = parentRef.current
         if (!parent) return
@@ -1242,11 +1243,6 @@ export default function Drift(props: DriftProps) {
         const parentRect = parent.getBoundingClientRect()
         const px = e.clientX - parentRect.left
         const py = e.clientY - parentRect.top
-
-        // On touch: only prevent scroll if near a dynamic body, otherwise let scroll pass through
-        if (isTouch && !isTouchNearBody(px, py)) return
-
-        if (isTouch) e.preventDefault()
 
         // Hit test — check managed bodies in reverse order (topmost first)
         const managed = managedRef.current
@@ -1271,7 +1267,6 @@ export default function Drift(props: DriftProps) {
                     }
                     Matter.Sleeping.set(m.body, false)
                     m.el.style.cursor = "grabbing"
-                    e.preventDefault()
                     return
                 }
             }
@@ -1279,28 +1274,17 @@ export default function Drift(props: DriftProps) {
 
         // Set cursor for cursor influence (even if no drag started)
         cursorRef.current = { x: px, y: py }
-    }, [isTouchNearBody])
+    }, [])
 
     const handlePointerMove = useCallback((e: PointerEvent) => {
-        const isTouch = e.pointerType === "touch"
-        if (isTouch && !propsRef.current.touchEnabled) return
+        // Touch is handled entirely by touch event handlers — skip here
+        if (e.pointerType === "touch") return
         const parent = parentRef.current
         if (!parent) return
 
         const parentRect = parent.getBoundingClientRect()
         const px = e.clientX - parentRect.left
         const py = e.clientY - parentRect.top
-
-        // On touch: only prevent scroll if dragging or near a body
-        if (isTouch) {
-            if (dragRef.current || isTouchNearBody(px, py)) {
-                e.preventDefault()
-            } else {
-                // Not near anything — let scroll happen, clear cursor
-                cursorRef.current = null
-                return
-            }
-        }
 
         cursorRef.current = { x: px, y: py }
 
@@ -1313,8 +1297,10 @@ export default function Drift(props: DriftProps) {
     }, [])
 
     const handlePointerUp = useCallback((e?: PointerEvent) => {
-        // On touch release, clear cursor position — no hover state on mobile
-        if (!e || e.pointerType === "touch") {
+        // Touch up is handled by handleTouchEnd — skip pointer touch events
+        if (e && e.pointerType === "touch") return
+        // When called without event (from handleTouchEnd or handlePointerLeave), clear cursor
+        if (!e) {
             cursorRef.current = null
         }
         const drag = dragRef.current
@@ -1361,14 +1347,20 @@ export default function Drift(props: DriftProps) {
         if (dragRef.current) handlePointerUp()
     }, [handlePointerUp])
 
-    // ── Touch event handlers (needed to reliably block scroll on mobile) ──
-    // On mobile, the browser processes touchstart/touchmove for scroll decisions
-    // BEFORE pointer events fire. We must intercept at the touch level.
+    // ── Touch event handlers ──────────────────────────────────────────
+    // On mobile, we must handle interaction directly in touch events because:
+    // 1. preventDefault on touchstart is needed to claim the gesture before
+    //    the browser starts scrolling
+    // 2. But preventing touchstart may block pointerdown in some browsers
+    // So touch events handle BOTH scroll blocking AND cursor/drag setup,
+    // bypassing the pointer event pipeline entirely for touch input.
 
     const touchActiveRef = useRef(false)
 
     const handleTouchStart = useCallback((e: TouchEvent) => {
-        if (!propsRef.current.touchEnabled) return
+        const pp = propsRef.current
+        if (!pp.touchEnabled) return
+        if (!pp.dragEnabled && pp.cursorInfluence === "off") return
         const parent = parentRef.current
         if (!parent) return
         const touch = e.touches[0]
@@ -1377,24 +1369,73 @@ export default function Drift(props: DriftProps) {
         const px = touch.clientX - parentRect.left
         const py = touch.clientY - parentRect.top
 
-        // Only mark as active — do NOT call preventDefault here.
-        // Preventing default on touchstart blocks pointerdown from firing
-        // in some mobile browsers, which breaks drag/cursor interaction.
-        // Scroll blocking is handled in touchmove instead.
-        touchActiveRef.current = isTouchNearBody(px, py)
+        if (!isTouchNearBody(px, py)) {
+            touchActiveRef.current = false
+            return // Let scroll happen
+        }
+
+        // Claim the gesture — prevents scroll AND may block pointerdown,
+        // which is fine because we handle everything here for touch.
+        touchActiveRef.current = true
+        e.preventDefault()
+
+        // Hit test for drag (same logic as handlePointerDown)
+        const managed = managedRef.current
+        if (pp.dragEnabled) {
+            for (let i = managed.length - 1; i >= 0; i--) {
+                const m = managed[i]
+                if (m.role === "static" || m.body.isStatic) continue
+                if (Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
+                    Matter.Vertices.contains(m.body.vertices, { x: px, y: py })) {
+                    if (m.isPointerLayer) return
+                    dragRef.current = {
+                        managed: m,
+                        offset: { x: px - m.body.position.x, y: py - m.body.position.y },
+                        history: [{ pos: { x: px, y: py }, time: performance.now() }],
+                    }
+                    Matter.Sleeping.set(m.body, false)
+                    return
+                }
+            }
+        }
+
+        // Set cursor for cursor influence (repel/attract/nudge)
+        cursorRef.current = { x: px, y: py }
     }, [isTouchNearBody])
 
     const handleTouchMove = useCallback((e: TouchEvent) => {
         if (!propsRef.current.touchEnabled) return
-        // If touch started near a body, or we're actively dragging, block scroll
-        if (touchActiveRef.current || dragRef.current) {
-            e.preventDefault()
+        if (!touchActiveRef.current) return
+
+        e.preventDefault()
+
+        const parent = parentRef.current
+        if (!parent) return
+        const touch = e.touches[0]
+        if (!touch) return
+        const parentRect = parent.getBoundingClientRect()
+        const px = touch.clientX - parentRect.left
+        const py = touch.clientY - parentRect.top
+
+        cursorRef.current = { x: px, y: py }
+
+        // Update drag history for throw velocity calculation
+        const drag = dragRef.current
+        if (drag) {
+            const now = performance.now()
+            drag.history.push({ pos: { x: px, y: py }, time: now })
+            if (drag.history.length > 6) drag.history.shift()
         }
     }, [])
 
     const handleTouchEnd = useCallback(() => {
+        if (touchActiveRef.current) {
+            // Trigger throw logic via handlePointerUp (works without event arg)
+            if (dragRef.current) handlePointerUp()
+            cursorRef.current = null
+        }
         touchActiveRef.current = false
-    }, [])
+    }, [handlePointerUp])
 
     // ── Setup and teardown ──────────────────────────────────────────────
 
