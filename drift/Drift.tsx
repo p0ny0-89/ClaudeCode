@@ -404,25 +404,24 @@ export default function Drift(props: DriftProps) {
             eligibleChildren.push(child)
         }
 
-        // Debug: log first few children to understand DOM structure
-        for (let i = 0; i < Math.min(3, eligibleChildren.length); i++) {
-            const c = eligibleChildren[i]
-            const r = c.getBoundingClientRect()
-            const cs = getComputedStyle(c)
-            dlog(`[Drift] child${i}: ${c.tagName} ${Math.round(r.width)}x${Math.round(r.height)} display=${cs.display} kids=${c.children.length}`)
-            if (c.children.length > 0) {
-                const fc = c.children[0] as HTMLElement
-                const fr = fc.getBoundingClientRect()
-                dlog(`[Drift]   └ ${fc.tagName} ${Math.round(fr.width)}x${Math.round(fr.height)}`)
-            }
-        }
-
         let skippedZero = 0
         for (let ci = 0; ci < eligibleChildren.length; ci++) {
-            const child = eligibleChildren[ci]
+            let child = eligibleChildren[ci]
             if (!child.getBoundingClientRect) continue
 
-            const childRect = child.getBoundingClientRect()
+            let childRect = child.getBoundingClientRect()
+            // Framer wraps components in display:contents divs that have 0x0 size.
+            // Unwrap to the first child with actual dimensions.
+            if (childRect.width === 0 && childRect.height === 0 && child.children.length > 0) {
+                const inner = child.children[0] as HTMLElement
+                if (inner && inner.getBoundingClientRect) {
+                    const innerRect = inner.getBoundingClientRect()
+                    if (innerRect.width > 0 || innerRect.height > 0) {
+                        child = inner
+                        childRect = innerRect
+                    }
+                }
+            }
             if (childRect.width === 0 && childRect.height === 0) { skippedZero++; continue }
 
             // Role — ci is the 0-based index among non-Drift siblings
