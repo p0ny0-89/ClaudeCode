@@ -1452,7 +1452,11 @@ export default function Drift(props: DriftProps) {
                 }
             }
         }
-        if (drag && !drag.managed.isPointerLayer) drag.managed.el.style.cursor = "grab"
+        if (drag) {
+            // Always wake the body on release so gravity/forces take effect immediately
+            Matter.Sleeping.set(drag.managed.body, false)
+            if (!drag.managed.isPointerLayer) drag.managed.el.style.cursor = "grab"
+        }
         dragRef.current = null
     }, [])
 
@@ -1605,7 +1609,10 @@ export default function Drift(props: DriftProps) {
                 }
             }
         }
-        if (drag) drag.managed.el.style.cursor = "grab"
+        if (drag) {
+            Matter.Sleeping.set(drag.managed.body, false)
+            drag.managed.el.style.cursor = "grab"
+        }
         dragRef.current = null
         cursorRef.current = null
     }, [])
