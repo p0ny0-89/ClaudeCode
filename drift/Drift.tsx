@@ -809,6 +809,20 @@ export default function Drift(props: DriftProps) {
             })
             Body.setVelocity(drag.managed.body, { x: 0, y: 0 })
             Body.setAngularVelocity(drag.managed.body, 0)
+
+            // Wake nearby sleeping bodies so stacked objects fall when
+            // the support beneath them is dragged away
+            const db = drag.managed.body.bounds
+            const wakePad = 10
+            for (const m of managed) {
+                if (m.body === drag.managed.body) continue
+                if (!m.body.isSleeping) continue
+                const mb = m.body.bounds
+                if (mb.max.x > db.min.x - wakePad && mb.min.x < db.max.x + wakePad &&
+                    mb.max.y > db.min.y - wakePad && mb.min.y < db.max.y + wakePad) {
+                    Matter.Sleeping.set(m.body, false)
+                }
+            }
         }
 
         // Cursor forces on non-dragged bodies
