@@ -1930,6 +1930,7 @@ Drift.displayName = "Drift"
 // ─── Property controls ──────────────────────────────────────────────────────
 
 addPropertyControls(Drift, {
+    // ── Trigger ─────────────────────────────────────────────────────────
     startTrigger: {
         type: ControlType.Enum,
         title: "Start When",
@@ -1955,6 +1956,7 @@ addPropertyControls(Drift, {
         description: "Custom DOM event name. Trigger from a button with: window.dispatchEvent(new CustomEvent('drift-start'))",
     },
 
+    // ── Motion ──────────────────────────────────────────────────────────
     motionMode: {
         type: ControlType.Enum,
         title: "Motion Mode",
@@ -2022,6 +2024,8 @@ addPropertyControls(Drift, {
         hidden: (p: any) => p.motionMode !== "swarm",
         description: "Target cruising speed for the flock.",
     },
+
+    // ── Physics ─────────────────────────────────────────────────────────
     bounciness: {
         type: ControlType.Number,
         title: "Bounciness",
@@ -2039,6 +2043,15 @@ addPropertyControls(Drift, {
         defaultValue: 0.02,
         description: "Higher values make objects slow down faster in motion.",
     },
+    stickiness: {
+        type: ControlType.Number,
+        title: "Stickiness",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.3,
+        description: "Surface friction. Higher = objects grip and stop sliding.",
+    },
     velocityCap: {
         type: ControlType.Number,
         title: "Speed Limit",
@@ -2048,22 +2061,6 @@ addPropertyControls(Drift, {
         defaultValue: 30,
         description: "Max velocity (Matter.js units)",
     },
-    boundToContainer: {
-        type: ControlType.Boolean,
-        title: "Contain in Bounds",
-        defaultValue: true,
-    },
-    simulationPadding: {
-        type: ControlType.Number,
-        title: "Simulation Padding",
-        min: 0,
-        max: 500,
-        step: 10,
-        defaultValue: 0,
-        description: "Adds invisible space around the container so objects can move beyond the visible frame before bouncing back.",
-        hidden: (p) => !p.boundToContainer,
-    },
-
     rotationEnabled: {
         type: ControlType.Boolean,
         title: "Rotation",
@@ -2078,16 +2075,8 @@ addPropertyControls(Drift, {
         defaultValue: 0.05,
         hidden: (p) => !p.rotationEnabled,
     },
-    stickiness: {
-        type: ControlType.Number,
-        title: "Stickiness",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.3,
-        description: "Surface friction. Higher = objects grip and stop sliding.",
-    },
 
+    // ── Interaction ─────────────────────────────────────────────────────
     cursorInfluence: {
         type: ControlType.Enum,
         title: "Cursor Effect",
@@ -2119,12 +2108,6 @@ addPropertyControls(Drift, {
         defaultValue: true,
         description: "Click and drag to grab and move objects directly.",
     },
-    touchEnabled: {
-        type: ControlType.Boolean,
-        title: "Touch Interaction",
-        defaultValue: true,
-        description: "Enable touch drag and cursor effects on mobile. When off, touch only scrolls.",
-    },
     throwEnabled: {
         type: ControlType.Boolean,
         title: "Throw",
@@ -2139,6 +2122,12 @@ addPropertyControls(Drift, {
         step: 0.1,
         defaultValue: 1.2,
         hidden: (p) => !p.dragEnabled || !p.throwEnabled,
+    },
+    touchEnabled: {
+        type: ControlType.Boolean,
+        title: "Touch Interaction",
+        defaultValue: true,
+        description: "Enable touch drag and cursor effects on mobile. When off, touch only scrolls.",
     },
     returnHome: {
         type: ControlType.Boolean,
@@ -2155,6 +2144,24 @@ addPropertyControls(Drift, {
         hidden: (p) => !p.returnHome,
     },
 
+    // ── Boundaries ──────────────────────────────────────────────────────
+    boundToContainer: {
+        type: ControlType.Boolean,
+        title: "Contain in Bounds",
+        defaultValue: true,
+    },
+    simulationPadding: {
+        type: ControlType.Number,
+        title: "Simulation Padding",
+        min: 0,
+        max: 500,
+        step: 10,
+        defaultValue: 0,
+        description: "Adds invisible space around the container so objects can move beyond the visible frame before bouncing back.",
+        hidden: (p) => !p.boundToContainer,
+    },
+
+    // ── Layer Selection ─────────────────────────────────────────────────
     defaultRole: {
         type: ControlType.Enum,
         title: "Default Role",
@@ -2187,6 +2194,7 @@ addPropertyControls(Drift, {
         description: "Use #index, ranges like #5-#15, or name/prefix matching. These layers won't participate in physics.",
     },
 
+    // ── Collisions ──────────────────────────────────────────────────────
     collisionEnabled: {
         type: ControlType.Boolean,
         title: "Collisions",
@@ -2207,6 +2215,7 @@ addPropertyControls(Drift, {
         defaultValue: 0,
     },
 
+    // ── Effects ──────────────────────────────────────────────────────────
     collisionColorCycle: {
         type: ControlType.Boolean,
         title: "Collision Color",
@@ -2220,6 +2229,7 @@ addPropertyControls(Drift, {
         description: "Objects squash and stretch on wall and body collisions.",
     },
 
+    // ── Debug ───────────────────────────────────────────────────────────
     debugView: {
         type: ControlType.Boolean,
         title: "Debug View",
