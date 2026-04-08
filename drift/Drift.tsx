@@ -1896,12 +1896,27 @@ export default function Drift(props: DriftProps) {
         const resumeHandler = () => resumeSimRef.current()
         const resetHandler = () => resetSimRef.current()
         const replayHandler = () => replaySimRef.current()
-        // drift-start always works: starts if not inited, resumes if paused
+        // drift-start always works in any state:
+        // - Not started → start fresh
+        // - Paused → resume
+        // - Already running → no-op (already playing)
+        // - Stale (inited but no bodies / DOM changed) → force restart
         const startHandler = () => {
             if (!initedRef.current) {
                 startSimRef.current()
             } else if (pausedRef.current) {
                 resumeSimRef.current()
+            } else {
+                // Check if simulation is stale (bodies lost after navigation)
+                const parent = parentRef.current
+                const hasValidBodies = managedRef.current.length > 0
+                const parentStillValid = parent && parent.isConnected
+                if (!hasValidBodies || !parentStillValid) {
+                    // Force restart: reset then start fresh
+                    resetSimRef.current()
+                    // Small delay for DOM to settle after navigation
+                    setTimeout(() => startSimRef.current(), 100)
+                }
             }
         }
 
