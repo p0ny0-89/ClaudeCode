@@ -23,6 +23,7 @@ interface ManagedBody {
     homeCenter: { x: number; y: number }
     homeAngle: number
     originalTransform: string
+    attractImmuneUntil: number // timestamp — skip attract force until this time
     debugLabel?: HTMLElement // debug overlay label element
 }
 
@@ -577,6 +578,7 @@ export default function Drift(props: DriftProps) {
                 homeCenter: { x: cx, y: cy },
                 homeAngle,
                 originalTransform,
+                attractImmuneUntil: 0,
             })
         }
 
@@ -831,6 +833,8 @@ export default function Drift(props: DriftProps) {
                 if (m.role === "static") continue
                 if (m.body.isStatic) continue
                 if (drag && drag.managed === m) continue
+                // Skip attract on recently thrown bodies so throw velocity plays out
+                if (pp.cursorInfluence === "attract" && m.attractImmuneUntil > time) continue
 
                 const dx = m.body.position.x - cursor.x
                 const dy = m.body.position.y - cursor.y
@@ -1475,6 +1479,10 @@ export default function Drift(props: DriftProps) {
         if (drag) {
             // Always wake the body on release so gravity/forces take effect immediately
             Matter.Sleeping.set(drag.managed.body, false)
+            // Grant attract immunity so throw velocity isn't immediately cancelled
+            if (propsRef.current.cursorInfluence === "attract") {
+                drag.managed.attractImmuneUntil = performance.now() + 500
+            }
             if (!drag.managed.isPointerLayer) drag.managed.el.style.cursor = "grab"
         }
         dragRef.current = null
@@ -1631,6 +1639,9 @@ export default function Drift(props: DriftProps) {
         }
         if (drag) {
             Matter.Sleeping.set(drag.managed.body, false)
+            if (propsRef.current.cursorInfluence === "attract") {
+                drag.managed.attractImmuneUntil = performance.now() + 500
+            }
             drag.managed.el.style.cursor = "grab"
         }
         dragRef.current = null
