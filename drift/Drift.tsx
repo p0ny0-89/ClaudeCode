@@ -2104,6 +2104,7 @@ addPropertyControls(Drift, {
         type: ControlType.Boolean,
         title: "Drag",
         defaultValue: true,
+        description: "Click and drag to grab and move objects directly.",
     },
     touchEnabled: {
         type: ControlType.Boolean,
