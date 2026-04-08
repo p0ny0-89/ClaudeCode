@@ -2035,15 +2035,6 @@ addPropertyControls(Drift, {
         defaultValue: 30,
         description: "Max velocity (Matter.js units)",
     },
-    throwStrength: {
-        type: ControlType.Number,
-        title: "Throw Strength",
-        min: 0,
-        max: 5,
-        step: 0.1,
-        defaultValue: 1.2,
-        hidden: (p) => !p.dragEnabled,
-    },
     boundToContainer: {
         type: ControlType.Boolean,
         title: "Contain in Bounds",
@@ -2125,6 +2116,15 @@ addPropertyControls(Drift, {
         title: "Throw",
         defaultValue: true,
         hidden: (p) => !p.dragEnabled,
+    },
+    throwStrength: {
+        type: ControlType.Number,
+        title: "Throw Strength",
+        min: 0,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1.2,
+        hidden: (p) => !p.dragEnabled || !p.throwEnabled,
     },
     returnHome: {
         type: ControlType.Boolean,
