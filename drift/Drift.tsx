@@ -576,7 +576,7 @@ export default function Drift(props: DriftProps) {
 
         managedRef.current = managed
 
-        // Set cursor on dynamic elements
+        // Set cursor on dynamic elements and prevent native browser drag
         for (const m of managed) {
             if (m.role !== "dynamic") continue
             if (m.isPointerLayer) {
@@ -584,6 +584,9 @@ export default function Drift(props: DriftProps) {
             } else if (pp.dragEnabled) {
                 m.el.style.cursor = "grab"
             }
+            // Prevent native HTML drag (ghost image / blocked cursor icon)
+            m.el.setAttribute("draggable", "false")
+            m.el.addEventListener("dragstart", (e) => e.preventDefault(), { once: false })
         }
 
         // Debug: visual index labels + console log
@@ -1346,22 +1349,28 @@ export default function Drift(props: DriftProps) {
                 if (m.role === "static") continue
                 if (m.body.isStatic) continue
 
-                // Standard bounds check, with expanded proximity for attract mode
-                // so jittering objects near the cursor are still grabbable
+                // Standard bounds check with expanded grab area for moving objects.
+                // Moving bodies may visually lag behind their physics position,
+                // so we pad the hit area based on speed + a base grab padding.
                 const inBounds = Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
                     Matter.Vertices.contains(m.body.vertices, { x: px, y: py })
                 let inProximity = false
-                if (!inBounds && pp.cursorInfluence === "attract") {
+                if (!inBounds) {
                     const bdx = m.body.position.x - px
                     const bdy = m.body.position.y - py
                     const bHalfW = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
                     const bHalfH = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
-                    const grabPad = 12
+                    // Base padding + extra for fast-moving objects
+                    const speed = m.body.speed
+                    const grabPad = 10 + Math.min(speed * 3, 30)
                     inProximity = Math.abs(bdx) < bHalfW + grabPad && Math.abs(bdy) < bHalfH + grabPad
                 }
 
                 if (inBounds || inProximity) {
                     if (m.isPointerLayer) return
+
+                    // Prevent native browser drag (ghost image / blocked cursor)
+                    e.preventDefault()
 
                     const offset = {
                         x: px - m.body.position.x,
@@ -1511,12 +1520,13 @@ export default function Drift(props: DriftProps) {
                 const inBounds = Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
                     Matter.Vertices.contains(m.body.vertices, { x: px, y: py })
                 let inProximity = false
-                if (!inBounds && pp.cursorInfluence === "attract") {
+                if (!inBounds) {
                     const bdx = m.body.position.x - px
                     const bdy = m.body.position.y - py
                     const bHalfW = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
                     const bHalfH = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
-                    const grabPad = 12
+                    const speed = m.body.speed
+                    const grabPad = 10 + Math.min(speed * 3, 30)
                     inProximity = Math.abs(bdx) < bHalfW + grabPad && Math.abs(bdy) < bHalfH + grabPad
                 }
 
