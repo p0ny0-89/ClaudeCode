@@ -401,6 +401,8 @@ export default function Drift(props: DriftProps) {
             // Framer wraps components in display:contents divs that have 0x0 size.
             // Vector/SVG elements can be nested several levels deep.
             // Unwrap through zero-size wrappers until we find actual dimensions.
+            // Check ALL children at each level, not just the first — Framer may
+            // insert invisible helper divs before the visible element.
             let unwrapDepth = 0
             while (
                 childRect.width === 0 &&
@@ -408,26 +410,36 @@ export default function Drift(props: DriftProps) {
                 child.children.length > 0 &&
                 unwrapDepth < 5
             ) {
-                const inner = child.children[0] as HTMLElement
-                if (!inner || !inner.getBoundingClientRect) break
-                const innerRect = inner.getBoundingClientRect()
-                if (innerRect.width > 0 || innerRect.height > 0) {
-                    child = inner
-                    childRect = innerRect
-                    break
+                let found = false
+                for (let k = 0; k < child.children.length; k++) {
+                    const inner = child.children[k] as HTMLElement
+                    if (!inner || !inner.getBoundingClientRect) continue
+                    const innerRect = inner.getBoundingClientRect()
+                    if (innerRect.width > 0 || innerRect.height > 0) {
+                        child = inner
+                        childRect = innerRect
+                        found = true
+                        break
+                    }
                 }
-                // Inner also zero — keep unwrapping
-                child = inner
-                childRect = innerRect
+                if (found) break
+                // All children at this level are zero — descend into the first child
+                const firstChild = child.children[0] as HTMLElement
+                if (!firstChild || !firstChild.getBoundingClientRect) break
+                child = firstChild
+                childRect = firstChild.getBoundingClientRect()
                 unwrapDepth++
             }
             // SVG elements may report 0x0 from getBoundingClientRect but have
-            // a viewBox or getBBox with real dimensions
+            // a viewBox or getBBox with real dimensions.
+            // Also use querySelector as a last resort to find any nested SVG
+            // in the original element tree.
             if (childRect.width === 0 && childRect.height === 0) {
+                const searchRoot = originalChild as HTMLElement
                 const svgEl =
                     child.tagName === "svg"
                         ? (child as unknown as SVGSVGElement)
-                        : child.querySelector?.("svg")
+                        : child.querySelector?.("svg") || searchRoot.querySelector?.("svg")
                 if (svgEl) {
                     // Try getBBox for rendered SVG bounds
                     try {
