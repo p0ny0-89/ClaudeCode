@@ -238,7 +238,6 @@ interface DriftProps {
     staticColliders: string
     dynamicLayers: string
     ignoredLayers: string
-    pointerLayers: string
     collisionEnabled: boolean
     selfCollide: boolean
     colliderPadding: number
@@ -287,7 +286,6 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     staticColliders: "",
     dynamicLayers: "",
     ignoredLayers: "",
-    pointerLayers: "",
     collisionEnabled: true,
     selfCollide: true,
     colliderPadding: 0,
@@ -373,7 +371,6 @@ export default function Drift(props: DriftProps) {
         const staticSelectors = parseSelectorList(pp.staticColliders)
         const dynamicSelectors = parseSelectorList(pp.dynamicLayers)
         const ignoredSelectors = parseSelectorList(pp.ignoredLayers)
-        const pointerSelectors = parseSelectorList(pp.pointerLayers)
         const invertedDefault = pp.defaultRole === "static"
 
         const managed: ManagedBody[] = []
@@ -553,7 +550,7 @@ export default function Drift(props: DriftProps) {
                 !!child.querySelector?.("a[href]") ||
                 originalChild.hasAttribute("data-framer-page-link-current")
 
-            const isPointerLayer = hasLink || matchesSelectorList(originalChild, ci, pointerSelectors)
+            const isPointerLayer = hasLink
 
             // display:contents elements cannot be transformed — CSS translate/rotate
             // has no visual effect on them. Find the first child with a real box model
@@ -2188,13 +2185,6 @@ addPropertyControls(Drift, {
         defaultValue: "",
         placeholder: "#2, #10-#12, Background",
         description: "Use #index, ranges like #5-#15, or name/prefix matching. These layers won't participate in physics.",
-    },
-    pointerLayers: {
-        type: ControlType.String,
-        title: "Link Layers",
-        defaultValue: "",
-        placeholder: "#2, #5-#8, Button",
-        description: "Use #index, ranges, or name/prefix matching. Adds pointer cursor and click-through for links or buttons.",
     },
 
     collisionEnabled: {
