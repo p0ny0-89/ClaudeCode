@@ -477,7 +477,24 @@ export default function Drift(props: DriftProps) {
                     } catch {}
                 }
             }
-            if (childRect.width === 0 && childRect.height === 0) continue
+            // Debug: log skipped elements to help diagnose missing bodies
+            if (childRect.width === 0 && childRect.height === 0) {
+                const tag = originalChild.tagName?.toLowerCase()
+                const name = getLayerName(originalChild)
+                const cs = getComputedStyle(originalChild)
+                const childCount = originalChild.children.length
+                const innerTags = Array.from(originalChild.children).map((c: any) => {
+                    const r = c.getBoundingClientRect?.()
+                    return `${c.tagName?.toLowerCase()}(${r ? `${Math.round(r.width)}×${Math.round(r.height)}` : '?'})`
+                }).join(', ')
+                console.warn(
+                    `[Drift] Skipped #${ci} "${name || tag}": ` +
+                    `rect=${Math.round(childRect.width)}×${Math.round(childRect.height)}, ` +
+                    `display=${cs.display}, visibility=${cs.visibility}, ` +
+                    `children=${childCount} [${innerTags}]`
+                )
+                continue
+            }
 
             // Role — ci is the 0-based index among non-Drift siblings
             // Use originalChild for selector matching (it has data-framer-name etc.)
