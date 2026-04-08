@@ -832,16 +832,30 @@ export default function Drift(props: DriftProps) {
                             fy = ny * strength
                             break
                         case "attract": {
-                            // Spring-like attract with velocity damping to prevent jitter
-                            fx = -nx * strength
-                            fy = -ny * strength
-                            // Dampen velocity as object gets closer to cursor
-                            const closeness = 1 - dist / pp.cursorRadius
-                            const damping = 0.85 - closeness * 0.15 // stronger damping when closer
-                            Body.setVelocity(m.body, {
-                                x: m.body.velocity.x * damping,
-                                y: m.body.velocity.y * damping,
-                            })
+                            // Dead zone: once very close to cursor, stop applying force
+                            // and gently brake to a stop. Prevents jitter/oscillation.
+                            const deadZone = 8
+                            if (dist < deadZone) {
+                                // Inside dead zone — just brake hard so it settles
+                                Body.setVelocity(m.body, {
+                                    x: m.body.velocity.x * 0.5,
+                                    y: m.body.velocity.y * 0.5,
+                                })
+                            } else {
+                                // Attract force ramps down smoothly as object nears cursor
+                                const attractRange = pp.cursorRadius - deadZone
+                                const normalizedDist = (dist - deadZone) / attractRange
+                                // Quadratic falloff: stronger pull when far, gentle when close
+                                const attractStrength = pp.cursorStrength * normalizedDist * normalizedDist
+                                fx = -nx * attractStrength
+                                fy = -ny * attractStrength
+                                // Progressive damping: brake harder as object approaches
+                                const damping = 0.92 - (1 - normalizedDist) * 0.25
+                                Body.setVelocity(m.body, {
+                                    x: m.body.velocity.x * damping,
+                                    y: m.body.velocity.y * damping,
+                                })
+                            }
                             break
                         }
                     }
@@ -1332,8 +1346,21 @@ export default function Drift(props: DriftProps) {
                 if (m.role === "static") continue
                 if (m.body.isStatic) continue
 
-                if (Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
-                    Matter.Vertices.contains(m.body.vertices, { x: px, y: py })) {
+                // Standard bounds check, with expanded proximity for attract mode
+                // so jittering objects near the cursor are still grabbable
+                const inBounds = Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
+                    Matter.Vertices.contains(m.body.vertices, { x: px, y: py })
+                let inProximity = false
+                if (!inBounds && pp.cursorInfluence === "attract") {
+                    const bdx = m.body.position.x - px
+                    const bdy = m.body.position.y - py
+                    const bHalfW = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
+                    const bHalfH = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
+                    const grabPad = 12
+                    inProximity = Math.abs(bdx) < bHalfW + grabPad && Math.abs(bdy) < bHalfH + grabPad
+                }
+
+                if (inBounds || inProximity) {
                     if (m.isPointerLayer) return
 
                     const offset = {
@@ -1480,8 +1507,20 @@ export default function Drift(props: DriftProps) {
             for (let i = managed.length - 1; i >= 0; i--) {
                 const m = managed[i]
                 if (m.role === "static" || m.body.isStatic) continue
-                if (Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
-                    Matter.Vertices.contains(m.body.vertices, { x: px, y: py })) {
+
+                const inBounds = Matter.Bounds.contains(m.body.bounds, { x: px, y: py }) &&
+                    Matter.Vertices.contains(m.body.vertices, { x: px, y: py })
+                let inProximity = false
+                if (!inBounds && pp.cursorInfluence === "attract") {
+                    const bdx = m.body.position.x - px
+                    const bdy = m.body.position.y - py
+                    const bHalfW = (m.body.bounds.max.x - m.body.bounds.min.x) / 2
+                    const bHalfH = (m.body.bounds.max.y - m.body.bounds.min.y) / 2
+                    const grabPad = 12
+                    inProximity = Math.abs(bdx) < bHalfW + grabPad && Math.abs(bdy) < bHalfH + grabPad
+                }
+
+                if (inBounds || inProximity) {
                     if (m.isPointerLayer) return
                     dragRef.current = {
                         managed: m,
