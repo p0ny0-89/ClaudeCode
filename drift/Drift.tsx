@@ -1656,6 +1656,7 @@ export default function Drift(props: DriftProps) {
     // Refs for event handlers so listeners always call the latest version
     const startSimRef = useRef<() => void>(() => {})
     const pauseSimRef = useRef<() => void>(() => {})
+    const resumeSimRef = useRef<() => void>(() => {})
     const resetSimRef = useRef<() => void>(() => {})
     const replaySimRef = useRef<() => void>(() => {})
 
@@ -1754,16 +1755,20 @@ export default function Drift(props: DriftProps) {
     }, [init, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, handleTouchStart, handleTouchMove, handleTouchEnd, animate])
 
     const pauseSimulation = useCallback(() => {
-        pausedRef.current = !pausedRef.current
-        // If unpausing, restart the animation loop
-        if (!pausedRef.current && initedRef.current) {
+        if (!initedRef.current) return
+        pausedRef.current = true
+    }, [])
+
+    const resumeSimulation = useCallback(() => {
+        if (!initedRef.current) return
+        if (pausedRef.current) {
+            pausedRef.current = false
             lastTimeRef.current = 0
             rafRef.current = requestAnimationFrame(animate)
         }
     }, [animate])
 
     const resetSimulation = useCallback(() => {
-        if (!initedRef.current) return
         pausedRef.current = false
         stopSimulation()
     }, [stopSimulation])
@@ -1823,6 +1828,7 @@ export default function Drift(props: DriftProps) {
     // Keep refs pointing to latest versions for event listeners
     startSimRef.current = startSimulation
     pauseSimRef.current = pauseSimulation
+    resumeSimRef.current = resumeSimulation
     resetSimRef.current = resetSimulation
     replaySimRef.current = replaySimulation
 
@@ -1880,25 +1886,39 @@ export default function Drift(props: DriftProps) {
             cleanup = () => window.removeEventListener(eventName, handler)
         }
 
-        // Always listen for pause / reset / replay events
-        // Convention: base name from eventName prop, with -pause, -reset, -replay suffixes
+        // Always listen for pause / resume / reset / replay / start events
+        // Convention: base name from eventName prop, with -pause, -resume, -reset, -replay suffixes
         const baseName = pp.eventName || "drift"
         // Strip "-start" suffix if present to get the base
         const base = baseName.replace(/-start$/, "") || "drift"
 
         const pauseHandler = () => pauseSimRef.current()
+        const resumeHandler = () => resumeSimRef.current()
         const resetHandler = () => resetSimRef.current()
         const replayHandler = () => replaySimRef.current()
+        // drift-start always works: starts if not inited, resumes if paused
+        const startHandler = () => {
+            if (!initedRef.current) {
+                startSimRef.current()
+            } else if (pausedRef.current) {
+                resumeSimRef.current()
+            }
+        }
 
         window.addEventListener(`${base}-pause`, pauseHandler)
+        window.addEventListener(`${base}-resume`, resumeHandler)
         window.addEventListener(`${base}-reset`, resetHandler)
         window.addEventListener(`${base}-replay`, replayHandler)
+        // Listen for drift-start globally (works regardless of startTrigger mode)
+        window.addEventListener(`${base}-start`, startHandler)
 
         return () => {
             cleanup?.()
             window.removeEventListener(`${base}-pause`, pauseHandler)
+            window.removeEventListener(`${base}-resume`, resumeHandler)
             window.removeEventListener(`${base}-reset`, resetHandler)
             window.removeEventListener(`${base}-replay`, replayHandler)
+            window.removeEventListener(`${base}-start`, startHandler)
             stopSimulation()
         }
     }, [])
