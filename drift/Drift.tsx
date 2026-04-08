@@ -477,24 +477,7 @@ export default function Drift(props: DriftProps) {
                     } catch {}
                 }
             }
-            // Debug: log skipped elements to help diagnose missing bodies
-            if (childRect.width === 0 && childRect.height === 0) {
-                const tag = originalChild.tagName?.toLowerCase()
-                const name = getLayerName(originalChild)
-                const cs = getComputedStyle(originalChild)
-                const childCount = originalChild.children.length
-                const innerTags = Array.from(originalChild.children).map((c: any) => {
-                    const r = c.getBoundingClientRect?.()
-                    return `${c.tagName?.toLowerCase()}(${r ? `${Math.round(r.width)}×${Math.round(r.height)}` : '?'})`
-                }).join(', ')
-                console.warn(
-                    `[Drift] Skipped #${ci} "${name || tag}": ` +
-                    `rect=${Math.round(childRect.width)}×${Math.round(childRect.height)}, ` +
-                    `display=${cs.display}, visibility=${cs.visibility}, ` +
-                    `children=${childCount} [${innerTags}]`
-                )
-                continue
-            }
+            if (childRect.width === 0 && childRect.height === 0) continue
 
             // Role — ci is the 0-based index among non-Drift siblings
             // Use originalChild for selector matching (it has data-framer-name etc.)
@@ -562,8 +545,24 @@ export default function Drift(props: DriftProps) {
 
             const isPointerLayer = matchesSelectorList(originalChild, ci, pointerSelectors)
 
+            // display:contents elements cannot be transformed — CSS translate/rotate
+            // has no visual effect on them. Find the first child with a real box model
+            // to use as the transform target instead.
+            let transformEl = child
+            if (getComputedStyle(child).display === "contents" && child.children.length > 0) {
+                for (let k = 0; k < child.children.length; k++) {
+                    const candidate = child.children[k] as HTMLElement
+                    if (!candidate.getBoundingClientRect) continue
+                    const cRect = candidate.getBoundingClientRect()
+                    if (cRect.width > 0 || cRect.height > 0) {
+                        transformEl = candidate
+                        break
+                    }
+                }
+            }
+
             managed.push({
-                el: child,
+                el: transformEl,
                 body: matterBody,
                 role,
                 isPointerLayer,
