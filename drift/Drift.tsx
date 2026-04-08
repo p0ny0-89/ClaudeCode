@@ -1912,6 +1912,10 @@ export default function Drift(props: DriftProps) {
         // Listen for drift-start globally (works regardless of startTrigger mode)
         window.addEventListener(`${base}-start`, startHandler)
 
+        // Signal that Drift is mounted and ready to accept events.
+        // Overrides can listen for this to reset their UI state on page navigation.
+        window.dispatchEvent(new CustomEvent(`${base}-ready`))
+
         return () => {
             cleanup?.()
             window.removeEventListener(`${base}-pause`, pauseHandler)
