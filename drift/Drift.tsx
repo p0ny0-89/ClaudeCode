@@ -544,7 +544,16 @@ export default function Drift(props: DriftProps) {
 
             Composite.add(engine.world, matterBody)
 
-            const isPointerLayer = matchesSelectorList(originalChild, ci, pointerSelectors)
+            // Auto-detect linked elements: <a> tags, elements containing <a>,
+            // or Framer link attributes — these get pointer cursor and skip drag
+            const hasLink =
+                originalChild.tagName === "A" ||
+                child.tagName === "A" ||
+                !!originalChild.querySelector?.("a[href]") ||
+                !!child.querySelector?.("a[href]") ||
+                originalChild.hasAttribute("data-framer-page-link-current")
+
+            const isPointerLayer = hasLink || matchesSelectorList(originalChild, ci, pointerSelectors)
 
             // display:contents elements cannot be transformed — CSS translate/rotate
             // has no visual effect on them. Find the first child with a real box model
