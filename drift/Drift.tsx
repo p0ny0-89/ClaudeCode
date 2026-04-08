@@ -392,23 +392,6 @@ export default function Drift(props: DriftProps) {
             eligibleChildren.push(child)
         }
 
-        // Debug: log all direct children of parent to diagnose missing elements
-        if (pp.debugView) {
-            console.log(`[Drift] Parent has ${parent.children.length} children, ${eligibleChildren.length} eligible (excluding self)`)
-            for (let i = 0; i < eligibleChildren.length; i++) {
-                const el = eligibleChildren[i]
-                const r = el.getBoundingClientRect()
-                const cs = getComputedStyle(el)
-                const name = getLayerName(el)
-                console.log(
-                    `[Drift] Eligible #${i}: "${name || el.tagName}" ` +
-                    `rect=${Math.round(r.width)}×${Math.round(r.height)} ` +
-                    `display=${cs.display} ` +
-                    `children=${el.children.length} ` +
-                    `tag=${el.tagName}`
-                )
-            }
-        }
 
         for (let ci = 0; ci < eligibleChildren.length; ci++) {
             let child = eligibleChildren[ci]
