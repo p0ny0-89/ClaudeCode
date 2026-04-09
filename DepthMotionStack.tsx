@@ -277,8 +277,8 @@ function applyLayerTransforms(
 
 // ─── Component ────────────────────────────────────────────
 
-// @framerSupportedLayoutWidth any
-// @framerSupportedLayoutHeight any
+// @framerSupportedLayoutWidth any-prefer-fixed
+// @framerSupportedLayoutHeight any-prefer-fixed
 // @framerIntrinsicWidth 400
 // @framerIntrinsicHeight 400
 // @framerDisableUnlink
