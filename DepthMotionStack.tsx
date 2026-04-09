@@ -1487,6 +1487,8 @@ export default function DepthMotionStack(props: Props) {
         return (
             <div
                 style={{
+                    width: 400,
+                    height: 400,
                     ...style,
                     display: "flex",
                     alignItems: "center",
@@ -1502,7 +1504,7 @@ export default function DepthMotionStack(props: Props) {
                     minHeight: 150,
                 }}
             >
-                Select content →
+                Connect a foreground layer →
             </div>
         )
     }
