@@ -1498,7 +1498,8 @@ export default function DepthMotionStack(props: Props) {
                     fontFamily:
                         '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                     border: "1px dashed rgba(0, 0, 0, 0.1)",
-                    minHeight: 100,
+                    minWidth: 150,
+                    minHeight: 150,
                 }}
             >
                 Select content →
