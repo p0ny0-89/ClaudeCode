@@ -1830,6 +1830,7 @@ export default function PageChoreographer(props: any) {
         exitRotateZ = 0,
         exitBlur = 0,
         exitPerspective = 1000,
+        debugMarkers = false,
         style,
     } = props
 
@@ -2707,7 +2708,7 @@ export default function PageChoreographer(props: any) {
                         anticipatePin: shouldPin ? 1 : 0,
                         start: gsapStart,
                         end: "+=" + totalScrollDist,
-                        markers: { startColor: "lime", endColor: "red", fontSize: "10px" },
+                        markers: debugMarkers ? { startColor: "lime", endColor: "red", fontSize: "10px" } : false,
                         onUpdate: function (self: any) {
                             if (!gsapMounted) return
                             var progress = self.progress
@@ -2989,6 +2990,7 @@ export default function PageChoreographer(props: any) {
         exitOpacity, exitOffsetX, exitOffsetY,
         exitScale, exitRotateX, exitRotateY, exitRotateZ,
         exitBlur, exitPerspective,
+        debugMarkers,
     ])
 
     return (
@@ -3692,5 +3694,12 @@ addPropertyControls(PageChoreographer, {
         title: "Mobile",
         defaultValue: true,
         description: "Enable this animation on screens under 768px.",
+    },
+    debugMarkers: {
+        type: ControlType.Boolean,
+        title: "Debug Markers",
+        defaultValue: false,
+        description: "Show ScrollTrigger start/end markers in preview.",
+        hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
 })
