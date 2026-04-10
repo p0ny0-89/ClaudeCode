@@ -3033,19 +3033,22 @@ PageChoreographer.displayName = "Page Choreographer"
 // ─── Property Controls ───────────────────────────────────────────────────────
 
 addPropertyControls(PageChoreographer, {
+
+    // ── Targets ──────────────────────────────────────────────────────────────
+
     scanMode: {
         type: ControlType.Enum,
         title: "Scan Mode",
         defaultValue: "siblings",
         options: ["siblings", "children"],
         optionTitles: ["Auto", "Children"],
-        description: "Auto: detects siblings and CMS collections automatically. Children: animates direct children of a specific element.",
+        description: "Auto detects siblings and CMS collections. Children targets direct children.",
     },
     excludeSelector: {
         type: ControlType.String,
         title: "Exclude",
         defaultValue: "",
-        placeholder: "Layer Name",
+        placeholder: "Layer Names",
         description:
             "Layer names to skip (comma-separated). e.g. Load More, Button",
     },
@@ -3055,8 +3058,11 @@ addPropertyControls(PageChoreographer, {
         defaultValue: "none",
         options: ["none", "lines", "words", "chars"],
         optionTitles: ["None", "Lines", "Words", "Characters"],
-        description: "Split text for individual animation. Characters works best with short text (hero headings, titles) — avoid on long paragraphs (50+ chars) for performance.",
+        description: "Animate individual fragments. Avoid Characters on long paragraphs.",
     },
+
+    // ── Trigger ──────────────────────────────────────────────────────────────
+
     trigger: {
         type: ControlType.Enum,
         title: "Trigger",
@@ -3066,79 +3072,145 @@ addPropertyControls(PageChoreographer, {
     },
     scrollLength: {
         type: ControlType.Number,
-        title: "Scroll Length",
+        title: "Scroll Distance",
         defaultValue: 500,
         min: 100,
         max: 5000,
         step: 50,
         unit: "px",
-        description: "How many pixels of scrolling to complete the animation. Section stays pinned during this distance.",
+        description: "Pixels of scrolling to complete the animation.",
         hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     scrollStart: {
         type: ControlType.Enum,
-        title: "Start",
+        title: "Scroll Start",
         defaultValue: "bottom",
         options: ["top", "center", "bottom"],
         optionTitles: ["Top", "Center", "Bottom"],
         optionIcons: ["align-top", "align-middle", "align-bottom"],
-        description: "When the animation starts: Top = element enters viewport, Center = element at viewport center, Bottom = element reaches viewport top.",
+        description: "Section position when animation begins. Top = entering, Center = mid, Bottom = at top.",
         hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     scrollStartOffset: {
         type: ControlType.Number,
-        title: "Start Offset",
+        title: "↳ Offset",
         defaultValue: 0,
         min: -100,
         max: 100,
         step: 5,
         unit: "%",
-        description: "Shift the animation start within the scroll range. When multiple PCs share a pinned section, use this to stagger reveals (e.g. 0% for image, 30% for text).",
+        description: "Shift start within the scroll range. Use to stagger multiple PCs in one section.",
         hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     scrollPin: {
         type: ControlType.Boolean,
         title: "Pin Section",
         defaultValue: true,
-        description: "When enabled, the section stays pinned (sticky) while the scroll animation plays. When disabled, the section scrolls naturally while the animation scrubs.",
+        description: "Fix the section in place while the animation plays.",
         hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     pinPriority: {
         type: ControlType.Boolean,
-        title: "Pin Priority",
+        title: "↳ Pin Leader",
         defaultValue: false,
-        description: "Designate this instance as the pin owner. Its scroll length controls how long the section stays pinned. Other instances in the same section animate independently within that pin duration.",
+        description: "This PC owns the pin. Others in the same section defer to it.",
         hidden: function (props: any) { return props.trigger !== "onScroll" || !props.scrollPin },
     },
     scrollOnce: {
         type: ControlType.Boolean,
         title: "Play Once",
         defaultValue: false,
-        description: "When enabled, the scroll animation plays once and won't reverse when scrolling back up.",
+        description: "Animation plays once and won't reverse on scroll-back.",
         hidden: function (props: any) { return props.trigger !== "onScroll" },
     },
     viewOffset: {
         type: ControlType.Number,
-        title: "View Offset",
+        title: "Trigger Offset",
         defaultValue: 100,
         min: -200,
         max: 500,
         step: 10,
         unit: "px",
+        description: "Distance below viewport to trigger. Higher = triggers earlier.",
         hidden: function (props: any) { return props.trigger !== "inView" },
     },
     viewRepeat: {
         type: ControlType.Boolean,
         title: "Repeat",
         defaultValue: false,
+        description: "Re-trigger each time the element scrolls into view.",
         hidden: function (props: any) { return props.trigger !== "inView" },
     },
     waitForParent: {
         type: ControlType.Boolean,
         title: "Wait for Parent",
         defaultValue: false,
-        description: "Delay this animation until a parent Page Choreographer finishes its enter animation. Useful for chained reveals (e.g. text animates after its container unmasks).",
+        description: "Wait for a parent PC to finish before animating.",
         hidden: function (props: any) { return props.trigger !== "inView" },
+    },
+
+    // ── Timing ───────────────────────────────────────────────────────────────
+
+    duration: {
+        type: ControlType.Number,
+        title: "Duration",
+        defaultValue: 0.6,
+        min: 0.1,
+        max: 3,
+        step: 0.05,
+        unit: "s",
+        description: "Duration per element.",
+    },
+    easingPreset: {
+        type: ControlType.Enum,
+        title: "Easing",
+        defaultValue: "smooth",
+        options: ["smooth", "snappy", "dramatic", "gentle", "bounce", "linear"],
+        optionTitles: ["Smooth", "Snappy", "Dramatic", "Gentle", "Bounce", "Linear"],
+    },
+    stagger: {
+        type: ControlType.Number,
+        title: "Stagger",
+        defaultValue: 0.06,
+        min: 0,
+        max: 0.5,
+        step: 0.01,
+        unit: "s",
+        description: "Delay between each element.",
+    },
+    staggerDirection: {
+        type: ControlType.Enum,
+        title: "↳ Order",
+        defaultValue: "leftToRight",
+        options: [
+            "leftToRight", "rightToLeft", "topToBottom",
+            "bottomToTop", "rowMajor", "columnMajor", "random",
+        ],
+        optionTitles: [
+            "Left → Right", "Right → Left", "Top → Bottom",
+            "Bottom → Top", "Row Major", "Column Major", "Random",
+        ],
+    },
+    enterDelay: {
+        type: ControlType.Number,
+        title: "Initial Delay",
+        defaultValue: 0.05,
+        min: 0,
+        max: 2,
+        step: 0.05,
+        unit: "s",
+        description: "Wait before the first animation on page load.",
+        hidden: function (props: any) { return props.trigger !== "onLoad" },
+    },
+    delayOffset: {
+        type: ControlType.Number,
+        title: "Delay Offset",
+        defaultValue: 0,
+        min: -1,
+        max: 2,
+        step: 0.01,
+        unit: "s",
+        description: "Shift this group's start time. Negative = overlap with previous group.",
     },
 
     // ── Enter ────────────────────────────────────────────────────────────────
@@ -3150,7 +3222,7 @@ addPropertyControls(PageChoreographer, {
     },
     enterPreset: {
         type: ControlType.Enum,
-        title: "Enter Effect",
+        title: "Effect",
         defaultValue: "fadeUp",
         options: [
             "fadeUp", "fadeDown", "fadeLeft", "fadeRight",
@@ -3162,15 +3234,177 @@ addPropertyControls(PageChoreographer, {
         ],
         hidden: function (props: any) { return props.enterEnabled === false },
     },
+    distance: {
+        type: ControlType.Number,
+        title: "↳ Distance",
+        defaultValue: 40,
+        min: 0,
+        max: 2000,
+        step: 5,
+        unit: "px",
+        description: "How far elements travel during the animation.",
+        hidden: function (props: any) {
+            var directionalEnter = ["fadeUp", "fadeDown", "fadeLeft", "fadeRight"]
+            var directionalExit = ["riseWave", "fadeDown", "fadeLeft", "fadeRight", "blurLift"]
+            var enterUsesDistance = directionalEnter.indexOf(props.enterPreset) !== -1
+            var exitUsesDistance = directionalExit.indexOf(props.exitPreset) !== -1
+            return !enterUsesDistance && !exitUsesDistance
+        },
+    },
     enterMaskDirection: {
         type: ControlType.Enum,
-        title: "↳ Mask Direction",
+        title: "↳ Direction",
         defaultValue: "left",
         options: ["none", "left", "right", "up", "down", "topLeft", "topRight", "bottomLeft", "bottomRight", "random"],
         optionTitles: ["None", "Left → Right", "Right → Left", "Top → Bottom", "Bottom → Top", "↘ Top-Left", "↙ Top-Right", "↗ Bottom-Left", "↖ Bottom-Right", "Random"],
         hidden: function (props: any) {
             if (props.enterEnabled === false) return true
             return props.enterPreset !== "maskReveal" && props.enterPreset !== "scaleIn"
+        },
+    },
+    maskShiftX: {
+        type: ControlType.Number,
+        title: "↳ Shift X",
+        defaultValue: 0,
+        min: -200,
+        max: 200,
+        step: 1,
+        unit: "px",
+        description: "Horizontal offset of the mask edge.",
+        hidden: function (props: any) {
+            var enterMatch = props.enterEnabled !== false && (props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none"))
+            var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
+            return !enterMatch && !exitMatch
+        },
+    },
+    maskShiftY: {
+        type: ControlType.Number,
+        title: "↳ Shift Y",
+        defaultValue: 0,
+        min: -200,
+        max: 200,
+        step: 1,
+        unit: "px",
+        description: "Vertical offset of the mask edge.",
+        hidden: function (props: any) {
+            var enterMatch = props.enterEnabled !== false && (props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none"))
+            var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
+            return !enterMatch && !exitMatch
+        },
+    },
+    maskStart: {
+        type: ControlType.Number,
+        title: "↳ Initial Reveal",
+        defaultValue: 0,
+        min: 0,
+        max: 100,
+        step: 5,
+        unit: "%",
+        description: "Visibility before animation. 0% = fully masked, 50% = half visible.",
+        hidden: function (props: any) {
+            if (props.enterPreset === "maskReveal") return false
+            if (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none") return false
+            return true
+        },
+    },
+    maskPreview: {
+        type: ControlType.Boolean,
+        title: "  ↳ Show on Mount",
+        defaultValue: false,
+        description: "Show at Initial Reveal % on mount instead of hiding until scroll.",
+        hidden: function (props: any) {
+            var hasMask = props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none")
+            return !hasMask || (props.maskStart || 0) <= 0 || props.trigger !== "onScroll"
+        },
+    },
+    maskViewportClip: {
+        type: ControlType.Boolean,
+        title: "↳ Viewport Clip",
+        defaultValue: false,
+        description: "Clip reveal to viewport edges.",
+        hidden: function (props: any) {
+            var hasMask = props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none")
+            return !hasMask || props.trigger !== "onScroll"
+        },
+    },
+    maskViewportPadding: {
+        type: ControlType.Number,
+        title: "  ↳ Inset",
+        defaultValue: 0,
+        min: 0,
+        max: 200,
+        step: 1,
+        unit: "px",
+        description: "Inset from screen edges.",
+        hidden: function (props: any) {
+            var hasMask = props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none")
+            return !hasMask || props.trigger !== "onScroll" || !props.maskViewportClip
+        },
+    },
+    maskOpacity: {
+        type: ControlType.Number,
+        title: "↳ Start Opacity",
+        defaultValue: 1,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        description: "Opacity before reveal. Lower = adds fade-in.",
+        hidden: function (props: any) {
+            var enterMatch = props.enterEnabled !== false && (props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none"))
+            var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
+            return !enterMatch && !exitMatch
+        },
+    },
+    scaleFrom: {
+        type: ControlType.Number,
+        title: "↳ Scale From",
+        defaultValue: 0.92,
+        min: 0,
+        max: 2,
+        step: 0.01,
+        description: "Starting scale. Below 1 = grow in, above 1 = shrink in.",
+        hidden: function (props: any) {
+            return (
+                props.enterPreset !== "scaleIn" &&
+                props.exitPreset !== "scaleFadeGrid" &&
+                props.exitPreset !== "scaleOut"
+            )
+        },
+    },
+    enterScaleDirection: {
+        type: ControlType.Enum,
+        title: "↳ Origin",
+        defaultValue: "center",
+        options: ["center", "left", "right", "up", "down", "topLeft", "topRight", "bottomLeft", "bottomRight"],
+        optionTitles: ["Center", "← Left", "→ Right", "↑ Top", "↓ Bottom", "↘ Top-Left", "↙ Top-Right", "↗ Bottom-Left", "↖ Bottom-Right"],
+        description: "Transform origin — the point elements scale from.",
+        hidden: function (props: any) {
+            return props.enterPreset !== "scaleIn"
+        },
+    },
+    scaleOpacity: {
+        type: ControlType.Number,
+        title: "↳ Start Opacity",
+        defaultValue: 0,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        description: "Set to 1 for a pure scale effect without fade.",
+        hidden: function (props: any) {
+            return props.enterPreset !== "scaleIn"
+        },
+    },
+    blurAmount: {
+        type: ControlType.Number,
+        title: "↳ Blur Radius",
+        defaultValue: 8,
+        min: 0,
+        max: 50,
+        step: 1,
+        unit: "px",
+        description: "Starting blur intensity that clears as elements animate in.",
+        hidden: function (props: any) {
+            return props.enterPreset !== "blurIn" && props.exitPreset !== "blurLift"
         },
     },
     enterOpacity: {
@@ -3290,7 +3524,7 @@ addPropertyControls(PageChoreographer, {
     },
     exitPreset: {
         type: ControlType.Enum,
-        title: "Exit Effect",
+        title: "Effect",
         defaultValue: "riseWave",
         options: [
             "riseWave", "fadeDown", "fadeLeft", "fadeRight",
@@ -3419,244 +3653,6 @@ addPropertyControls(PageChoreographer, {
             return props.exitEnabled === false || props.exitPreset !== "custom"
         },
     },
-
-    // ── Timing ───────────────────────────────────────────────────────────────
-
-    duration: {
-        type: ControlType.Number,
-        title: "Duration",
-        defaultValue: 0.6,
-        min: 0.1,
-        max: 3,
-        step: 0.05,
-        unit: "s",
-    },
-    stagger: {
-        type: ControlType.Number,
-        title: "Stagger",
-        defaultValue: 0.06,
-        min: 0,
-        max: 0.5,
-        step: 0.01,
-        unit: "s",
-    },
-    easingPreset: {
-        type: ControlType.Enum,
-        title: "Easing",
-        defaultValue: "smooth",
-        options: ["smooth", "snappy", "dramatic", "gentle", "bounce", "linear"],
-        optionTitles: ["Smooth", "Snappy", "Dramatic", "Gentle", "Bounce", "Linear"],
-    },
-    staggerDirection: {
-        type: ControlType.Enum,
-        title: "Stagger Order",
-        defaultValue: "leftToRight",
-        options: [
-            "leftToRight", "rightToLeft", "topToBottom",
-            "bottomToTop", "rowMajor", "columnMajor", "random",
-        ],
-        optionTitles: [
-            "Left → Right", "Right → Left", "Top → Bottom",
-            "Bottom → Top", "Row Major", "Column Major", "Random",
-        ],
-    },
-
-    // ── Preset parameters ────────────────────────────────────────────────────
-
-    distance: {
-        type: ControlType.Number,
-        title: "Distance",
-        defaultValue: 40,
-        min: 0,
-        max: 2000,
-        step: 5,
-        unit: "px",
-        description: "How far elements travel during directional animations.",
-        hidden: function (props: any) {
-            var directionalEnter = ["fadeUp", "fadeDown", "fadeLeft", "fadeRight"]
-            var directionalExit = ["riseWave", "fadeDown", "fadeLeft", "fadeRight", "blurLift"]
-            var enterUsesDistance = directionalEnter.indexOf(props.enterPreset) !== -1
-            var exitUsesDistance = directionalExit.indexOf(props.exitPreset) !== -1
-            return !enterUsesDistance && !exitUsesDistance
-        },
-    },
-    maskShiftX: {
-        type: ControlType.Number,
-        title: "Mask Shift X",
-        defaultValue: 0,
-        min: -200,
-        max: 200,
-        step: 1,
-        unit: "px",
-        hidden: function (props: any) {
-            var enterMatch = props.enterEnabled !== false && (props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none"))
-            var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
-            return !enterMatch && !exitMatch
-        },
-    },
-    maskShiftY: {
-        type: ControlType.Number,
-        title: "Mask Shift Y",
-        defaultValue: 0,
-        min: -200,
-        max: 200,
-        step: 1,
-        unit: "px",
-        hidden: function (props: any) {
-            var enterMatch = props.enterEnabled !== false && (props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none"))
-            var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
-            return !enterMatch && !exitMatch
-        },
-    },
-    maskStart: {
-        type: ControlType.Number,
-        title: "Mask Start",
-        defaultValue: 0,
-        min: 0,
-        max: 100,
-        step: 5,
-        unit: "%",
-        description: "How much of the element is visible before the mask animation begins. 0% = fully masked, 50% = half visible.",
-        hidden: function (props: any) {
-            if (props.enterPreset === "maskReveal") return false
-            if (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none") return false
-            return true
-        },
-    },
-    maskPreview: {
-        type: ControlType.Boolean,
-        title: "↳ Show Preview",
-        defaultValue: false,
-        description: "When enabled, shows the element at its Mask Start percentage on mount instead of hiding it until the scroll animation begins.",
-        hidden: function (props: any) {
-            var hasMask = props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none")
-            return !hasMask || (props.maskStart || 0) <= 0 || props.trigger !== "onScroll"
-        },
-    },
-    maskViewportClip: {
-        type: ControlType.Boolean,
-        title: "↳ Viewport Clip",
-        defaultValue: false,
-        description: "Clips the reveal to the viewport edge so the mask never extends past the screen boundary. Use Viewport Padding to add consistent inset from the edges.",
-        hidden: function (props: any) {
-            var hasMask = props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none")
-            return !hasMask || props.trigger !== "onScroll"
-        },
-    },
-    maskViewportPadding: {
-        type: ControlType.Number,
-        title: "  ↳ Padding",
-        defaultValue: 0,
-        min: 0,
-        max: 200,
-        step: 1,
-        unit: "px",
-        description: "Inset padding from the viewport edges. The mask reveal will stay this many pixels away from the screen boundary.",
-        hidden: function (props: any) {
-            var hasMask = props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none")
-            return !hasMask || props.trigger !== "onScroll" || !props.maskViewportClip
-        },
-    },
-    maskOpacity: {
-        type: ControlType.Number,
-        title: "Mask Opacity",
-        defaultValue: 1,
-        min: 0,
-        max: 1,
-        step: 0.05,
-        hidden: function (props: any) {
-            var enterMatch = props.enterEnabled !== false && (props.enterPreset === "maskReveal" || (props.enterPreset === "scaleIn" && props.enterMaskDirection && props.enterMaskDirection !== "none"))
-            var exitMatch = props.exitEnabled !== false && props.exitPreset === "maskOut"
-            return !enterMatch && !exitMatch
-        },
-    },
-    blurAmount: {
-        type: ControlType.Number,
-        title: "Blur Amount",
-        defaultValue: 8,
-        min: 0,
-        max: 50,
-        step: 1,
-        unit: "px",
-        hidden: function (props: any) {
-            return props.enterPreset !== "blurIn" && props.exitPreset !== "blurLift"
-        },
-    },
-    scaleFrom: {
-        type: ControlType.Number,
-        title: "Scale From",
-        defaultValue: 0.92,
-        min: 0,
-        max: 2,
-        step: 0.01,
-        hidden: function (props: any) {
-            return (
-                props.enterPreset !== "scaleIn" &&
-                props.exitPreset !== "scaleFadeGrid" &&
-                props.exitPreset !== "scaleOut"
-            )
-        },
-    },
-    enterScaleDirection: {
-        type: ControlType.Enum,
-        title: "↳ Direction",
-        defaultValue: "center",
-        options: ["center", "left", "right", "up", "down", "topLeft", "topRight", "bottomLeft", "bottomRight"],
-        optionTitles: ["Center", "← Left", "→ Right", "↑ Top", "↓ Bottom", "↘ Top-Left", "↙ Top-Right", "↗ Bottom-Left", "↖ Bottom-Right"],
-        hidden: function (props: any) {
-            return props.enterPreset !== "scaleIn"
-        },
-    },
-    scaleOpacity: {
-        type: ControlType.Number,
-        title: "↳ Start Opacity",
-        defaultValue: 0,
-        min: 0,
-        max: 1,
-        step: 0.05,
-        description: "Opacity at the start of the scale animation. Set to 1 for a pure scale effect without fade.",
-        hidden: function (props: any) {
-            return props.enterPreset !== "scaleIn"
-        },
-    },
-
-    // ── Advanced ─────────────────────────────────────────────────────────────
-
-    sortPriority: {
-        type: ControlType.Number,
-        title: "Priority",
-        defaultValue: 0,
-        min: -10,
-        max: 10,
-        step: 1,
-        description: "Controls animation order across groups. Lower numbers animate first.",
-        hidden: function (props: any) { return props.trigger === "onScroll" },
-    },
-    priorityGap: {
-        type: ControlType.Number,
-        title: "Priority Gap",
-        defaultValue: 0,
-        min: -3,
-        max: 5,
-        step: 0.05,
-        unit: "s",
-        description: "Pause between priority groups. Negative values create overlap.",
-        hidden: function (props: any) { return props.trigger === "onScroll" },
-    },
-    delayOffset: {
-        type: ControlType.Number,
-        title: "Delay Offset",
-        defaultValue: 0,
-        min: -1,
-        max: 2,
-        step: 0.01,
-        unit: "s",
-    },
-    mobileEnabled: {
-        type: ControlType.Boolean,
-        title: "Mobile",
-        defaultValue: true,
-    },
     exitTimeout: {
         type: ControlType.Number,
         title: "Exit Timeout",
@@ -3665,14 +3661,36 @@ addPropertyControls(PageChoreographer, {
         max: 10,
         step: 0.5,
         unit: "s",
+        description: "Max wait time for the exit animation to finish before navigating. Prevents broken links if exit stalls.",
     },
-    enterDelay: {
+
+    // ── Advanced ─────────────────────────────────────────────────────────────
+
+    sortPriority: {
         type: ControlType.Number,
-        title: "Enter Delay",
-        defaultValue: 0.05,
-        min: 0,
-        max: 2,
+        title: "Group Order",
+        defaultValue: 0,
+        min: -10,
+        max: 10,
+        step: 1,
+        description: "Animation order across PC groups. Lower numbers animate first.",
+        hidden: function (props: any) { return props.trigger === "onScroll" },
+    },
+    priorityGap: {
+        type: ControlType.Number,
+        title: "↳ Gap",
+        defaultValue: 0,
+        min: -3,
+        max: 5,
         step: 0.05,
         unit: "s",
+        description: "Pause between groups. Negative values create overlap.",
+        hidden: function (props: any) { return props.trigger === "onScroll" },
+    },
+    mobileEnabled: {
+        type: ControlType.Boolean,
+        title: "Mobile",
+        defaultValue: true,
+        description: "Enable this animation on screens under 768px.",
     },
 })
