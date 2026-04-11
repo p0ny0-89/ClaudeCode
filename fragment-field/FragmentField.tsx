@@ -8,21 +8,25 @@ import React, {
 } from "react"
 
 /*
- * FragmentField — Modular cellular image field
+ * FragmentField — Multi-sample cellular image field
  *
- * The portrait is reorganized through a grid of adjacent rectangular
- * cells. Cells are packed together like architectural panels — no
- * gaps, no fractal subdivision, no random scatter. The grid uses a
- * column-based layout where each column is divided into rows of
- * varying height, creating a modular mosaic feel.
+ * Each active cell contains 1–3 internal slices, each showing
+ * image content sampled from a different position. The slices
+ * are stacked vertically within the cell frame (no opacity
+ * layering — each slice is a full-opacity crop from a different
+ * image region). This creates genuine internal fragmentation:
+ * the cell looks like it has been cut and reassembled from
+ * multiple parts of the portrait.
  *
- * Active cells show displaced image content: the cell frame stays
- * on-grid, but the image inside is sampled from a shifted position
- * along the field direction. Neighboring cells share related
- * displacement vectors, creating banded regions of coherent offset.
+ * Cells are grouped into clusters (~4×4 grid of super-cells).
+ * All cells in a cluster share the same set of displacement
+ * sources, so neighboring cells echo each other's content.
+ * Core cells get 3 slices (rich fragmentation), falloff cells
+ * get 2 (moderate), islands get 1 (simple offset).
  *
- * The result reads as the portrait being filtered through a
- * segmented panel system — modular, architectural, controlled.
+ * The grid is a tightly packed column layout with no gaps.
+ * Cells are larger, readable, architectural. The distortion
+ * is in the sampling, not the structure.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -31,13 +35,21 @@ type Direction =
     | "left" | "right" | "top" | "bottom"
     | "top-left" | "top-right" | "bottom-left" | "bottom-right"
 
+interface SliceData {
+    // Position within the cell (px, relative to cell top-left)
+    localY: number
+    localH: number
+    // Displacement from the cell's true image position
+    dispX: number
+    dispY: number
+}
+
 interface CellData {
     id: number
     x: number; y: number; w: number; h: number
-    // Displacement: how much the sampled image is shifted
-    dispX: number; dispY: number
+    slices: SliceData[]
     activity: number
-    band: number      // which displacement band this cell belongs to
+    clusterId: number
     phase: number
 }
 
@@ -103,20 +115,67 @@ function computeCoverSize(
     }
 }
 
-// ─── Modular Grid Generation ────────────────────────────────────────────────
+// ─── Cluster Source System ──────────────────────────────────────────────────
 //
-// 1. Divide the container into columns of varying width
-//    (from a small family of sizes: 1×, 1.5×, 2× base unit)
-// 2. Within each column, stack rows of varying height
-//    (same size family)
-// 3. Every cell is axis-aligned and tightly packed — no gaps
-// 4. Cells in the active zone get displacement vectors:
-//    - Direction follows the field vector
-//    - Magnitude depends on field depth
-//    - Neighboring cells share a "band" so displacement is
-//      locally coherent, not per-cell random
-// 5. Cells outside the active zone are skipped (base image
-//    shows through)
+// The container is divided into a grid of "super-cells" (~4×4).
+// Each super-cell defines 3 displacement vectors that all its
+// child cells share. This creates local repetition: neighboring
+// cells show the same set of image regions, creating echoing.
+
+interface ClusterSources {
+    disps: { dx: number; dy: number }[] // 3 displacement vectors
+}
+
+function makeClusterGrid(
+    contW: number, contH: number,
+    cellSize: number, dir: Direction, distStr: number
+): { cols: number; rows: number; sources: ClusterSources[] } {
+    const fv = getFieldVector(dir)
+    const clusterSize = cellSize * 4
+    const cols = Math.max(1, Math.ceil(contW / clusterSize))
+    const rows = Math.max(1, Math.ceil(contH / clusterSize))
+    const sources: ClusterSources[] = []
+
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const idx = r * cols + c
+            // 3 displacement vectors per cluster:
+            // disp 0: small, mostly along field direction
+            // disp 1: medium, with cross-axis component
+            // disp 2: large, strong field-direction pull
+
+            const s1 = sr3(c + 0.1, r + 0.1, 11)
+            const s2 = sr3(c + 0.1, r + 0.1, 22)
+            const s3 = sr3(c + 0.1, r + 0.1, 33)
+            const s4 = sr3(c + 0.1, r + 0.1, 44)
+            const s5 = sr3(c + 0.1, r + 0.1, 55)
+            const s6 = sr3(c + 0.1, r + 0.1, 66)
+
+            const baseStr = cellSize * distStr
+
+            sources.push({
+                disps: [
+                    {
+                        dx: fv.dx * baseStr * (0.8 + s1 * 1.0) + (s2 - 0.5) * baseStr * 0.4,
+                        dy: fv.dy * baseStr * (0.8 + s1 * 1.0) + (s3 - 0.5) * baseStr * 0.4,
+                    },
+                    {
+                        dx: fv.dx * baseStr * (1.5 + s3 * 1.5) + (s4 - 0.5) * baseStr * 0.8,
+                        dy: fv.dy * baseStr * (1.5 + s3 * 1.5) + (s1 - 0.5) * baseStr * 0.8,
+                    },
+                    {
+                        dx: fv.dx * baseStr * (2.5 + s5 * 2.0) + (s6 - 0.5) * baseStr * 1.0,
+                        dy: fv.dy * baseStr * (2.5 + s5 * 2.0) + (s2 - 0.5) * baseStr * 1.0,
+                    },
+                ]
+            })
+        }
+    }
+
+    return { cols, rows, sources }
+}
+
+// ─── Grid + Slice Generation ────────────────────────────────────────────────
 
 function makeCells(
     contW: number, contH: number,
@@ -133,25 +192,31 @@ function makeCells(
     const fallN = falloffWidth / 100
     const fallEnd = covN + fallN
     const steps = Math.max(1, edgeStepping)
-    const fv = getFieldVector(dir)
 
-    // Size family: cells pick from these multiples of base unit
+    // Cluster grid
+    const clusters = makeClusterGrid(contW, contH, cellSize, dir, distStr)
+    const clusterW = contW / clusters.cols
+    const clusterH = contH / clusters.rows
+
+    function getCluster(px: number, py: number): { id: number; src: ClusterSources } {
+        const cc = Math.min(clusters.cols - 1, Math.max(0, Math.floor(px / clusterW)))
+        const cr = Math.min(clusters.rows - 1, Math.max(0, Math.floor(py / clusterH)))
+        const id = cr * clusters.cols + cc
+        return { id, src: clusters.sources[id] }
+    }
+
+    // Size family
     const unit = cellSize
-    const sizes = [unit, unit * 1.5, unit * 2, unit * 2.5]
+    const sizes = [unit * 0.8, unit, unit * 1.4, unit * 1.8, unit * 2.4]
 
-    // ── Build columns ──
-    // Each column gets a width from the size family.
-    // Columns tile left-to-right with no gaps.
+    // Build columns
     const columns: { x: number; w: number }[] = []
-    let cx = 0
-    let colIdx = 0
+    let cx = 0, colIdx = 0
     while (cx < contW) {
-        // Pick column width: seeded by column index for determinism
-        const sizeIdx = Math.floor(sr2(colIdx * 7.3, 0.5) * sizes.length)
-        let w = sizes[sizeIdx]
-        // Last column: clamp to container edge
+        const si = Math.floor(sr2(colIdx * 7.3, 0.5) * sizes.length)
+        let w = sizes[si]
         if (cx + w > contW) w = contW - cx
-        if (w < unit * 0.4) break
+        if (w < unit * 0.3) break
         columns.push({ x: cx, w })
         cx += w
         colIdx++
@@ -160,97 +225,126 @@ function makeCells(
     const cells: CellData[] = []
     let cid = 0
 
-    // ── Displacement bands ──
-    // Divide the field into ~6-10 diagonal bands perpendicular to
-    // the field direction. All cells in the same band share a
-    // displacement vector, creating coherent regional offset.
-    const bandCount = Math.max(4, Math.round(6 + density * 4))
-
-    function getBand(nx: number, ny: number): number {
-        // Project position onto field direction
-        const proj = nx * fv.dx + ny * fv.dy
-        // Normalize to 0..1 range approximately
-        const norm = (proj + 1) / 2
-        return Math.floor(norm * bandCount) % bandCount
-    }
-
-    // Pre-compute displacement per band
-    const bandDisp: { dx: number; dy: number }[] = []
-    for (let b = 0; b < bandCount; b++) {
-        const t = b / bandCount
-        // Base displacement along field direction, varying per band
-        const mag = distStr * unit * (1.5 + sr2(b * 3.7, 11) * 2.5)
-        // Alternate direction slightly per band for visual interest
-        const angJit = (sr2(b * 5.1, 22) - 0.5) * 0.3
-        const cos = Math.cos(angJit), sin = Math.sin(angJit)
-        bandDisp.push({
-            dx: (fv.dx * cos - fv.dy * sin) * mag,
-            dy: (fv.dx * sin + fv.dy * cos) * mag,
-        })
-    }
-
-    // ── Fill each column with stacked rows ──
     for (let ci = 0; ci < columns.length; ci++) {
         const col = columns[ci]
-        let ry = 0
-        let rowIdx = 0
+        let ry = 0, rowIdx = 0
 
         while (ry < contH) {
-            // Pick row height from size family
-            const sizeIdx = Math.floor(sr3(ci * 3.1, rowIdx * 5.7, 1) * sizes.length)
-            let h = sizes[sizeIdx]
+            const si = Math.floor(sr3(ci * 3.1, rowIdx * 5.7, 1) * sizes.length)
+            let h = sizes[si]
             if (ry + h > contH) h = contH - ry
-            if (h < unit * 0.4) break
+            if (h < unit * 0.3) break
 
-            const cellX = col.x
-            const cellY = ry
-            const cellW = col.w
-            const cellH = h
+            const cellX = col.x, cellY = ry
+            const cellW = col.w, cellH = h
+            const centerX = cellX + cellW / 2
+            const centerY = cellY + cellH / 2
+            const nx = centerX / contW, ny = centerY / contH
 
-            // Center of cell in normalized coords
-            const nx = (cellX + cellW / 2) / contW
-            const ny = (cellY + cellH / 2) / contH
+            ry += h
+            rowIdx++
 
             // ── Zone / activity ──
             const dist = getDistance(nx, ny, dir)
             const seed = sr2(nx * 10.7, ny * 10.7)
             const jit = (seed - 0.5) * randomness * 0.06
             let activity = 0
+            let zone: "core" | "falloff" | "island" | "clean" = "clean"
 
             if (dist < covN + jit) {
                 activity = 1
+                zone = "core"
             } else if (dist < fallEnd + jit) {
                 const t = (dist - covN) / Math.max(0.001, fallN)
                 const stepped = Math.floor(t * steps) / steps
                 activity = Math.max(0, 1 - stepped)
-                if (seed > density * activity) activity = 0
+                if (seed > density * activity) { activity = 0 }
+                else { zone = "falloff" }
             } else if (dist < fallEnd + islandScatter / 100) {
                 const thresh = 1 - (islandDensity / 100) * 0.18
                 if (sr3(nx * 10.7, ny * 10.7, 17) > thresh) {
                     const id2 = (dist - fallEnd) / (islandScatter / 100)
                     activity = Math.max(0, 1 - id2) * (1 - islandFade) * 0.4
+                    if (activity > 0.03) zone = "island"
                 }
             }
 
-            ry += h
-            rowIdx++
-
             if (activity < 0.03) continue
 
-            // ── Displacement ──
-            const band = getBand(nx, ny)
-            const bd = bandDisp[band]
-            // Scale by activity so falloff cells displace less
-            const dispX = bd.dx * activity
-            const dispY = bd.dy * activity
+            // ── Cluster & slices ──
+            const cluster = getCluster(centerX, centerY)
+            const clusterDisps = cluster.src.disps
+
+            // Number of slices based on zone depth:
+            // Core: 3 slices — rich internal fragmentation
+            // Falloff: 2 slices — moderate
+            // Island: 1 slice — simple offset
+            const nSlices = zone === "core" ? 3
+                : zone === "falloff" ? (activity > 0.5 ? 2 : 1)
+                : 1
+
+            // Build slices: divide cell height into segments
+            const slices: SliceData[] = []
+
+            if (nSlices === 1) {
+                // Single slice uses first displacement
+                slices.push({
+                    localY: 0,
+                    localH: cellH,
+                    dispX: clusterDisps[0].dx * activity,
+                    dispY: clusterDisps[0].dy * activity,
+                })
+            } else if (nSlices === 2) {
+                // Two slices: split point varies per cell
+                const splitFrac = 0.35 + sr3(centerX * 0.1, centerY * 0.1, 77) * 0.3
+                const splitY = Math.round(cellH * splitFrac)
+
+                slices.push({
+                    localY: 0,
+                    localH: splitY,
+                    dispX: clusterDisps[0].dx * activity,
+                    dispY: clusterDisps[0].dy * activity,
+                })
+                slices.push({
+                    localY: splitY,
+                    localH: cellH - splitY,
+                    dispX: clusterDisps[1].dx * activity,
+                    dispY: clusterDisps[1].dy * activity,
+                })
+            } else {
+                // Three slices: two split points
+                const s1 = 0.25 + sr3(centerX * 0.1, centerY * 0.1, 88) * 0.15
+                const s2 = 0.55 + sr3(centerX * 0.1, centerY * 0.1, 99) * 0.2
+                const y1 = Math.round(cellH * s1)
+                const y2 = Math.round(cellH * s2)
+
+                slices.push({
+                    localY: 0,
+                    localH: y1,
+                    dispX: clusterDisps[0].dx * activity,
+                    dispY: clusterDisps[0].dy * activity,
+                })
+                slices.push({
+                    localY: y1,
+                    localH: y2 - y1,
+                    dispX: clusterDisps[1].dx * activity,
+                    dispY: clusterDisps[1].dy * activity,
+                })
+                slices.push({
+                    localY: y2,
+                    localH: cellH - y2,
+                    dispX: clusterDisps[2].dx * activity,
+                    dispY: clusterDisps[2].dy * activity,
+                })
+            }
 
             cells.push({
                 id: cid++,
                 x: cellX, y: cellY,
                 w: cellW, h: cellH,
-                dispX, dispY,
+                slices,
                 activity,
-                band,
+                clusterId: cluster.id,
                 phase: sr3(nx * 10, ny * 10, 17),
             })
         }
@@ -307,9 +401,9 @@ const defaults: Partial<Props> = {
     falloffWidth: 24,
     edgeStepping: 5,
     randomness: 0.4,
-    cellSize: 40,
+    cellSize: 42,
     density: 0.9,
-    distortionStrength: 1.6,
+    distortionStrength: 1.8,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
@@ -450,27 +544,33 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const hInf = hoverRef.current.get(c.id) || 0
             const act = Math.min(1, c.activity + hInf * 0.4)
 
-            // Background position: cell position + band displacement
-            let bgX = -(c.x + cropX) + c.dispX * act
-            let bgY = -(c.y + cropY) + c.dispY * act
+            // Compute rendered slices with final background positions
+            const renderedSlices = c.slices.map((s, si) => {
+                // Base bg position for this slice's region within the cell
+                let bgX = -(c.x + cropX) + s.dispX * act
+                let bgY = -(c.y + s.localY + cropY) + s.dispY * act
 
-            // Ambient: gentle displacement drift
-            if (p.ambientMotion && act > 0.05) {
-                const a = p.motionAmount * act
-                const s = p.drift
-                bgX += Math.sin(time * s * 0.25 + c.phase * Math.PI * 4 + c.band * 0.7) * a * c.w * 0.05
-                bgY += Math.cos(time * s * 0.2 + c.phase * 3 + c.band * 0.5) * a * c.h * 0.04
-            }
+                // Ambient drift per slice (each slice drifts slightly differently)
+                if (p.ambientMotion && act > 0.05) {
+                    const a = p.motionAmount * act
+                    const dr = p.drift
+                    const phaseOff = si * 1.3
+                    bgX += Math.sin(time * dr * 0.25 + c.phase * Math.PI * 4 + phaseOff) * a * c.w * 0.04
+                    bgY += Math.cos(time * dr * 0.2 + c.phase * 3 + phaseOff) * a * s.localH * 0.03
+                }
 
-            // Hover: additional displacement
-            if (hInf > 0) {
-                bgX += (sr2(c.x * 0.1, c.y * 0.1) - 0.5) * hInf * c.w * 0.4
-                bgY += (sr2(c.y * 0.1, c.x * 0.1) - 0.5) * hInf * c.h * 0.4
-            }
+                // Hover: additional per-slice displacement
+                if (hInf > 0) {
+                    bgX += (sr3(c.x * 0.1, c.y * 0.1, si * 11 + 1) - 0.5) * hInf * c.w * 0.3
+                    bgY += (sr3(c.x * 0.1, c.y * 0.1, si * 11 + 2) - 0.5) * hInf * s.localH * 0.3
+                }
 
-            // Opacity
+                return { ...s, bgX, bgY }
+            })
+
+            // Cell opacity
             let op = p.cellOpacity
-            op *= lerp(0.7, 1, act)
+            op *= lerp(0.75, 1, act)
             if (p.ambientMotion && p.flicker > 0) {
                 op += Math.sin(time * 1.5 + c.phase * Math.PI * 6) * p.flicker * 0.04
             }
@@ -483,7 +583,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
             if (p.blur > 0) fl.push(`blur(${p.blur * act * 0.25}px)`)
             if (fl.length) filter = fl.join(" ")
 
-            return { c, bgX, bgY, op, filter }
+            return { c, renderedSlices, op, filter }
         })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cells, tick, p, cW, cH, bgW, bgH, cropX, cropY])
@@ -519,6 +619,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 }} />
             )}
 
+            {/* Cell field */}
             <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                 {renderData.map((d) => (
                     <div
@@ -533,15 +634,34 @@ export default function FragmentField(rawProps: Partial<Props>) {
                             opacity: d.op,
                         }}
                     >
-                        <div style={{
-                            position: "absolute",
-                            inset: 0,
-                            backgroundImage: `url(${p.source})`,
-                            backgroundSize: `${bgW}px ${bgH}px`,
-                            backgroundPosition: `${d.bgX}px ${d.bgY}px`,
-                            backgroundRepeat: "no-repeat",
-                            filter: d.filter,
-                        }} />
+                        {/* Each slice is a full-opacity strip showing
+                            image content from a different position */}
+                        {d.renderedSlices.map((s, si) => (
+                            <div
+                                key={si}
+                                style={{
+                                    position: "absolute",
+                                    left: 0,
+                                    top: s.localY,
+                                    width: d.c.w,
+                                    height: s.localH,
+                                    overflow: "hidden",
+                                }}
+                            >
+                                <div style={{
+                                    position: "absolute",
+                                    left: 0,
+                                    top: 0,
+                                    width: d.c.w,
+                                    height: s.localH,
+                                    backgroundImage: `url(${p.source})`,
+                                    backgroundSize: `${bgW}px ${bgH}px`,
+                                    backgroundPosition: `${s.bgX}px ${s.bgY}px`,
+                                    backgroundRepeat: "no-repeat",
+                                    filter: d.filter,
+                                }} />
+                            </div>
+                        ))}
                     </div>
                 ))}
             </div>
@@ -609,7 +729,7 @@ addPropertyControls(FragmentField, {
     },
     cellSize: {
         type: ControlType.Number, title: "Cell Size",
-        min: 20, max: 100, step: 2, unit: "px", defaultValue: 40,
+        min: 20, max: 100, step: 2, unit: "px", defaultValue: 42,
     },
     density: {
         type: ControlType.Number, title: "Density",
@@ -617,7 +737,7 @@ addPropertyControls(FragmentField, {
     },
     distortionStrength: {
         type: ControlType.Number, title: "Distortion",
-        min: 0, max: 4, step: 0.1, defaultValue: 1.6,
+        min: 0, max: 4, step: 0.1, defaultValue: 1.8,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
