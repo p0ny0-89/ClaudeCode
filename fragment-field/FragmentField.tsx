@@ -319,15 +319,17 @@ function makeFragments(
                 const sampleX = pull.px * activity * echoScale * distStr
                 const sampleY = pull.py * activity * echoScale * distStr
 
-                // Opacity: base layer full, echo layers progressively lighter
+                // Opacity: echo layers stay bright (they show image, not dark overlays)
+                // Visual separation comes from different sample offsets, not opacity stacking
                 let opacity: number
                 if (zone === "island") {
                     opacity = activity * 0.55
                 } else if (L === 0) {
-                    opacity = 0.92
+                    opacity = 0.95
                 } else {
-                    // Echo layers: visible but subordinate
-                    opacity = 0.55 - L * 0.12 + ls * 0.1
+                    // Echo layers: high opacity — they show displaced image content,
+                    // not dark panels. Differentiation is via sample offset.
+                    opacity = 0.85 - L * 0.08
                 }
 
                 frags.push({
@@ -545,72 +547,81 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const hInf = hoverRef.current.get(hk) || 0
             const act = Math.min(1, f.activity + hInf * 0.4)
 
-            // Sample offset — cluster-inherited, scaled by activity
+            // ── Sample offset — cluster-inherited, scaled by activity ──
             let sx = f.sampleX * act
             let sy = f.sampleY * act
 
-            // Ambient: spatially coherent drift (nearby cells move together)
+            // ── Rotation as sample displacement ──
+            // Instead of CSS rotate (which creates dark stacked slabs),
+            // rotation translates into additional sample offset —
+            // as if the sampling point is pivoted around the cell center.
+            // This creates "dragged" / "pivoted crop" behavior:
+            // the cell still shows image content, just pulled from
+            // a rotationally-displaced source position.
+            if (p.rotationEnabled) {
+                const rotSeed = sr3(f.x, f.y, f.layer * 77 + 3)
+                const zoneScale = f.zone === "core" ? 1
+                    : f.zone === "falloff" ? 0.5
+                    : 0.25
+
+                // Rotation angle in radians
+                let angle = (rotSeed - 0.5) * 2 * p.rotationStrength * act * zoneScale
+                    * (Math.PI / 180)
+
+                // Echo layers: additional angular separation
+                if (f.layer > 0) {
+                    angle += (sr3(f.x, f.y, f.layer * 131) - 0.5)
+                        * p.rotationStrength * 0.5 * act * (Math.PI / 180)
+                }
+
+                // Ambient angular oscillation
+                if (p.ambientMotion) {
+                    angle += Math.sin(
+                        time * p.drift * 0.2 + f.nx * Math.PI * 2.5
+                    ) * p.rotationStrength * 0.12 * p.motionAmount * act
+                        * (Math.PI / 180)
+                }
+
+                // Convert angle to sample offset displacement:
+                // pivot radius scales with cell size and strength
+                const pivotRadius = (f.w + f.h) * 0.35 * p.distortionStrength
+                sx += Math.sin(angle) * pivotRadius
+                sy += -Math.cos(angle) * pivotRadius + pivotRadius // bias downward offset
+            }
+
+            // ── Ambient drift — spatially coherent ──
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
-                // Use normalized position as phase → spatial coherence
                 sx += Math.sin(time * s * 0.4 + f.nx * Math.PI * 1.6) * a * 1.6
                 sy += Math.cos(time * s * 0.28 + f.ny * Math.PI * 1.2) * a * 1.0
             }
 
-            // Hover boost
+            // ── Hover boost ──
             if (hInf > 0) {
                 sx *= 1 + hInf * 0.4
                 sy *= 1 + hInf * 0.4
             }
 
-            // Internal rotation: applied to sampled content inside stable cell frames
-            // Stronger in core, diminishes through falloff, subtle on islands
-            let rot = 0
-            if (p.rotationEnabled) {
-                // Base rotation from cell seed — cluster-coherent via position
-                const rotSeed = sr3(f.x, f.y, f.layer * 77 + 3)
-                const zoneScale = f.zone === "core" ? 1
-                    : f.zone === "falloff" ? 0.5
-                    : 0.25
-                rot = (rotSeed - 0.5) * 2 * p.rotationStrength * act * zoneScale
-
-                // Echo layers get additional rotation offset for visual separation
-                if (f.layer > 0) {
-                    rot += (sr3(f.x, f.y, f.layer * 131) - 0.5) * p.rotationStrength * 0.4 * act
-                }
-
-                // Ambient oscillation
-                if (p.ambientMotion) {
-                    rot += Math.sin(time * p.drift * 0.2 + f.nx * Math.PI * 2.5) * p.rotationStrength * 0.15 * p.motionAmount * act
-                }
-            }
-
-            // Background position
+            // ── Background position ──
             const bgX = -f.x + sx
             const bgY = -f.y + sy
 
-            // Scale: subtle, compensates rotation edges
-            const sc = 1 + Math.abs(rot) * 0.012
-
-            // Opacity
+            // ── Opacity ──
             let op = f.opacity * p.cellOpacity * act
-            // Flicker: very subtle
             if (p.ambientMotion && p.flicker > 0 && f.layer === 0) {
                 op += Math.sin(time * 1.5 + f.phase * Math.PI * 6) * p.flicker * 0.04
                 op = Math.max(0.08, Math.min(1, op))
             }
 
-            // Filters
+            // ── Filters ──
             let filter: string | undefined
             const fl: string[] = []
             if (p.contrast !== 0) fl.push(`contrast(${1 + p.contrast * act * 0.01})`)
             if (p.blur > 0) fl.push(`blur(${p.blur * act * 0.25}px)`)
             if (fl.length) filter = fl.join(" ")
 
-            const hasTransform = rot !== 0 || sc !== 1
-
-            return { f, bgX, bgY, rot, sc, op, filter, hasTransform }
+            return { f, bgX, bgY, op, filter }
         })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frags, tick, p, cW, cH])
@@ -657,7 +668,6 @@ export default function FragmentField(rawProps: Partial<Props>) {
             <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                 {renderData.map((d) => {
                     const { f } = d
-                    // Inset bleed to prevent sub-pixel gaps between cells
                     const bleed = 1
 
                     return (
@@ -673,20 +683,19 @@ export default function FragmentField(rawProps: Partial<Props>) {
                                 opacity: d.op,
                             }}
                         >
+                            {/* No CSS rotation — rotation is expressed as
+                                sample displacement in bgX/bgY instead,
+                                keeping the visual result image-based
+                                rather than creating dark stacked panels */}
                             <div
                                 style={{
                                     position: "absolute",
-                                    inset: -4,
+                                    inset: 0,
                                     backgroundImage: `url(${p.source})`,
                                     backgroundSize: `${cW}px ${cH}px`,
-                                    backgroundPosition: `${d.bgX - 4 + bleed}px ${d.bgY - 4 + bleed}px`,
+                                    backgroundPosition: `${d.bgX + bleed}px ${d.bgY + bleed}px`,
                                     backgroundRepeat: "no-repeat",
-                                    transform: d.hasTransform
-                                        ? `rotate(${d.rot}deg) scale(${d.sc})`
-                                        : undefined,
-                                    transformOrigin: "center center",
                                     filter: d.filter,
-                                    willChange: p.ambientMotion ? "transform" : undefined,
                                 }}
                             />
                         </div>
