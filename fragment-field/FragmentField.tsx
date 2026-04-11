@@ -11,18 +11,20 @@ import React, {
  * FragmentField — Directional cell-based image fragmentation
  *
  * Visual model:
- * A uniform rectangular grid overlays the source media.
- * Cluster sources within the distortion zone define "pull vectors"
- * that displace the image sample shown inside nearby cells.
- * Cells near the same cluster show related sample offsets,
- * creating pockets of repeated / echoed image content.
+ * A rectangular grid of cells overlays source media. Within the
+ * distortion zone, each active cell shows image content sampled
+ * from a displaced position — driven by cluster pull vectors.
  *
- * Core zone cells can carry 2-3 overlapping sample layers
- * (each offset slightly differently from the same cluster pull)
- * to create denser optical reiteration.
- *
- * All cells remain rectangular and grid-aligned.
- * Visual richness comes from sampling behavior, not shape variety.
+ * Key design decisions:
+ * - ONE div per cell, FULL opacity. No multi-layer stacking.
+ * - background-size computed to match object-fit:cover exactly
+ *   so cells show the SAME image rendering as the base layer.
+ * - When a cell has zero displacement it is invisible (identical
+ *   to base). Displacement makes cells visibly different.
+ * - "Echo" effect: neighboring cells share related cluster offsets,
+ *   creating grouped pockets of repeated image content.
+ * - Some core cells inherit a neighbor's sample position entirely,
+ *   creating crisp optical reiteration.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -38,35 +40,30 @@ type Direction =
     | "bottom-right"
 
 interface ClusterSource {
-    cx: number // normalized x
-    cy: number // normalized y
-    pullX: number // px displacement along x
-    pullY: number // px displacement along y
-    radius: number // normalized influence radius
-    strength: number // 0-1, depth-based
+    cx: number
+    cy: number
+    pullX: number
+    pullY: number
+    radius: number
+    strength: number
 }
 
-// A single renderable fragment (one layer inside one cell)
-interface FragmentLayer {
+interface CellData {
     id: number
-    // Grid position (px)
     x: number
     y: number
     w: number
     h: number
-    // Normalized position
+    col: number
+    row: number
     nx: number
     ny: number
-    // Sample displacement inherited from clusters
-    sampleX: number
-    sampleY: number
-    // Visual
-    opacity: number
     zone: "core" | "falloff" | "island"
     activity: number
-    layer: number // 0 = base, 1+ = echo layers
-    // Animation
+    sampleX: number // px displacement of image sample
+    sampleY: number
     phase: number
+    seed: number
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -117,10 +114,40 @@ function getDirVec(dir: Direction): { dx: number; dy: number } {
     }
 }
 
-// ─── Cluster Generation ──────────────────────────────────────────────────────
-// Clusters are invisible "pull sources" that define how nearby cells
-// displace their image sampling. They create coherent pockets where
-// groups of cells show related shifted image content.
+// ─── Cover-equivalent background size ────────────────────────────────────────
+// Computes the background-size and crop offset that replicates
+// object-fit:cover + object-position for use with background-image.
+
+function computeCoverSize(
+    imgW: number,
+    imgH: number,
+    containerW: number,
+    containerH: number,
+    posX: number,
+    posY: number
+): { bgW: number; bgH: number; cropX: number; cropY: number } {
+    const imgAspect = imgW / imgH
+    const contAspect = containerW / containerH
+    let bgW: number, bgH: number
+
+    if (imgAspect > contAspect) {
+        // Image wider than container: height fills, width overflows
+        bgH = containerH
+        bgW = containerH * imgAspect
+    } else {
+        // Image taller: width fills, height overflows
+        bgW = containerW
+        bgH = containerW / imgAspect
+    }
+
+    // Crop offset based on position (0-100%)
+    const cropX = (bgW - containerW) * (posX / 100)
+    const cropY = (bgH - containerH) * (posY / 100)
+
+    return { bgW, bgH, cropX, cropY }
+}
+
+// ─── Clusters ────────────────────────────────────────────────────────────────
 
 function makeClusters(
     dir: Direction,
@@ -140,7 +167,6 @@ function makeClusters(
         const s3 = sr(i * 251 + 41)
         const s4 = sr(i * 397 + 67)
 
-        // Place clusters within the active zone, biased toward origin
         let cx: number, cy: number
         const reach = fallEnd * 0.9
 
@@ -158,39 +184,26 @@ function makeClusters(
         const dist = getDistance(cx, cy, dir)
         const depthStr = Math.max(0, 1 - dist / fallEnd)
 
-        // Pull: mostly directional, with slight lateral deviation
-        const mag = strength * (12 + s3 * 22) * depthStr
-        const lat = (s4 - 0.5) * strength * 8 * depthStr
-        const pullX = dx * mag + dy * lat
-        const pullY = dy * mag + dx * lat
+        const mag = strength * (14 + s3 * 28) * depthStr
+        const lat = (s4 - 0.5) * strength * 10 * depthStr
 
         clusters.push({
             cx, cy,
-            pullX, pullY,
-            radius: 0.06 + s2 * 0.09,
+            pullX: dx * mag + dy * lat,
+            pullY: dy * mag + dx * lat,
+            radius: 0.06 + s2 * 0.1,
             strength: depthStr,
         })
     }
-
     return clusters
 }
 
-// ─── Resolve cluster influence at a point ────────────────────────────────────
-// Returns the blended pull vector from all nearby clusters.
-// Because clusters overlap, neighboring cells naturally get
-// related (but not identical) displacement — this creates
-// the "echo pocket" effect.
-
 function resolveClusterPull(
-    nx: number,
-    ny: number,
-    clusters: ClusterSource[]
-): { px: number; py: number; w: number } {
+    nx: number, ny: number, clusters: ClusterSource[]
+): { px: number; py: number } {
     let px = 0, py = 0, tw = 0
-
     for (const c of clusters) {
-        const ddx = nx - c.cx
-        const ddy = ny - c.cy
+        const ddx = nx - c.cx, ddy = ny - c.cy
         const d = Math.sqrt(ddx * ddx + ddy * ddy)
         if (d > c.radius * 2.5) continue
         const w = smoothstep(c.radius * 2.5, 0, d) * c.strength
@@ -199,32 +212,25 @@ function resolveClusterPull(
         py += c.pullY * w
         tw += w
     }
-
     if (tw > 0.001) {
-        const norm = Math.min(tw, 1.5)
-        return { px: px / norm, py: py / norm, w: tw }
+        const n = Math.min(tw, 1.5)
+        return { px: px / n, py: py / n }
     }
-    return { px: 0, py: 0, w: 0 }
+    return { px: 0, py: 0 }
 }
 
-// ─── Fragment Generation ─────────────────────────────────────────────────────
+// ─── Cell Generation ─────────────────────────────────────────────────────────
 
-function makeFragments(
-    cW: number,
-    cH: number,
+function makeCells(
+    cW: number, cH: number,
     clusters: ClusterSource[],
     dir: Direction,
-    coverage: number,
-    falloffWidth: number,
-    edgeStepping: number,
-    randomness: number,
-    cellSize: number,
-    density: number,
-    islandDensity: number,
-    islandScatter: number,
-    islandFade: number,
-    distStr: number
-): FragmentLayer[] {
+    coverage: number, falloffWidth: number,
+    edgeStepping: number, randomness: number,
+    cellSize: number, density: number,
+    islandDensity: number, islandScatter: number, islandFade: number,
+    distStr: number, rotEnabled: boolean, rotStr: number
+): CellData[] {
     if (cW <= 0 || cH <= 0) return []
 
     const cols = Math.max(1, Math.floor(cW / cellSize))
@@ -236,21 +242,25 @@ function makeFragments(
     const fallEnd = covN + fallN
     const steps = Math.max(1, edgeStepping)
 
-    const frags: FragmentLayer[] = []
-    let fid = 0
+    const cells: CellData[] = []
+    let cid = 0
+
+    // First pass: compute base data for all cells so neighbors can reference each other
+    const grid: {
+        zone: CellData["zone"] | "clean"
+        activity: number
+        pull: { px: number; py: number }
+    }[][] = []
 
     for (let row = 0; row < rows; row++) {
+        grid[row] = []
         for (let col = 0; col < cols; col++) {
             const nx = (col + 0.5) / cols
             const ny = (row + 0.5) / rows
             const seed = sr2(col, row)
-            const phase = sr(col * 571 + row * 239 + 17)
-            const x = col * cellW
-            const y = row * cellH
             const dist = getDistance(nx, ny, dir)
 
-            // ── Zone ──
-            let zone: FragmentLayer["zone"] | "clean" = "clean"
+            let zone: CellData["zone"] | "clean" = "clean"
             let activity = 0
             const jitter = (seed - 0.5) * randomness * 0.08
 
@@ -262,93 +272,96 @@ function makeFragments(
                 const t = (dist - covN) / Math.max(0.001, fallN)
                 const stepped = Math.floor(t * steps) / steps
                 activity = Math.max(0, 1 - stepped)
-                // Density thinning per step
                 if (seed > density * activity) {
                     zone = "clean"
                     activity = 0
                 }
             }
 
-            // Islands: prefer small groups (check neighbor)
-            if (
-                zone === "clean" &&
-                dist >= fallEnd &&
-                dist < fallEnd + islandScatter / 100
-            ) {
+            // Islands
+            if (zone === "clean" && dist >= fallEnd && dist < fallEnd + islandScatter / 100) {
                 const thresh = 1 - (islandDensity / 100) * 0.18
+                const phase = sr(col * 571 + row * 239 + 17)
                 const nb = sr2(col + 1, row)
                 if (phase > thresh && nb > thresh * 0.96) {
                     zone = "island"
                     const id2 = (dist - fallEnd) / (islandScatter / 100)
-                    activity = Math.max(0, 1 - id2) * (1 - islandFade) * 0.4
+                    activity = Math.max(0, 1 - id2) * (1 - islandFade) * 0.45
                 }
             }
 
-            if (zone === "clean" || activity < 0.02) continue
+            const pull = zone !== "clean"
+                ? resolveClusterPull(nx, ny, clusters)
+                : { px: 0, py: 0 }
 
-            // ── Cluster pull ──
-            const pull = resolveClusterPull(nx, ny, clusters)
-
-            // ── Determine echo layer count ──
-            // Core: 2-3 layers for optical density
-            // Falloff: 1, maybe 2
-            // Island: 1
-            let layerCount = 1
-            if (zone === "core") {
-                // Deeper in core = more layers
-                const coreDepth = 1 - dist / Math.max(0.01, covN)
-                layerCount = coreDepth > 0.4 ? 3 : 2
-                // Some cells stay single for rhythm
-                if (sr3(col, row, 88) < 0.12) layerCount = 1
-            } else if (zone === "falloff" && activity > 0.65) {
-                layerCount = sr3(col, row, 44) > 0.6 ? 2 : 1
-            }
-
-            // ── Generate layers ──
-            for (let L = 0; L < layerCount; L++) {
-                const ls = sr3(col, row, L * 31 + 5)
-
-                // Sample displacement:
-                // Layer 0 (base): full cluster pull * activity
-                // Layer 1+: echo — same direction, slightly different magnitude
-                // This makes neighboring cells show related displaced content
-                // and multi-layer cells show "echoed" repetitions
-                const echoScale = L === 0
-                    ? 1.0
-                    : 0.5 + ls * 0.7 // echo layers: 50-120% of base pull
-                const sampleX = pull.px * activity * echoScale * distStr
-                const sampleY = pull.py * activity * echoScale * distStr
-
-                // Opacity: echo layers stay bright (they show image, not dark overlays)
-                // Visual separation comes from different sample offsets, not opacity stacking
-                let opacity: number
-                if (zone === "island") {
-                    opacity = activity * 0.55
-                } else if (L === 0) {
-                    opacity = 0.95
-                } else {
-                    // Echo layers: high opacity — they show displaced image content,
-                    // not dark panels. Differentiation is via sample offset.
-                    opacity = 0.85 - L * 0.08
-                }
-
-                frags.push({
-                    id: fid++,
-                    x, y, w: cellW, h: cellH,
-                    nx, ny,
-                    sampleX,
-                    sampleY,
-                    opacity: Math.max(0.1, Math.min(1, opacity)),
-                    zone: zone as FragmentLayer["zone"],
-                    activity,
-                    layer: L,
-                    phase,
-                })
-            }
+            grid[row][col] = { zone, activity, pull }
         }
     }
 
-    return frags
+    // Second pass: build cells with neighbor-aware sampling
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            const g = grid[row][col]
+            if (g.zone === "clean" || g.activity < 0.02) continue
+
+            const nx = (col + 0.5) / cols
+            const ny = (row + 0.5) / rows
+            const seed = sr2(col, row)
+            const phase = sr(col * 571 + row * 239 + 17)
+
+            let sampleX = g.pull.px * g.activity * distStr
+            let sampleY = g.pull.py * g.activity * distStr
+
+            // ── Neighbor echo: some core cells duplicate a neighbor's sample ──
+            // This creates visible repeated image fragments across the grid
+            if (g.zone === "core") {
+                const echoSeed = sr3(col, row, 55)
+                if (echoSeed > 0.65) {
+                    // Pick a neighbor to echo
+                    const echoDir = Math.floor(sr3(col, row, 77) * 4)
+                    const nCol = col + (echoDir === 0 ? -1 : echoDir === 1 ? 1 : 0)
+                    const nRow = row + (echoDir === 2 ? -1 : echoDir === 3 ? 1 : 0)
+
+                    if (nRow >= 0 && nRow < rows && nCol >= 0 && nCol < cols) {
+                        const ng = grid[nRow][nCol]
+                        if (ng.zone === "core" || ng.zone === "falloff") {
+                            // Blend toward neighbor's sample: creates reiteration
+                            const blend = 0.5 + echoSeed * 0.4
+                            const neighborSX = ng.pull.px * ng.activity * distStr
+                            const neighborSY = ng.pull.py * ng.activity * distStr
+                            sampleX = sampleX * (1 - blend) + neighborSX * blend
+                            sampleY = sampleY * (1 - blend) + neighborSY * blend
+                        }
+                    }
+                }
+            }
+
+            // ── Rotation as sample displacement ──
+            if (rotEnabled) {
+                const rotSeed = sr3(col, row, 3)
+                const zoneScale = g.zone === "core" ? 1
+                    : g.zone === "falloff" ? 0.5 : 0.25
+                let angle = (rotSeed - 0.5) * 2 * rotStr * g.activity * zoneScale * (Math.PI / 180)
+                const pivotR = (cellW + cellH) * 0.35 * distStr
+                sampleX += Math.sin(angle) * pivotR
+                sampleY += (1 - Math.cos(angle)) * pivotR
+            }
+
+            cells.push({
+                id: cid++,
+                x: col * cellW,
+                y: row * cellH,
+                w: cellW, h: cellH,
+                col, row, nx, ny,
+                zone: g.zone as CellData["zone"],
+                activity: g.activity,
+                sampleX, sampleY,
+                phase, seed,
+            })
+        }
+    }
+
+    return cells
 }
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -403,8 +416,8 @@ const defaults: Partial<Props> = {
     randomness: 0.5,
     cellSize: 32,
     density: 0.92,
-    distortionStrength: 1,
-    cellOpacity: 0.95,
+    distortionStrength: 1.2,
+    cellOpacity: 1,
     islandDensity: 25,
     islandScatter: 16,
     islandFade: 0.4,
@@ -413,7 +426,7 @@ const defaults: Partial<Props> = {
     drift: 0.18,
     flicker: 0.05,
     rotationEnabled: true,
-    rotationStrength: 4,
+    rotationStrength: 6,
     hoverEnabled: true,
     hoverRadius: 100,
     hoverIntensity: 0.55,
@@ -444,11 +457,20 @@ export default function FragmentField(rawProps: Partial<Props>) {
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [size, setSize] = useState({ w: 0, h: 0 })
+    const [imgDims, setImgDims] = useState({ w: 0, h: 0 })
     const mouseRef = useRef({ x: -9999, y: -9999, on: false })
-    const hoverRef = useRef<Map<string, number>>(new Map())
+    const hoverRef = useRef<Map<number, number>>(new Map())
     const tRef = useRef(0)
     const rafRef = useRef(0)
     const [tick, setTick] = useState(0)
+
+    // Load image natural dimensions for correct cover computation
+    useEffect(() => {
+        if (p.mediaType !== "image") return
+        const img = new Image()
+        img.onload = () => setImgDims({ w: img.naturalWidth, h: img.naturalHeight })
+        img.src = p.source
+    }, [p.source, p.mediaType])
 
     // Resize
     useEffect(() => {
@@ -462,23 +484,33 @@ export default function FragmentField(rawProps: Partial<Props>) {
         return () => obs.disconnect()
     }, [])
 
+    // Cover-equivalent background sizing
+    const cover = useMemo(() => {
+        if (imgDims.w <= 0 || imgDims.h <= 0 || size.w <= 0 || size.h <= 0) {
+            return { bgW: size.w, bgH: size.h, cropX: 0, cropY: 0 }
+        }
+        return computeCoverSize(imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY)
+    }, [imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY])
+
     // Clusters
     const clusters = useMemo(
         () => makeClusters(p.direction, p.coverage, p.falloffWidth, p.distortionStrength),
         [p.direction, p.coverage, p.falloffWidth, p.distortionStrength]
     )
 
-    // Fragments
-    const frags = useMemo(
-        () => makeFragments(
+    // Cells
+    const cells = useMemo(
+        () => makeCells(
             size.w, size.h, clusters, p.direction,
             p.coverage, p.falloffWidth, p.edgeStepping, p.randomness,
-            p.cellSize, p.density, p.islandDensity, p.islandScatter,
-            p.islandFade, p.distortionStrength
+            p.cellSize, p.density,
+            p.islandDensity, p.islandScatter, p.islandFade,
+            p.distortionStrength, p.rotationEnabled, p.rotationStrength
         ),
         [size.w, size.h, clusters, p.direction, p.coverage, p.falloffWidth,
          p.edgeStepping, p.randomness, p.cellSize, p.density,
-         p.islandDensity, p.islandScatter, p.islandFade, p.distortionStrength]
+         p.islandDensity, p.islandScatter, p.islandFade,
+         p.distortionStrength, p.rotationEnabled, p.rotationStrength]
     )
 
     // Mouse
@@ -501,7 +533,6 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const dt = Math.min((now - last) / 1000, 0.1)
             last = now
             tRef.current += dt
-            // Decay hover
             if (p.hoverEnabled) {
                 const m = hoverRef.current
                 for (const [k, v] of m.entries()) {
@@ -518,113 +549,76 @@ export default function FragmentField(rawProps: Partial<Props>) {
         return () => cancelAnimationFrame(rafRef.current)
     }, [p.ambientMotion, p.hoverEnabled, p.hoverRecovery])
 
-    // Hover influence (cell-level, shared across layers)
+    // Hover
     if (p.hoverEnabled && mouseRef.current.on && size.w > 0) {
         const mx = mouseRef.current.x, my = mouseRef.current.y, r = p.hoverRadius
-        // Only check unique cell positions (layer 0)
-        for (const f of frags) {
-            if (f.layer !== 0) continue
-            const cx = f.x + f.w / 2, cy = f.y + f.h / 2
+        for (const c of cells) {
+            const cx = c.x + c.w / 2, cy = c.y + c.h / 2
             const d = Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2)
             if (d < r) {
                 const inf = smoothstep(r, r * 0.2, d) * p.hoverIntensity
-                const k = `${f.x},${f.y}`
-                const cur = hoverRef.current.get(k) || 0
-                hoverRef.current.set(k, Math.max(cur, inf))
+                const cur = hoverRef.current.get(c.id) || 0
+                hoverRef.current.set(c.id, Math.max(cur, inf))
             }
         }
     }
 
     const time = tRef.current
     const cW = size.w, cH = size.h
+    const { bgW, bgH, cropX, cropY } = cover
 
-    // Render data
+    // Render
     const renderData = useMemo(() => {
         if (cW <= 0 || cH <= 0) return []
 
-        return frags.map((f) => {
-            const hk = `${f.x},${f.y}`
-            const hInf = hoverRef.current.get(hk) || 0
-            const act = Math.min(1, f.activity + hInf * 0.4)
+        return cells.map((c) => {
+            const hInf = hoverRef.current.get(c.id) || 0
+            const act = Math.min(1, c.activity + hInf * 0.5)
 
-            // ── Sample offset — cluster-inherited, scaled by activity ──
-            let sx = f.sampleX * act
-            let sy = f.sampleY * act
+            let sx = c.sampleX * act
+            let sy = c.sampleY * act
 
-            // ── Rotation as sample displacement ──
-            // Instead of CSS rotate (which creates dark stacked slabs),
-            // rotation translates into additional sample offset —
-            // as if the sampling point is pivoted around the cell center.
-            // This creates "dragged" / "pivoted crop" behavior:
-            // the cell still shows image content, just pulled from
-            // a rotationally-displaced source position.
-            if (p.rotationEnabled) {
-                const rotSeed = sr3(f.x, f.y, f.layer * 77 + 3)
-                const zoneScale = f.zone === "core" ? 1
-                    : f.zone === "falloff" ? 0.5
-                    : 0.25
-
-                // Rotation angle in radians
-                let angle = (rotSeed - 0.5) * 2 * p.rotationStrength * act * zoneScale
-                    * (Math.PI / 180)
-
-                // Echo layers: additional angular separation
-                if (f.layer > 0) {
-                    angle += (sr3(f.x, f.y, f.layer * 131) - 0.5)
-                        * p.rotationStrength * 0.5 * act * (Math.PI / 180)
-                }
-
-                // Ambient angular oscillation
-                if (p.ambientMotion) {
-                    angle += Math.sin(
-                        time * p.drift * 0.2 + f.nx * Math.PI * 2.5
-                    ) * p.rotationStrength * 0.12 * p.motionAmount * act
-                        * (Math.PI / 180)
-                }
-
-                // Convert angle to sample offset displacement:
-                // pivot radius scales with cell size and strength
-                const pivotRadius = (f.w + f.h) * 0.35 * p.distortionStrength
-                sx += Math.sin(angle) * pivotRadius
-                sy += -Math.cos(angle) * pivotRadius + pivotRadius // bias downward offset
-            }
-
-            // ── Ambient drift — spatially coherent ──
+            // Ambient drift — spatially coherent
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
-                sx += Math.sin(time * s * 0.4 + f.nx * Math.PI * 1.6) * a * 1.6
-                sy += Math.cos(time * s * 0.28 + f.ny * Math.PI * 1.2) * a * 1.0
+                sx += Math.sin(time * s * 0.4 + c.nx * Math.PI * 1.6) * a * 2
+                sy += Math.cos(time * s * 0.28 + c.ny * Math.PI * 1.2) * a * 1.2
             }
 
-            // ── Hover boost ──
+            // Hover boost
             if (hInf > 0) {
-                sx *= 1 + hInf * 0.4
-                sy *= 1 + hInf * 0.4
+                sx *= 1 + hInf * 0.5
+                sy *= 1 + hInf * 0.5
             }
 
-            // ── Background position ──
-            const bgX = -f.x + sx
-            const bgY = -f.y + sy
+            // Background position: cover-correct alignment + displacement
+            // With zero displacement, this exactly matches the base <img>
+            const bgX = -(c.x + cropX) + sx
+            const bgY = -(c.y + cropY) + sy
 
-            // ── Opacity ──
-            let op = f.opacity * p.cellOpacity * act
-            if (p.ambientMotion && p.flicker > 0 && f.layer === 0) {
-                op += Math.sin(time * 1.5 + f.phase * Math.PI * 6) * p.flicker * 0.04
-                op = Math.max(0.08, Math.min(1, op))
+            // Opacity: full for most cells, only islands are slightly reduced
+            let op = p.cellOpacity
+            if (c.zone === "island") {
+                op *= 0.65 * act
+            }
+            // Flicker
+            if (p.ambientMotion && p.flicker > 0) {
+                op += Math.sin(time * 1.5 + c.phase * Math.PI * 6) * p.flicker * 0.04
+                op = Math.max(0.1, Math.min(1, op))
             }
 
-            // ── Filters ──
+            // Filters
             let filter: string | undefined
             const fl: string[] = []
             if (p.contrast !== 0) fl.push(`contrast(${1 + p.contrast * act * 0.01})`)
             if (p.blur > 0) fl.push(`blur(${p.blur * act * 0.25}px)`)
             if (fl.length) filter = fl.join(" ")
 
-            return { f, bgX, bgY, op, filter }
+            return { c, bgX, bgY, op, filter }
         })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frags, tick, p, cW, cH])
+    }, [cells, tick, p, cW, cH, bgW, bgH, cropX, cropY])
 
     const objPos = `${p.positionX}% ${p.positionY}%`
 
@@ -641,7 +635,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 borderRadius: p.borderRadius,
             }}
         >
-            {/* Base media — clean zone */}
+            {/* Base media — clean, always visible */}
             {p.mediaType === "image" ? (
                 <img
                     src={p.source} alt=""
@@ -664,43 +658,27 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 />
             )}
 
-            {/* Fragment field */}
+            {/* Fragment cells — one div per cell, full opacity, displaced sampling */}
             <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-                {renderData.map((d) => {
-                    const { f } = d
-                    const bleed = 1
-
-                    return (
-                        <div
-                            key={f.id}
-                            style={{
-                                position: "absolute",
-                                left: f.x - bleed,
-                                top: f.y - bleed,
-                                width: f.w + bleed * 2,
-                                height: f.h + bleed * 2,
-                                overflow: "hidden",
-                                opacity: d.op,
-                            }}
-                        >
-                            {/* No CSS rotation — rotation is expressed as
-                                sample displacement in bgX/bgY instead,
-                                keeping the visual result image-based
-                                rather than creating dark stacked panels */}
-                            <div
-                                style={{
-                                    position: "absolute",
-                                    inset: 0,
-                                    backgroundImage: `url(${p.source})`,
-                                    backgroundSize: `${cW}px ${cH}px`,
-                                    backgroundPosition: `${d.bgX + bleed}px ${d.bgY + bleed}px`,
-                                    backgroundRepeat: "no-repeat",
-                                    filter: d.filter,
-                                }}
-                            />
-                        </div>
-                    )
-                })}
+                {renderData.map((d) => (
+                    <div
+                        key={d.c.id}
+                        style={{
+                            position: "absolute",
+                            left: d.c.x,
+                            top: d.c.y,
+                            width: d.c.w,
+                            height: d.c.h,
+                            overflow: "hidden",
+                            opacity: d.op,
+                            backgroundImage: `url(${p.source})`,
+                            backgroundSize: `${bgW}px ${bgH}px`,
+                            backgroundPosition: `${d.bgX}px ${d.bgY}px`,
+                            backgroundRepeat: "no-repeat",
+                            filter: d.filter,
+                        }}
+                    />
+                ))}
             </div>
 
             {/* Grain */}
@@ -775,11 +753,11 @@ addPropertyControls(FragmentField, {
     },
     distortionStrength: {
         type: ControlType.Number, title: "Distortion",
-        min: 0, max: 3, step: 0.1, defaultValue: 1,
+        min: 0, max: 3, step: 0.1, defaultValue: 1.2,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
-        min: 0.2, max: 1, step: 0.05, defaultValue: 0.95,
+        min: 0.2, max: 1, step: 0.05, defaultValue: 1,
     },
     islandDensity: {
         type: ControlType.Number, title: "Island Density",
@@ -812,11 +790,11 @@ addPropertyControls(FragmentField, {
         hidden: (p) => !p.ambientMotion,
     },
     rotationEnabled: {
-        type: ControlType.Boolean, title: "Internal Rotation", defaultValue: true,
+        type: ControlType.Boolean, title: "Rotation", defaultValue: true,
     },
     rotationStrength: {
         type: ControlType.Number, title: "Rotation Strength",
-        min: 0, max: 20, step: 0.5, unit: "°", defaultValue: 4,
+        min: 0, max: 20, step: 0.5, unit: "°", defaultValue: 6,
         hidden: (p) => !p.rotationEnabled,
     },
     hoverEnabled: {
