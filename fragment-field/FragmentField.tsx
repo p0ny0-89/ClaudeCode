@@ -94,16 +94,17 @@ function computeCoverSize(
 }
 
 // ─── Spherical Lens Distortion ──────────────────────────────────────────────
-// Models a convex sphere pressed against the image from the origin corner.
-// The sphere has a center point and a radius. Cells within the sphere's
-// footprint have their image sampling displaced radially outward from
-// the sphere center — barrel distortion.
+// Models a convex glass sphere pressed against the image from the
+// direction corner. The sphere refracts the image: cells near the
+// sphere center are displaced most, pulling content TOWARD the
+// origin corner. This creates the look of the image being warped
+// inward toward the corner through a curved lens.
 //
-// The displacement magnitude follows a spherical profile:
-//   d(r) = strength * (1 - (r/R)^2)
-// where r = distance from sphere center, R = sphere radius.
-// This gives maximum displacement at the center and zero at the edge,
-// matching the cross-section of a sphere.
+// The displacement profile uses a smooth cubic falloff:
+//   d(r) = strength * (1 - r/R)^2 * r/R
+// This gives zero at the center, rises to a peak at ~1/3 radius,
+// then falls back to zero at the edge. The result is a smooth
+// refraction field that doesn't overshoot at the origin.
 
 function getOrigin(dir: Direction): { ox: number; oy: number } {
     switch (dir) {
@@ -142,16 +143,19 @@ function computeDisplacement(
     // Normalized distance within sphere (0 at center, 1 at edge)
     const rNorm = Math.min(1, dist / Math.max(0.01, sphereRadius))
 
-    // Spherical profile: maximum at center, zero at edge
-    // d(r) = (1 - r^2) — cross-section of a sphere
-    const sphereProfile = 1 - rNorm * rNorm
+    // Refraction profile: smooth bell curve
+    // Peaks at ~0.33R, zero at center and edge
+    // This avoids the out-of-bounds artifacts at the origin
+    // and gives a natural lens refraction shape
+    const bell = rNorm * (1 - rNorm) * (1 - rNorm) * 4  // peaks at r=1/3
 
-    // Direction: unit vector from origin to cell
-    const dirX = vx / dist
-    const dirY = vy / dist
+    // Direction: pull content TOWARD the origin (negate outward vector)
+    // This creates the "sucked toward the corner" refraction look
+    const dirX = -vx / dist
+    const dirY = -vy / dist
 
-    // Displacement magnitude: sphere profile * strength * activity
-    const mag = sphereProfile * strength * activity
+    // Displacement magnitude: refraction profile * strength * activity
+    const mag = bell * strength * activity
 
     // Convert to pixel displacement
     let dx = dirX * mag
@@ -160,8 +164,8 @@ function computeDisplacement(
     // Small per-cell jitter for organic variation
     const jitX = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
     const jitY = (sr3(col * 0.7, row * 0.7, 77) - 0.5) * 2
-    dx += jitX * strength * 0.04 * randomness * activity
-    dy += jitY * strength * 0.04 * randomness * activity
+    dx += jitX * strength * 0.03 * randomness * activity
+    dy += jitY * strength * 0.03 * randomness * activity
 
     return { dx, dy }
 }
@@ -295,8 +299,8 @@ const defaults: Partial<Props> = {
     randomness: 0.3,
     cellSize: 30,
     density: 1.0,
-    distortionStrength: 40,
-    sphereRadius: 1.2,
+    distortionStrength: 60,
+    sphereRadius: 1.5,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
@@ -612,11 +616,11 @@ addPropertyControls(FragmentField, {
     },
     distortionStrength: {
         type: ControlType.Number, title: "Distortion",
-        min: 5, max: 120, step: 1, unit: "px", defaultValue: 40,
+        min: 5, max: 120, step: 1, unit: "px", defaultValue: 60,
     },
     sphereRadius: {
         type: ControlType.Number, title: "Sphere Radius",
-        min: 0.3, max: 2.5, step: 0.05, defaultValue: 1.2,
+        min: 0.3, max: 2.5, step: 0.05, defaultValue: 1.5,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
