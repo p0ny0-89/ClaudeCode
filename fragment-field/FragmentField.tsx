@@ -8,19 +8,18 @@ import React, {
 } from "react"
 
 /*
- * FragmentField — Rotational cascade fragmentation
+ * FragmentField — Radial rotational cascade
  *
- * Two rotational attractors create a smooth angular field.
- * Cells subdivide recursively via quadtree: large cells at
- * the field edges break into smaller descendants toward the
- * core. Each child inherits its parent's rotation angle and
- * adds a small angular increment, creating coherent rotational
- * flow with nested scale relationships.
+ * Cells radiate from rotational attractor centers in concentric
+ * rings. Cell size scales continuously with distance from attractors
+ * (small dense cells at core, large sparse cells at periphery).
+ * Rotation follows the tangential field of each attractor, creating
+ * coherent orbital flow. No quadtree — no axis-aligned subdivision
+ * boundaries — no serrated tile artifacts.
  *
- * The image content inside each cell is CSS-rotated (not offset-
- * shifted), so the effect reads as a turning field, not shifted
- * tiles. Cover-correct background sizing ensures cells show the
- * same image rendering as the base layer.
+ * Rendering: each cell is a full-opacity rectangle with CSS-rotated
+ * cover-correct background-image. Paint order is outside-in so
+ * smaller core cells cascade visually on top of larger outer cells.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -32,9 +31,9 @@ type Direction =
 interface Attractor {
     cx: number
     cy: number
-    strength: number // radians at center
-    radius: number   // normalized falloff radius
-    spin: number     // +1 or -1 (CW / CCW)
+    strength: number
+    radius: number
+    spin: number
 }
 
 interface CellData {
@@ -45,10 +44,10 @@ interface CellData {
     h: number
     nx: number
     ny: number
-    depth: number
-    angle: number     // inherited + accumulated rotation (radians)
+    angle: number
     zone: "core" | "falloff" | "island"
     activity: number
+    ringDist: number  // normalized distance from nearest attractor (0=center, 1=edge)
     phase: number
 }
 
@@ -69,6 +68,9 @@ function sr3(a: number, b: number, c: number): number {
 function smoothstep(e0: number, e1: number, x: number): number {
     const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)))
     return t * t * (3 - 2 * t)
+}
+function lerp(a: number, b: number, t: number): number {
+    return a + (b - a) * t
 }
 
 function getDistance(nx: number, ny: number, dir: Direction): number {
@@ -103,10 +105,6 @@ function computeCoverSize(
 }
 
 // ─── Rotational Attractors ──────────────────────────────────────────────────
-// Two attractors create the angular field. Each is a point that
-// rotates nearby cells. The angle at any point is the smooth
-// blend of attractor influences — this guarantees angular
-// coherence between neighbors.
 
 function makeAttractors(
     dir: Direction, coverage: number, falloffWidth: number, rotStr: number
@@ -114,17 +112,12 @@ function makeAttractors(
     const covN = coverage / 100
     const fallEnd = covN + falloffWidth / 100
 
-    // Place two attractors within the distortion zone
-    // Attractor 1: deeper, stronger, primary rotation
-    // Attractor 2: offset laterally, counter-rotation for tension
     const s1 = sr(42), s2 = sr(137)
     const depth1 = 0.25, depth2 = 0.55
 
     function placeInField(
         depthFrac: number, lateralFrac: number
     ): { cx: number; cy: number } {
-        // depthFrac: 0=origin, 1=falloff edge
-        // lateralFrac: 0-1 along perpendicular axis
         const d = depthFrac * fallEnd
         switch (dir) {
             case "left": return { cx: d, cy: lateralFrac }
@@ -140,50 +133,29 @@ function makeAttractors(
 
     const p1 = placeInField(depth1, 0.35 + s1 * 0.3)
     const p2 = placeInField(depth2, 0.25 + s2 * 0.5)
-
     const baseRad = rotStr * (Math.PI / 180)
 
     return [
         {
             cx: p1.cx, cy: p1.cy,
             strength: baseRad * 1.2,
-            radius: 0.25 + covN * 0.15,
+            radius: 0.28 + covN * 0.18,
             spin: 1,
         },
         {
             cx: p2.cx, cy: p2.cy,
             strength: baseRad * 0.7,
-            radius: 0.18 + covN * 0.1,
+            radius: 0.20 + covN * 0.12,
             spin: -1,
         },
     ]
 }
 
-// Resolve field angle: smooth blend of attractor influences
-function getAttractorAngle(
-    nx: number, ny: number, attractors: Attractor[]
-): number {
-    let angle = 0
-    for (const a of attractors) {
-        const dx = nx - a.cx, dy = ny - a.cy
-        const d = Math.sqrt(dx * dx + dy * dy)
-        if (d > a.radius * 2) continue
-
-        // Smooth radial falloff from attractor center
-        const influence = smoothstep(a.radius * 2, 0, d)
-
-        // Angular component: cells closer to the attractor rotate more
-        // Add a tangential twist based on the cell's position relative
-        // to the attractor, so it feels like orbiting, not uniform
-        const tangentialAngle = Math.atan2(dy, dx)
-        const twist = tangentialAngle * 0.15 * influence
-
-        angle += (a.strength * a.spin * influence) + twist
-    }
-    return angle
-}
-
-// ─── Recursive Cell Generation ───────────────────────────────────────────────
+// ─── Radial Cell Generation ─────────────────────────────────────────────────
+// Cells are placed in concentric rings around each attractor.
+// Ring radius determines cell size (continuous, no jumps).
+// Angular position along the ring creates the orbiting feel.
+// Gap-fill cells cover active areas between attractors.
 
 function makeCells(
     contW: number, contH: number,
@@ -201,117 +173,236 @@ function makeCells(
     const fallN = falloffWidth / 100
     const fallEnd = covN + fallN
     const steps = Math.max(1, edgeStepping)
+    const scale = Math.max(contW, contH)
 
-    const startSize = cellSize * 4
-    const minSize = Math.max(8, cellSize * 0.45)
+    // Zone classification for any normalized point
+    function getZone(nx: number, ny: number): {
+        zone: "core" | "falloff" | "island" | "clean"
+        activity: number
+    } {
+        const dist = getDistance(nx, ny, dir)
+        const seed = sr2(nx * 10.7, ny * 10.7)
+        const jit = (seed - 0.5) * randomness * 0.08
+
+        if (dist < covN + jit) {
+            return { zone: "core", activity: 1 }
+        }
+        if (dist < fallEnd + jit) {
+            const t = (dist - covN) / Math.max(0.001, fallN)
+            const stepped = Math.floor(t * steps) / steps
+            const act = Math.max(0, 1 - stepped)
+            if (seed > density * act) return { zone: "clean", activity: 0 }
+            return { zone: "falloff", activity: act }
+        }
+        if (dist < fallEnd + islandScatter / 100) {
+            const thresh = 1 - (islandDensity / 100) * 0.18
+            const phase = sr3(nx * 10.7, ny * 10.7, 17)
+            if (phase > thresh) {
+                const id2 = (dist - fallEnd) / (islandScatter / 100)
+                const act = Math.max(0, 1 - id2) * (1 - islandFade) * 0.45
+                if (act > 0.02) return { zone: "island", activity: act }
+            }
+        }
+        return { zone: "clean", activity: 0 }
+    }
+
     const cells: CellData[] = []
     let cid = 0
 
-    function subdivide(
-        x: number, y: number, w: number, h: number,
-        depth: number, parentAngle: number
-    ) {
-        const nx = (x + w / 2) / contW
-        const ny = (y + h / 2) / contH
-        if (nx < -0.05 || nx > 1.05 || ny < -0.05 || ny > 1.05) return
-
-        const dist = getDistance(nx, ny, dir)
-        const fieldDepth = Math.max(0, 1 - dist / Math.max(0.01, fallEnd))
-
-        // ── Angle inheritance ──
-        // Get this cell's angle from the attractor field
-        const attractorAngle = getAttractorAngle(nx, ny, attractors)
-        // Inherit from parent and blend with local attractor influence
-        // Deeper children lean more toward the attractor field,
-        // shallower cells lean toward their parent's angle
-        const inheritBlend = Math.min(1, 0.3 + depth * 0.2)
-        const cellAngle = parentAngle * (1 - inheritBlend) + attractorAngle * inheritBlend
-            // Add small angular increment per subdivision for fan-out
-            + (sr3(x * 0.1, y * 0.1, depth * 13) - 0.5) * 0.08 * (depth + 1)
-
-        // ── Subdivision decision ──
-        const halfW = w / 2, halfH = h / 2
-        const canSub = halfW >= minSize && halfH >= minSize && depth < 4
-
-        const subThresh = depth === 0 ? 0.08
-            : depth === 1 ? 0.28
-            : depth === 2 ? 0.50
-            : 0.72
-        const subSeed = sr3(Math.floor(x * 0.7), Math.floor(y * 0.7), depth * 7)
-        const jitter = (subSeed - 0.5) * 0.12
-
-        if (canSub && fieldDepth > subThresh + jitter) {
-            // Skip chance: occasional large cells survive in core for variety
-            const skipChance = depth === 0 ? 0.03 : depth === 1 ? 0.06 : 0.12
-            if (subSeed >= skipChance) {
-                subdivide(x, y, halfW, halfH, depth + 1, cellAngle)
-                subdivide(x + halfW, y, halfW, halfH, depth + 1, cellAngle)
-                subdivide(x, y + halfH, halfW, halfH, depth + 1, cellAngle)
-                subdivide(x + halfW, y + halfH, halfW, halfH, depth + 1, cellAngle)
-                return
-            }
-        }
-
-        // ── Emit leaf cell ──
-        const seed = sr2(x * 0.1, y * 0.1)
-        const jit = (seed - 0.5) * randomness * 0.08
-
-        let zone: CellData["zone"] | "clean" = "clean"
-        let activity = 0
-
-        if (dist < covN + jit) {
-            zone = "core"
-            activity = 1
-        } else if (dist < fallEnd + jit) {
-            zone = "falloff"
-            const t = (dist - covN) / Math.max(0.001, fallN)
-            const stepped = Math.floor(t * steps) / steps
-            activity = Math.max(0, 1 - stepped)
-            if (seed > density * activity) {
-                zone = "clean"
-                activity = 0
-            }
-        }
-
-        // Islands
-        if (zone === "clean" && dist >= fallEnd && dist < fallEnd + islandScatter / 100) {
-            const thresh = 1 - (islandDensity / 100) * 0.18
-            const phase = sr3(x * 0.1, y * 0.1, 17)
-            if (phase > thresh) {
-                zone = "island"
-                const id2 = (dist - fallEnd) / (islandScatter / 100)
-                activity = Math.max(0, 1 - id2) * (1 - islandFade) * 0.45
-            }
-        }
-
-        if (zone === "clean" || activity < 0.02) return
-
-        cells.push({
-            id: cid++,
-            x, y, w, h, nx, ny,
-            depth,
-            angle: cellAngle * activity * distStr,
-            zone: zone as CellData["zone"],
-            activity,
-            phase: sr3(x * 0.1, y * 0.1, 17),
-        })
+    // Track occupied regions to prevent too much overlap
+    const occupied = new Set<string>()
+    function gridKey(x: number, y: number, gridStep: number): string {
+        return `${Math.floor(x / gridStep)},${Math.floor(y / gridStep)}`
     }
 
-    // Start recursion
-    const startCols = Math.ceil(contW / startSize)
-    const startRows = Math.ceil(contH / startSize)
-    for (let r = 0; r < startRows; r++) {
-        for (let c = 0; c < startCols; c++) {
-            const x = c * startSize
-            const y = r * startSize
-            const w = Math.min(startSize, contW - x)
-            const h = Math.min(startSize, contH - y)
-            if (w > 4 && h > 4) {
-                // Root cells start with zero inherited angle
-                subdivide(x, y, w, h, 0, 0)
+    // ── PHASE 1: Radial rings around each attractor ──
+    // Cells orbit each attractor in concentric rings.
+    // Inner rings = small cells, strong rotation.
+    // Outer rings = large cells, gentle rotation.
+
+    for (let ai = 0; ai < attractors.length; ai++) {
+        const att = attractors[ai]
+        const attPxX = att.cx * contW
+        const attPxY = att.cy * contH
+        const maxR = att.radius * scale * 1.8
+
+        const minDim = Math.max(8, cellSize * 0.45)
+        const maxDim = cellSize * 3.5
+
+        let ringR = minDim * 0.6
+        let ringIdx = 0
+
+        while (ringR < maxR) {
+            // Continuous size: grows smoothly with ring radius
+            const t = Math.min(1, ringR / maxR)
+            const dim = lerp(minDim, maxDim, Math.pow(t, 0.55))
+
+            // Aspect ratio variation: some cells wider, some taller
+            const aspectSeed = sr(ringIdx * 47 + ai * 200)
+            const aspectR = 0.7 + aspectSeed * 0.6 // 0.7 to 1.3
+            const cellW = dim * Math.sqrt(aspectR)
+            const cellH = dim / Math.sqrt(aspectR)
+
+            // Cells per ring — fills circumference with cells + gaps
+            const circ = 2 * Math.PI * ringR
+            const spacedDim = dim * (1.1 + (1 - density) * 0.8)
+            const nCells = Math.max(3, Math.floor(circ / spacedDim))
+            const angStep = (2 * Math.PI) / nCells
+
+            // Per-ring angular offset for organic staggering
+            const ringOffset = sr(ringIdx * 31 + ai * 97) * angStep * 0.7
+
+            for (let ci = 0; ci < nCells; ci++) {
+                // Skip some cells for sparsity at outer rings
+                const skipSeed = sr3(ringIdx + 0.1, ci + 0.1, ai * 13 + 0.1)
+                const keepProb = lerp(1.0, 0.5, Math.pow(t, 1.5)) * density
+                if (skipSeed > keepProb) continue
+
+                const theta = ci * angStep + ringOffset
+
+                // Position with organic jitter
+                const jitR = (sr3(ringR * 0.1, theta * 10, ai * 7 + 1) - 0.5) * dim * 0.35 * randomness
+                const jitT = (sr3(ringR * 0.1, theta * 10, ai * 7 + 2) - 0.5) * angStep * 0.3 * randomness
+                const finalR = ringR + jitR
+                const finalTheta = theta + jitT
+
+                const px = attPxX + finalR * Math.cos(finalTheta)
+                const py = attPxY + finalR * Math.sin(finalTheta)
+
+                const nx = px / contW
+                const ny = py / contH
+                if (nx < -0.02 || nx > 1.02 || ny < -0.02 || ny > 1.02) continue
+
+                // Zone check
+                const { zone, activity } = getZone(nx, ny)
+                if (zone === "clean" || activity < 0.02) continue
+
+                // Check occupancy to avoid excessive stacking
+                const gStep = dim * 0.6
+                const gk = gridKey(px, py, gStep)
+                if (occupied.has(gk)) continue
+                occupied.add(gk)
+
+                // ── Rotation: orbital + attractor spin ──
+                // Tangential direction (perpendicular to radius from attractor)
+                const tangential = finalTheta + Math.PI / 2
+
+                // Attractor influence: strong near center, fading out
+                const influence = smoothstep(1, 0, t)
+
+                // Base rotation from attractor spin
+                const baseAngle = att.strength * att.spin * influence
+
+                // Tangential twist: cells rotate as if orbiting
+                const twist = tangential * 0.12 * influence
+
+                // Inherited angular drift: cascade from ring to ring
+                const inheritDrift = (sr3(ringIdx * 0.3, ci * 0.7, ai * 11) - 0.5)
+                    * 0.06 * (ringIdx + 1)
+
+                const cellAngle = (baseAngle + twist + inheritDrift) * activity * distStr
+
+                cells.push({
+                    id: cid++,
+                    x: px - cellW / 2,
+                    y: py - cellH / 2,
+                    w: cellW,
+                    h: cellH,
+                    nx, ny,
+                    angle: cellAngle,
+                    zone: zone as CellData["zone"],
+                    activity,
+                    ringDist: t,
+                    phase: sr3(px * 0.1, py * 0.1, 17),
+                })
             }
+
+            // Ring spacing: continuous, proportional to cell size
+            ringR += dim * (0.65 + (1 - density) * 0.4)
+            ringIdx++
         }
     }
+
+    // ── PHASE 2: Gap-fill cells ──
+    // The radial rings don't perfectly tile the active zone.
+    // Scatter additional cells in active areas not already occupied.
+    // These use a loose grid to fill gaps organically.
+
+    const fillSize = cellSize * 1.8
+    const fillCols = Math.ceil(contW / fillSize)
+    const fillRows = Math.ceil(contH / fillSize)
+
+    for (let r = 0; r < fillRows; r++) {
+        for (let c = 0; c < fillCols; c++) {
+            // Jittered grid position
+            const baseX = (c + 0.5) * fillSize
+            const baseY = (r + 0.5) * fillSize
+            const jx = (sr2(c * 7.3, r * 11.1) - 0.5) * fillSize * 0.6
+            const jy = (sr2(c * 11.1, r * 7.3) - 0.5) * fillSize * 0.6
+            const px = baseX + jx
+            const py = baseY + jy
+
+            const nx = px / contW
+            const ny = py / contH
+            if (nx < -0.02 || nx > 1.02 || ny < -0.02 || ny > 1.02) continue
+
+            const { zone, activity } = getZone(nx, ny)
+            if (zone === "clean" || activity < 0.02) continue
+
+            // Only fill where radial rings didn't reach
+            const gStep = fillSize * 0.5
+            const gk = gridKey(px, py, gStep)
+            if (occupied.has(gk)) continue
+            occupied.add(gk)
+
+            // Density-based skip
+            const skipSeed = sr3(c + 0.1, r + 0.1, 33)
+            if (skipSeed > density * 0.7) continue
+
+            // Size varies based on distance to nearest attractor
+            let minAttDist = Infinity
+            let nearestAtt: Attractor | null = null
+            for (const att of attractors) {
+                const dx = nx - att.cx, dy = ny - att.cy
+                const d = Math.sqrt(dx * dx + dy * dy)
+                if (d < minAttDist) {
+                    minAttDist = d
+                    nearestAtt = att
+                }
+            }
+
+            const attNormDist = Math.min(1, minAttDist / 0.5)
+            const dim = lerp(cellSize * 0.8, cellSize * 2.5, Math.pow(attNormDist, 0.5))
+
+            // Rotation from nearest attractor (weaker for gap-fills)
+            let cellAngle = 0
+            if (nearestAtt) {
+                const dx = nx - nearestAtt.cx, dy = ny - nearestAtt.cy
+                const tang = Math.atan2(dy, dx) + Math.PI / 2
+                const inf = smoothstep(nearestAtt.radius * 2, 0, minAttDist)
+                cellAngle = (nearestAtt.strength * nearestAtt.spin * inf
+                    + tang * 0.08 * inf) * activity * distStr * 0.6
+            }
+
+            cells.push({
+                id: cid++,
+                x: px - dim / 2,
+                y: py - dim / 2,
+                w: dim,
+                h: dim,
+                nx, ny,
+                angle: cellAngle,
+                zone: zone as CellData["zone"],
+                activity,
+                ringDist: attNormDist,
+                phase: sr3(px * 0.1, py * 0.1, 17),
+            })
+        }
+    }
+
+    // Sort: outer (large) cells first, inner (small) cells on top
+    // This creates the visual cascade: small rotated cells on top of larger ones
+    cells.sort((a, b) => b.ringDist - a.ringDist)
 
     return cells
 }
@@ -519,12 +610,13 @@ export default function FragmentField(rawProps: Partial<Props>) {
             // ── Rotation angle ──
             let angle = p.rotationEnabled ? c.angle : 0
 
-            // Ambient: gentle angular oscillation
+            // Ambient: gentle orbital oscillation
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
+                // Use ringDist to create wave-like propagation from center
                 angle += Math.sin(
-                    time * s * 0.3 + c.nx * Math.PI * 1.2 + c.ny * 0.7
+                    time * s * 0.3 + c.ringDist * Math.PI * 2 + c.phase * 1.5
                 ) * a * 0.04 * p.distortionStrength
             }
 
@@ -535,17 +627,13 @@ export default function FragmentField(rawProps: Partial<Props>) {
 
             const angleDeg = angle * (180 / Math.PI)
 
-            // ── Background position (cover-correct, no displacement) ──
-            // The rotation IS the distortion — no sample offset needed
+            // ── Background position (cover-correct) ──
             const bgX = -(c.x + cropX)
             const bgY = -(c.y + cropY)
 
-            // ── Inner div expansion to prevent gap artifacts ──
-            // When the content rotates, corners extend beyond the cell.
-            // Expand the inner div so the rotated image still fills the cell.
+            // ── Inner div expansion for rotation ──
             const absAngle = Math.abs(angle)
             const sinA = Math.sin(absAngle), cosA = Math.cos(absAngle)
-            // Bounding box of rotated rectangle
             const expandX = (c.w * cosA + c.h * sinA - c.w) / 2 + 2
             const expandY = (c.w * sinA + c.h * cosA - c.h) / 2 + 2
 
@@ -557,6 +645,9 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 op = Math.max(0.1, Math.min(1, op))
             }
 
+            // Subtle border radius on core cells for organic feel
+            const bRadius = c.ringDist < 0.4 ? Math.round(Math.min(c.w, c.h) * 0.06) : 0
+
             // Filters
             let filter: string | undefined
             const fl: string[] = []
@@ -564,7 +655,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
             if (p.blur > 0) fl.push(`blur(${p.blur * act * 0.25}px)`)
             if (fl.length) filter = fl.join(" ")
 
-            return { c, bgX, bgY, angleDeg, expandX, expandY, op, filter }
+            return { c, bgX, bgY, angleDeg, expandX, expandY, op, filter, bRadius }
         })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cells, tick, p, cW, cH, bgW, bgH, cropX, cropY])
@@ -601,13 +692,12 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 }} />
             )}
 
-            {/* Fragment field — rotated image content inside stable cell frames */}
+            {/* Fragment field — radial cascade from attractor centers */}
             <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                 {renderData.map((d) => (
                     <div
                         key={d.c.id}
                         style={{
-                            // Outer: stable grid-aligned frame, clips rotated content
                             position: "absolute",
                             left: d.c.x,
                             top: d.c.y,
@@ -615,9 +705,9 @@ export default function FragmentField(rawProps: Partial<Props>) {
                             height: d.c.h,
                             overflow: "hidden",
                             opacity: d.op,
+                            borderRadius: d.bRadius,
                         }}
                     >
-                        {/* Inner: expanded + rotated image content */}
                         <div style={{
                             position: "absolute",
                             left: -d.expandX,
