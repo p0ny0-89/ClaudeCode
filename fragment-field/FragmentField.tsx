@@ -27,14 +27,14 @@ interface CellData {
     y: number
     w: number
     h: number
-    nx: number // normalized center x (0-1)
-    ny: number // normalized center y (0-1)
-    dist: number // normalized distance from origin (0-1)
+    nx: number
+    ny: number
+    dist: number
     zone: "core" | "falloff" | "island" | "clean"
-    activity: number // 0-1, how active/distorted this cell is
-    phase: number // random phase for animation
-    seed: number // random seed for this cell
-    syncGroup: number // rotation sync group
+    activity: number
+    phase: number
+    seed: number
+    seed2: number
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -44,34 +44,9 @@ function seededRandom(seed: number): number {
     return x - Math.floor(x)
 }
 
-function lerp(a: number, b: number, t: number): number {
-    return a + (b - a) * Math.max(0, Math.min(1, t))
-}
-
 function smoothstep(edge0: number, edge1: number, x: number): number {
     const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
     return t * t * (3 - 2 * t)
-}
-
-function getOriginPoint(direction: Direction): { ox: number; oy: number } {
-    switch (direction) {
-        case "left":
-            return { ox: 0, oy: 0.5 }
-        case "right":
-            return { ox: 1, oy: 0.5 }
-        case "top":
-            return { ox: 0.5, oy: 0 }
-        case "bottom":
-            return { ox: 0.5, oy: 1 }
-        case "top-left":
-            return { ox: 0, oy: 0 }
-        case "top-right":
-            return { ox: 1, oy: 0 }
-        case "bottom-left":
-            return { ox: 0, oy: 1 }
-        case "bottom-right":
-            return { ox: 1, oy: 1 }
-    }
 }
 
 function getDirectionalDistance(
@@ -99,40 +74,26 @@ function getDirectionalDistance(
     }
 }
 
-function applyBiasCurve(t: number, bias: number): number {
-    if (bias === 1) return t
-    return Math.pow(t, bias)
-}
-
 // ─── Cell Generation ─────────────────────────────────────────────────────────
 
 function generateCells(
     containerW: number,
     containerH: number,
-    props: FragmentFieldProps
+    direction: Direction,
+    coverage: number,
+    falloffWidth: number,
+    edgeStepping: number,
+    randomness: number,
+    cellSize: number,
+    density: number,
+    islandDensity: number,
+    islandScatter: number,
+    islandFade: number
 ): CellData[] {
     if (containerW <= 0 || containerH <= 0) return []
 
-    const {
-        direction,
-        coverage,
-        falloffWidth,
-        biasCurve,
-        edgeStepping,
-        stepRandomness,
-        cellSizeMin,
-        cellSizeMax,
-        cellDensity,
-        islandDensity,
-        islandSize,
-        islandScatter,
-        islandRandomness,
-        islandFade,
-    } = props
-
-    const avgCellSize = (cellSizeMin + cellSizeMax) / 2
-    const cols = Math.max(1, Math.floor(containerW / avgCellSize))
-    const rows = Math.max(1, Math.floor(containerH / avgCellSize))
+    const cols = Math.max(1, Math.floor(containerW / cellSize))
+    const rows = Math.max(1, Math.floor(containerH / cellSize))
     const cellW = containerW / cols
     const cellH = containerH / rows
 
@@ -148,84 +109,61 @@ function generateCells(
             const nx = (col + 0.5) / cols
             const ny = (row + 0.5) / rows
             const seed = seededRandom(col * 1000 + row * 7 + 42)
-            const phase = seededRandom(col * 317 + row * 131 + 99)
+            const seed2 = seededRandom(col * 317 + row * 131 + 99)
+            const phase = seededRandom(col * 571 + row * 239 + 17)
 
-            // Vary cell size within range
-            const sizeFactor = lerp(
-                cellSizeMin / avgCellSize,
-                cellSizeMax / avgCellSize,
-                seed
-            )
-            const w = cellW * sizeFactor
-            const h = cellH * sizeFactor
-            const x = col * cellW + (cellW - w) / 2
-            const y = row * cellH + (cellH - h) / 2
+            const x = col * cellW
+            const y = row * cellH
 
-            const rawDist = getDirectionalDistance(nx, ny, direction)
-            const dist = applyBiasCurve(rawDist, biasCurve)
+            const dist = getDirectionalDistance(nx, ny, direction)
 
-            // Determine zone and activity
             let zone: CellData["zone"] = "clean"
             let activity = 0
 
-            // Apply edge stepping: add randomized threshold per cell
-            const stepOffset =
-                (seed - 0.5) * stepRandomness * 0.15 * edgeStepping
+            // Edge stepping: quantize the boundary with per-cell randomness
+            const stepCount = Math.max(1, edgeStepping)
+            const stepOffset = (seed - 0.5) * randomness * 0.12
 
             if (dist < coverageNorm + stepOffset) {
+                // Core zone — dense contiguous clusters
                 zone = "core"
                 activity = 1
             } else if (dist < falloffEnd + stepOffset) {
+                // Falloff zone — stepped, sparse transition
                 zone = "falloff"
-                const falloffT =
-                    (dist - coverageNorm - stepOffset) / falloffNorm
+                const rawT = (dist - coverageNorm) / Math.max(0.001, falloffNorm)
 
-                // Stepped falloff: quantize the transition
-                const steps = Math.max(1, Math.round(edgeStepping * 8))
-                const steppedT =
-                    Math.floor(falloffT * steps) / steps +
-                    (seed - 0.5) * stepRandomness * 0.1
+                // Quantize into discrete steps
+                const steppedT = Math.floor(rawT * stepCount) / stepCount
 
-                activity = Math.max(
-                    0,
-                    1 - Math.min(1, steppedT + seed * stepRandomness * 0.2)
-                )
+                // Activity decreases through steps
+                activity = Math.max(0, 1 - steppedT)
 
-                // Density-based culling in falloff
-                if (seed > cellDensity * activity) {
+                // Per-step density culling: fewer cells in later steps
+                const stepDensity = density * activity
+                if (seed > stepDensity) {
                     zone = "clean"
                     activity = 0
                 }
             }
 
-            // Island logic: detached cells beyond the main zone
-            if (zone === "clean" && dist < falloffEnd + islandScatter / 100) {
-                const islandSeed = seededRandom(col * 571 + row * 239 + 17)
-                const islandThreshold =
-                    1 - (islandDensity / 100) * (1 - islandRandomness * 0.5)
-
-                if (islandSeed > islandThreshold) {
-                    const islandDist = dist - falloffEnd
-                    const islandActivity =
-                        (1 - islandDist / (islandScatter / 100)) *
-                        (1 - islandFade)
-                    if (islandActivity > 0.1) {
-                        zone = "island"
-                        activity = Math.min(0.7, islandActivity * 0.6)
-                    }
+            // Island logic: sparse detached cells beyond falloff
+            if (
+                zone === "clean" &&
+                dist >= falloffEnd &&
+                dist < falloffEnd + islandScatter / 100
+            ) {
+                const islandThreshold = 1 - (islandDensity / 100) * 0.25
+                if (phase > islandThreshold) {
+                    zone = "island"
+                    const islandDist =
+                        (dist - falloffEnd) / (islandScatter / 100)
+                    activity =
+                        Math.max(0, (1 - islandDist)) *
+                        (1 - islandFade) *
+                        0.55
                 }
             }
-
-            // Density culling for core cells too
-            if (zone === "core" && seed > cellDensity) {
-                // Keep most core cells but thin some out
-                if (seed > cellDensity * 1.3) {
-                    zone = "clean"
-                    activity = 0
-                }
-            }
-
-            const syncGroup = Math.floor(seededRandom(col * 23 + row * 47) * 4)
 
             cells.push({
                 id: id++,
@@ -233,8 +171,8 @@ function generateCells(
                 row,
                 x,
                 y,
-                w,
-                h,
+                w: cellW,
+                h: cellH,
                 nx,
                 ny,
                 dist,
@@ -242,7 +180,7 @@ function generateCells(
                 activity,
                 phase,
                 seed,
-                syncGroup,
+                seed2,
             })
         }
     }
@@ -250,7 +188,7 @@ function generateCells(
     return cells
 }
 
-// ─── Component Props ─────────────────────────────────────────────────────────
+// ─── Props ───────────────────────────────────────────────────────────────────
 
 interface FragmentFieldProps {
     // Media
@@ -261,75 +199,51 @@ interface FragmentFieldProps {
     positionY: number
     borderRadius: number
 
-    // Distortion zone
+    // Field
     direction: Direction
     coverage: number
     falloffWidth: number
-    biasCurve: number
     edgeStepping: number
-    stepRandomness: number
+    randomness: number
 
     // Cells
-    cellSizeMin: number
-    cellSizeMax: number
-    cellDensity: number
-    cellOpacity: number
-    scaleJitter: number
-    offsetJitter: number
+    cellSize: number
+    density: number
     distortionStrength: number
+    cellOpacity: number
 
     // Islands
     islandDensity: number
-    islandSize: number
     islandScatter: number
-    islandRandomness: number
     islandFade: number
 
     // Ambient motion
     ambientMotion: boolean
     motionAmount: number
-    driftSpeed: number
-    flickerAmount: number
-    reClusterAmount: number
+    drift: number
+    flicker: number
 
     // Rotation
     rotationEnabled: boolean
     rotationStrength: number
     rotationFrequency: number
     rotationRandomness: number
-    rotationSyncMode: "free" | "grouped" | "wave"
-    rotationFalloff: boolean
 
     // Hover
-    hoverReactive: boolean
+    hoverEnabled: boolean
     hoverRadius: number
     hoverIntensity: number
-    hoverFalloff: number
-    hoverSpawnIslands: boolean
-    hoverRecoverySpeed: number
-    hoverRotationBoost: number
-
-    // Scroll
-    scrollReactive: boolean
-    scrollIntensity: number
-    scrollDrift: number
-    scrollCompression: number
-    scrollClampToCoverage: boolean
-    scrollRotationModulation: number
+    hoverRecovery: number
 
     // Style
-    blendMode: string
-    brightnessShift: number
-    contrastShift: number
-    softBlur: number
-    grainOverlay: boolean
+    contrast: number
+    blur: number
+    grain: boolean
 
     // Framer
     width: number
     height: number
 }
-
-// ─── Default Props ───────────────────────────────────────────────────────────
 
 const defaultProps: Partial<FragmentFieldProps> = {
     source: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=1200&q=80",
@@ -339,52 +253,32 @@ const defaultProps: Partial<FragmentFieldProps> = {
     positionY: 50,
     borderRadius: 0,
     direction: "left",
-    coverage: 40,
-    falloffWidth: 25,
-    biasCurve: 1,
-    edgeStepping: 5,
-    stepRandomness: 0.6,
-    cellSizeMin: 28,
-    cellSizeMax: 48,
-    cellDensity: 0.85,
-    cellOpacity: 0.95,
-    scaleJitter: 0.08,
-    offsetJitter: 4,
+    coverage: 38,
+    falloffWidth: 22,
+    edgeStepping: 6,
+    randomness: 0.5,
+    cellSize: 36,
+    density: 0.9,
     distortionStrength: 1,
-    islandDensity: 35,
-    islandSize: 0.7,
-    islandScatter: 20,
-    islandRandomness: 0.5,
-    islandFade: 0.3,
+    cellOpacity: 0.95,
+    islandDensity: 30,
+    islandScatter: 18,
+    islandFade: 0.35,
     ambientMotion: true,
-    motionAmount: 0.5,
-    driftSpeed: 0.3,
-    flickerAmount: 0.15,
-    reClusterAmount: 0.1,
+    motionAmount: 0.4,
+    drift: 0.25,
+    flicker: 0.12,
     rotationEnabled: true,
-    rotationStrength: 15,
-    rotationFrequency: 0.4,
-    rotationRandomness: 0.5,
-    rotationSyncMode: "grouped",
-    rotationFalloff: true,
-    hoverReactive: true,
-    hoverRadius: 120,
-    hoverIntensity: 0.7,
-    hoverFalloff: 0.5,
-    hoverSpawnIslands: true,
-    hoverRecoverySpeed: 0.08,
-    hoverRotationBoost: 1.5,
-    scrollReactive: false,
-    scrollIntensity: 0.3,
-    scrollDrift: 0.2,
-    scrollCompression: 0.1,
-    scrollClampToCoverage: true,
-    scrollRotationModulation: 0.3,
-    blendMode: "normal",
-    brightnessShift: 0,
-    contrastShift: 0,
-    softBlur: 0,
-    grainOverlay: false,
+    rotationStrength: 12,
+    rotationFrequency: 0.5,
+    rotationRandomness: 0.4,
+    hoverEnabled: true,
+    hoverRadius: 100,
+    hoverIntensity: 0.6,
+    hoverRecovery: 0.06,
+    contrast: 0,
+    blur: 0,
+    grain: false,
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -392,7 +286,6 @@ const defaultProps: Partial<FragmentFieldProps> = {
 export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
     const props = { ...defaultProps, ...rawProps } as FragmentFieldProps
 
-    // Placeholder when no source is set
     if (!props.source) {
         return (
             <div
@@ -417,8 +310,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
     const containerRef = useRef<HTMLDivElement>(null)
     const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
     const mouseRef = useRef({ x: -9999, y: -9999, active: false })
-    const hoverInfluenceRef = useRef<Map<number, number>>(new Map())
-    const scrollRef = useRef(0)
+    const hoverMapRef = useRef<Map<number, number>>(new Map())
     const timeRef = useRef(0)
     const rafRef = useRef<number>(0)
     const [tick, setTick] = useState(0)
@@ -427,12 +319,10 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
     useEffect(() => {
         const el = containerRef.current
         if (!el) return
-
         const obs = new ResizeObserver((entries) => {
             const { width, height } = entries[0].contentRect
-            if (width > 0 && height > 0) {
+            if (width > 0 && height > 0)
                 setContainerSize({ w: width, h: height })
-            }
         })
         obs.observe(el)
         return () => obs.disconnect()
@@ -440,49 +330,41 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
 
     // Generate cells
     const cells = useMemo(
-        () => generateCells(containerSize.w, containerSize.h, props),
+        () =>
+            generateCells(
+                containerSize.w,
+                containerSize.h,
+                props.direction,
+                props.coverage,
+                props.falloffWidth,
+                props.edgeStepping,
+                props.randomness,
+                props.cellSize,
+                props.density,
+                props.islandDensity,
+                props.islandScatter,
+                props.islandFade
+            ),
         [
             containerSize.w,
             containerSize.h,
             props.direction,
             props.coverage,
             props.falloffWidth,
-            props.biasCurve,
             props.edgeStepping,
-            props.stepRandomness,
-            props.cellSizeMin,
-            props.cellSizeMax,
-            props.cellDensity,
+            props.randomness,
+            props.cellSize,
+            props.density,
             props.islandDensity,
-            props.islandSize,
             props.islandScatter,
-            props.islandRandomness,
             props.islandFade,
         ]
     )
 
-    // Scroll tracking
-    useEffect(() => {
-        if (!props.scrollReactive) return
-        const onScroll = () => {
-            const el = containerRef.current
-            if (!el) return
-            const rect = el.getBoundingClientRect()
-            const viewH = window.innerHeight
-            scrollRef.current = Math.max(
-                0,
-                Math.min(1, 1 - (rect.top + rect.height) / (viewH + rect.height))
-            )
-        }
-        window.addEventListener("scroll", onScroll, { passive: true })
-        onScroll()
-        return () => window.removeEventListener("scroll", onScroll)
-    }, [props.scrollReactive])
-
     // Mouse tracking
     const onMouseMove = useCallback(
         (e: React.MouseEvent) => {
-            if (!props.hoverReactive) return
+            if (!props.hoverEnabled) return
             const rect = containerRef.current?.getBoundingClientRect()
             if (!rect) return
             mouseRef.current = {
@@ -491,7 +373,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                 active: true,
             }
         },
-        [props.hoverReactive]
+        [props.hoverEnabled]
     )
 
     const onMouseLeave = useCallback(() => {
@@ -500,21 +382,20 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
 
     // Animation loop
     useEffect(() => {
-        if (!props.ambientMotion && !props.hoverReactive) return
+        if (!props.ambientMotion && !props.hoverEnabled) return
 
         let lastTime = performance.now()
-
         const animate = (now: number) => {
             const dt = Math.min((now - lastTime) / 1000, 0.1)
             lastTime = now
             timeRef.current += dt
 
-            // Decay hover influence
-            if (props.hoverReactive) {
-                const map = hoverInfluenceRef.current
+            // Decay hover influence when mouse is gone
+            if (props.hoverEnabled) {
+                const map = hoverMapRef.current
                 for (const [id, val] of map.entries()) {
                     if (!mouseRef.current.active) {
-                        const next = val * (1 - props.hoverRecoverySpeed)
+                        const next = val * (1 - props.hoverRecovery)
                         if (next < 0.01) map.delete(id)
                         else map.set(id, next)
                     }
@@ -524,231 +405,180 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
             setTick((t) => t + 1)
             rafRef.current = requestAnimationFrame(animate)
         }
-
         rafRef.current = requestAnimationFrame(animate)
         return () => cancelAnimationFrame(rafRef.current)
-    }, [props.ambientMotion, props.hoverReactive, props.hoverRecoverySpeed])
+    }, [props.ambientMotion, props.hoverEnabled, props.hoverRecovery])
 
-    // Compute hover influence per cell
-    if (props.hoverReactive && mouseRef.current.active && containerSize.w > 0) {
+    // Update hover influence per cell
+    if (
+        props.hoverEnabled &&
+        mouseRef.current.active &&
+        containerSize.w > 0
+    ) {
         const mx = mouseRef.current.x
         const my = mouseRef.current.y
-        const radius = props.hoverRadius
+        const r = props.hoverRadius
 
         for (const cell of cells) {
             const cx = cell.x + cell.w / 2
             const cy = cell.y + cell.h / 2
             const d = Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2)
-
-            if (d < radius) {
-                const influence =
-                    smoothstep(radius, radius * (1 - props.hoverFalloff), d) *
-                    props.hoverIntensity
-                const current = hoverInfluenceRef.current.get(cell.id) || 0
-                hoverInfluenceRef.current.set(
-                    cell.id,
-                    Math.max(current, influence)
-                )
+            if (d < r) {
+                const inf = smoothstep(r, r * 0.3, d) * props.hoverIntensity
+                const cur = hoverMapRef.current.get(cell.id) || 0
+                hoverMapRef.current.set(cell.id, Math.max(cur, inf))
             }
         }
     }
 
-    // Compute cell transforms
     const time = timeRef.current
-    const scrollT = scrollRef.current
+    const cW = containerSize.w
+    const cH = containerSize.h
 
+    // Compute per-cell rendering data
     const renderCells = useMemo(() => {
+        if (cW <= 0 || cH <= 0) return []
+
         return cells
             .filter((c) => {
-                const hoverInf = hoverInfluenceRef.current.get(c.id) || 0
+                const hoverInf = hoverMapRef.current.get(c.id) || 0
                 return c.zone !== "clean" || hoverInf > 0.05
             })
             .map((cell) => {
-                const hoverInf = hoverInfluenceRef.current.get(cell.id) || 0
+                const hoverInf = hoverMapRef.current.get(cell.id) || 0
                 const totalActivity = Math.min(1, cell.activity + hoverInf)
-
                 if (totalActivity < 0.02) return null
 
-                const strength = props.distortionStrength * totalActivity
+                const str = props.distortionStrength * totalActivity
 
-                // Offset
-                let ox =
-                    (cell.seed - 0.5) * props.offsetJitter * strength * 2
-                let oy =
-                    (seededRandom(cell.seed * 999) - 0.5) *
-                    props.offsetJitter *
-                    strength *
-                    2
+                // ── Internal media distortion ──
+                // These transforms apply to the INNER content, not the cell frame
 
-                // Scale jitter
-                const scaleBase =
-                    1 + (cell.seed - 0.5) * props.scaleJitter * strength * 2
-                let scale =
-                    cell.zone === "island"
-                        ? scaleBase * props.islandSize
-                        : scaleBase
+                // Crop/sample offset: shift which part of the image this cell shows
+                const sampleOffsetX = (cell.seed - 0.5) * str * 8
+                const sampleOffsetY = (cell.seed2 - 0.5) * str * 8
 
-                // Rotation
-                let rotation = 0
+                // Internal rotation: rotate the sampled media inside the cell
+                let innerRotation = 0
                 if (props.rotationEnabled) {
-                    const rotFalloff =
-                        props.rotationFalloff
-                            ? totalActivity
-                            : 1
-                    const baseRot = props.rotationStrength * rotFalloff
+                    const rotActivity = totalActivity // diminishes through falloff
+                    const baseRot = props.rotationStrength * rotActivity
 
-                    if (props.rotationSyncMode === "free") {
-                        rotation =
-                            (cell.seed - 0.5) *
-                            2 *
-                            baseRot *
-                            (1 + props.rotationRandomness * (cell.phase - 0.5))
-                    } else if (props.rotationSyncMode === "grouped") {
-                        const groupPhase = cell.syncGroup * 0.25 * Math.PI * 2
-                        rotation =
-                            Math.sin(groupPhase + cell.phase * Math.PI) *
-                            baseRot *
-                            (1 +
-                                props.rotationRandomness *
-                                    (cell.seed - 0.5) *
-                                    2)
-                    } else {
-                        // wave
-                        const wavePhase =
-                            cell.nx * props.rotationFrequency * Math.PI * 2
-                        rotation =
-                            Math.sin(wavePhase) *
-                            baseRot *
-                            (1 +
-                                props.rotationRandomness *
-                                    (cell.seed - 0.5) *
-                                    2)
-                    }
-
-                    // Hover rotation boost
-                    if (hoverInf > 0) {
-                        rotation *= 1 + hoverInf * props.hoverRotationBoost
-                    }
+                    // Per-cell rotation with phase variation
+                    innerRotation =
+                        (cell.seed - 0.5) *
+                        2 *
+                        baseRot *
+                        (1 + props.rotationRandomness * (cell.seed2 - 0.5))
                 }
 
-                // Ambient motion
-                if (props.ambientMotion && totalActivity > 0.1) {
-                    const amt = props.motionAmount * totalActivity
-                    const spd = props.driftSpeed
+                // Internal scale: subtle zoom variation
+                const innerScale =
+                    1 + (cell.seed2 - 0.5) * 0.06 * str
 
-                    // Drift
-                    ox +=
-                        Math.sin(time * spd * 0.7 + cell.phase * Math.PI * 6) *
-                        amt *
-                        3
-                    oy +=
-                        Math.cos(
-                            time * spd * 0.5 + cell.phase * Math.PI * 4
+                // Ambient motion: subtle internal drift and oscillation
+                let motionDriftX = 0
+                let motionDriftY = 0
+                let motionRotation = 0
+
+                if (props.ambientMotion && totalActivity > 0.05) {
+                    const amt = props.motionAmount * totalActivity
+                    const spd = props.drift
+
+                    motionDriftX =
+                        Math.sin(
+                            time * spd * 0.7 +
+                                cell.phase * Math.PI * 6
                         ) *
                         amt *
-                        2
+                        2.5
 
-                    // Rotation oscillation
+                    motionDriftY =
+                        Math.cos(
+                            time * spd * 0.5 +
+                                cell.phase * Math.PI * 4
+                        ) *
+                        amt *
+                        1.8
+
                     if (props.rotationEnabled) {
-                        rotation +=
+                        motionRotation =
                             Math.sin(
                                 time * spd * 0.3 +
-                                    cell.phase * Math.PI * 2 +
-                                    cell.syncGroup
+                                    cell.phase * Math.PI * 2
                             ) *
                             props.rotationStrength *
-                            0.15 *
+                            0.12 *
                             amt
                     }
-
-                    // Flicker - subtle opacity variation handled in style
-                    // Re-clustering - subtle scale breathing
-                    scale +=
-                        Math.sin(
-                            time * spd * 0.2 + cell.seed * Math.PI * 8
-                        ) *
-                        props.reClusterAmount *
-                        0.05 *
-                        amt
                 }
 
-                // Scroll influence
-                if (props.scrollReactive) {
-                    const scrollAmt = props.scrollIntensity * scrollT
-                    ox += scrollAmt * props.scrollDrift * 10 * (cell.seed - 0.5)
-                    scale +=
-                        scrollAmt *
-                        props.scrollCompression *
-                        0.1 *
-                        (cell.seed - 0.5)
-
-                    if (props.rotationEnabled) {
-                        rotation +=
-                            scrollAmt *
-                            props.scrollRotationModulation *
-                            10 *
-                            (cell.seed - 0.5)
-                    }
+                // Hover rotation boost
+                if (hoverInf > 0 && props.rotationEnabled) {
+                    innerRotation *= 1 + hoverInf * 0.8
                 }
 
-                // Background position: each cell shows its corresponding
-                // region of the full-size image, shifted slightly by distortion
-                const sampleOffsetX =
-                    (cell.seed - 0.5) * strength * 6
-                const sampleOffsetY =
-                    (seededRandom(cell.seed * 777) - 0.5) * strength * 6
+                // Background position: cell shows its grid region, shifted by distortion
+                const bgX =
+                    -cell.x +
+                    sampleOffsetX +
+                    motionDriftX
+                const bgY =
+                    -cell.y +
+                    sampleOffsetY +
+                    motionDriftY
+
+                // Inner transform: rotation + scale applied to content inside cell
+                const totalRotation = innerRotation + motionRotation
+                // Scale up slightly to avoid showing edges when rotated
+                const rotCompensation =
+                    1 + Math.abs(totalRotation) * 0.008
+                const finalScale = innerScale * rotCompensation
 
                 // Opacity
                 let opacity = props.cellOpacity * totalActivity
                 if (cell.zone === "island") {
-                    opacity *= 1 - props.islandFade * 0.5
+                    opacity *= 0.7
                 }
 
                 // Flicker
-                if (props.ambientMotion && props.flickerAmount > 0) {
-                    const flicker =
+                if (props.ambientMotion && props.flicker > 0) {
+                    const flickerVal =
                         Math.sin(
-                            time * 3 + cell.phase * Math.PI * 10
+                            time * 2.5 + cell.phase * Math.PI * 10
                         ) *
-                        props.flickerAmount *
-                        0.15 *
+                        props.flicker *
+                        0.12 *
                         props.motionAmount
-                    opacity = Math.max(0.1, opacity + flicker)
+                    opacity = Math.max(0.1, opacity + flickerVal)
                 }
 
-                // Style filters
+                // Filters
                 const filters: string[] = []
-                if (props.brightnessShift !== 0) {
+                if (props.contrast !== 0) {
                     filters.push(
-                        `brightness(${1 + props.brightnessShift * totalActivity * 0.01})`
+                        `contrast(${1 + props.contrast * totalActivity * 0.01})`
                     )
                 }
-                if (props.contrastShift !== 0) {
+                if (props.blur > 0) {
                     filters.push(
-                        `contrast(${1 + props.contrastShift * totalActivity * 0.01})`
-                    )
-                }
-                if (props.softBlur > 0) {
-                    filters.push(
-                        `blur(${props.softBlur * totalActivity * 0.3}px)`
+                        `blur(${props.blur * totalActivity * 0.3}px)`
                     )
                 }
 
                 return {
                     cell,
-                    ox,
-                    oy,
-                    scale,
-                    rotation,
+                    bgX,
+                    bgY,
+                    totalRotation,
+                    finalScale,
                     opacity: Math.min(1, opacity),
-                    sampleOffsetX,
-                    sampleOffsetY,
                     filter: filters.length > 0 ? filters.join(" ") : "none",
                 }
             })
             .filter(Boolean)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cells, tick, props])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cells, tick, props, cW, cH])
 
     const objectPosition = `${props.positionX}% ${props.positionY}%`
 
@@ -765,7 +595,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                 borderRadius: props.borderRadius,
             }}
         >
-            {/* Base media layer */}
+            {/* Base media — always visible, provides the clean zone */}
             {props.mediaType === "image" ? (
                 <img
                     src={props.source}
@@ -799,67 +629,74 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                 />
             )}
 
-            {/* Distortion cell overlay */}
+            {/* Cell overlay — each cell is a stable grid-aligned frame
+                with internally distorted media content */}
             <div
                 style={{
                     position: "absolute",
                     inset: 0,
                     pointerEvents: "none",
-                    mixBlendMode: props.blendMode as any,
                 }}
             >
                 {renderCells.map((data) => {
                     if (!data) return null
                     const {
                         cell,
-                        ox,
-                        oy,
-                        scale,
-                        rotation,
+                        bgX,
+                        bgY,
+                        totalRotation,
+                        finalScale,
                         opacity,
-                        sampleOffsetX,
-                        sampleOffsetY,
                         filter,
                     } = data
-
-                    // Background position: align cell's bg to its grid
-                    // position, then shift by sample offset for distortion
-                    const bgX = -cell.x + sampleOffsetX
-                    const bgY = -cell.y + sampleOffsetY
 
                     return (
                         <div
                             key={cell.id}
                             style={{
+                                // Outer cell: stable, grid-aligned, no rotation
                                 position: "absolute",
                                 left: cell.x,
                                 top: cell.y,
                                 width: cell.w,
                                 height: cell.h,
-                                backgroundImage: `url(${props.source})`,
-                                backgroundSize: `${containerSize.w}px ${containerSize.h}px`,
-                                backgroundPosition: `${bgX}px ${bgY}px`,
-                                backgroundRepeat: "no-repeat",
-                                transform: `translate(${ox}px, ${oy}px) scale(${scale}) rotate(${rotation}deg)`,
+                                overflow: "hidden",
                                 opacity,
-                                filter,
-                                willChange: props.ambientMotion
-                                    ? "transform, opacity"
-                                    : undefined,
                             }}
-                        />
+                        >
+                            {/* Inner content: distorted media sampling */}
+                            <div
+                                style={{
+                                    position: "absolute",
+                                    // Extend slightly beyond cell bounds so
+                                    // rotated content doesn't show gaps
+                                    inset: -4,
+                                    backgroundImage: `url(${props.source})`,
+                                    backgroundSize: `${cW}px ${cH}px`,
+                                    backgroundPosition: `${bgX - 4}px ${bgY - 4}px`,
+                                    backgroundRepeat: "no-repeat",
+                                    transform: `rotate(${totalRotation}deg) scale(${finalScale})`,
+                                    transformOrigin: "center center",
+                                    filter,
+                                    willChange:
+                                        props.ambientMotion
+                                            ? "transform"
+                                            : undefined,
+                                }}
+                            />
+                        </div>
                     )
                 })}
             </div>
 
-            {/* Optional grain overlay */}
-            {props.grainOverlay && (
+            {/* Grain overlay */}
+            {props.grain && (
                 <div
                     style={{
                         position: "absolute",
                         inset: 0,
                         pointerEvents: "none",
-                        opacity: 0.06,
+                        opacity: 0.05,
                         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
                         backgroundRepeat: "repeat",
                         mixBlendMode: "overlay",
@@ -873,7 +710,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
 // ─── Property Controls ───────────────────────────────────────────────────────
 
 addPropertyControls(FragmentField, {
-    // Media
+    // ── Media ──
     source: {
         type: ControlType.Image,
         title: "Source",
@@ -916,7 +753,7 @@ addPropertyControls(FragmentField, {
         defaultValue: 0,
     },
 
-    // Distortion zone
+    // ── Field ──
     direction: {
         type: ControlType.Enum,
         title: "Direction",
@@ -931,10 +768,10 @@ addPropertyControls(FragmentField, {
             "bottom-right",
         ],
         optionTitles: [
-            "Left → Right",
-            "Right → Left",
-            "Top → Bottom",
-            "Bottom → Top",
+            "Left",
+            "Right",
+            "Top",
+            "Bottom",
             "Top-Left",
             "Top-Right",
             "Bottom-Left",
@@ -946,393 +783,206 @@ addPropertyControls(FragmentField, {
         type: ControlType.Number,
         title: "Coverage",
         min: 5,
-        max: 90,
+        max: 85,
         step: 1,
         unit: "%",
-        defaultValue: 40,
+        defaultValue: 38,
     },
     falloffWidth: {
         type: ControlType.Number,
         title: "Falloff Width",
         min: 0,
-        max: 60,
+        max: 50,
         step: 1,
         unit: "%",
-        defaultValue: 25,
-    },
-    biasCurve: {
-        type: ControlType.Number,
-        title: "Bias Curve",
-        min: 0.2,
-        max: 3,
-        step: 0.1,
-        defaultValue: 1,
+        defaultValue: 22,
     },
     edgeStepping: {
         type: ControlType.Number,
         title: "Edge Stepping",
-        min: 1,
+        min: 2,
         max: 12,
         step: 1,
-        defaultValue: 5,
+        defaultValue: 6,
     },
-    stepRandomness: {
+    randomness: {
         type: ControlType.Number,
-        title: "Step Randomness",
+        title: "Randomness",
         min: 0,
         max: 1,
         step: 0.05,
-        defaultValue: 0.6,
+        defaultValue: 0.5,
     },
 
-    // Cells
-    cellSizeMin: {
+    // ── Cells ──
+    cellSize: {
         type: ControlType.Number,
-        title: "Cell Size Min",
-        min: 8,
-        max: 100,
-        step: 1,
-        unit: "px",
-        defaultValue: 28,
-    },
-    cellSizeMax: {
-        type: ControlType.Number,
-        title: "Cell Size Max",
+        title: "Cell Size",
         min: 12,
-        max: 150,
-        step: 1,
+        max: 120,
+        step: 2,
         unit: "px",
-        defaultValue: 48,
+        defaultValue: 36,
     },
-    cellDensity: {
+    density: {
         type: ControlType.Number,
-        title: "Cell Density",
-        min: 0.1,
+        title: "Density",
+        min: 0.2,
         max: 1,
         step: 0.05,
-        defaultValue: 0.85,
-    },
-    cellOpacity: {
-        type: ControlType.Number,
-        title: "Cell Opacity",
-        min: 0.1,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.95,
-    },
-    scaleJitter: {
-        type: ControlType.Number,
-        title: "Scale Jitter",
-        min: 0,
-        max: 0.5,
-        step: 0.01,
-        defaultValue: 0.08,
-    },
-    offsetJitter: {
-        type: ControlType.Number,
-        title: "Offset Jitter",
-        min: 0,
-        max: 30,
-        step: 1,
-        unit: "px",
-        defaultValue: 4,
+        defaultValue: 0.9,
     },
     distortionStrength: {
         type: ControlType.Number,
-        title: "Distortion Strength",
+        title: "Distortion",
         min: 0,
         max: 3,
         step: 0.1,
         defaultValue: 1,
     },
+    cellOpacity: {
+        type: ControlType.Number,
+        title: "Opacity",
+        min: 0.2,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.95,
+    },
 
-    // Islands
+    // ── Islands ──
     islandDensity: {
         type: ControlType.Number,
-        title: "Island Density",
+        title: "Density",
         min: 0,
-        max: 100,
+        max: 80,
         step: 1,
         unit: "%",
-        defaultValue: 35,
-    },
-    islandSize: {
-        type: ControlType.Number,
-        title: "Island Size",
-        min: 0.3,
-        max: 1.5,
-        step: 0.05,
-        defaultValue: 0.7,
+        defaultValue: 30,
     },
     islandScatter: {
         type: ControlType.Number,
-        title: "Island Scatter",
+        title: "Scatter",
         min: 0,
-        max: 50,
+        max: 40,
         step: 1,
         unit: "%",
-        defaultValue: 20,
-    },
-    islandRandomness: {
-        type: ControlType.Number,
-        title: "Island Randomness",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.5,
+        defaultValue: 18,
     },
     islandFade: {
         type: ControlType.Number,
-        title: "Island Fade",
+        title: "Fade",
         min: 0,
         max: 1,
         step: 0.05,
-        defaultValue: 0.3,
+        defaultValue: 0.35,
     },
 
-    // Ambient motion
+    // ── Ambient Motion ──
     ambientMotion: {
         type: ControlType.Boolean,
-        title: "Ambient Motion",
+        title: "Enabled",
         defaultValue: true,
     },
     motionAmount: {
         type: ControlType.Number,
-        title: "Motion Amount",
+        title: "Amount",
         min: 0,
         max: 2,
         step: 0.05,
-        defaultValue: 0.5,
-        hidden: (props) => !props.ambientMotion,
+        defaultValue: 0.4,
+        hidden: (p) => !p.ambientMotion,
     },
-    driftSpeed: {
+    drift: {
         type: ControlType.Number,
-        title: "Drift Speed",
+        title: "Drift",
         min: 0,
         max: 2,
         step: 0.05,
-        defaultValue: 0.3,
-        hidden: (props) => !props.ambientMotion,
+        defaultValue: 0.25,
+        hidden: (p) => !p.ambientMotion,
     },
-    flickerAmount: {
+    flicker: {
         type: ControlType.Number,
-        title: "Flicker Amount",
+        title: "Flicker",
         min: 0,
         max: 1,
         step: 0.05,
-        defaultValue: 0.15,
-        hidden: (props) => !props.ambientMotion,
-    },
-    reClusterAmount: {
-        type: ControlType.Number,
-        title: "Re-cluster Amount",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.1,
-        hidden: (props) => !props.ambientMotion,
+        defaultValue: 0.12,
+        hidden: (p) => !p.ambientMotion,
     },
 
-    // Rotation
+    // ── Rotation ──
     rotationEnabled: {
         type: ControlType.Boolean,
-        title: "Rotation",
+        title: "Enabled",
         defaultValue: true,
     },
     rotationStrength: {
         type: ControlType.Number,
-        title: "Rotation Strength",
+        title: "Strength",
         min: 0,
-        max: 45,
+        max: 30,
         step: 1,
         unit: "°",
-        defaultValue: 15,
-        hidden: (props) => !props.rotationEnabled,
+        defaultValue: 12,
+        hidden: (p) => !p.rotationEnabled,
     },
     rotationFrequency: {
         type: ControlType.Number,
-        title: "Rotation Frequency",
+        title: "Frequency",
         min: 0.1,
         max: 3,
         step: 0.1,
-        defaultValue: 0.4,
-        hidden: (props) => !props.rotationEnabled,
+        defaultValue: 0.5,
+        hidden: (p) => !p.rotationEnabled,
     },
     rotationRandomness: {
         type: ControlType.Number,
-        title: "Rotation Randomness",
+        title: "Randomness",
         min: 0,
         max: 1,
         step: 0.05,
-        defaultValue: 0.5,
-        hidden: (props) => !props.rotationEnabled,
-    },
-    rotationSyncMode: {
-        type: ControlType.Enum,
-        title: "Rotation Sync",
-        options: ["free", "grouped", "wave"],
-        optionTitles: ["Free", "Grouped", "Wave"],
-        defaultValue: "grouped",
-        hidden: (props) => !props.rotationEnabled,
-    },
-    rotationFalloff: {
-        type: ControlType.Boolean,
-        title: "Rotation Falloff",
-        defaultValue: true,
-        hidden: (props) => !props.rotationEnabled,
+        defaultValue: 0.4,
+        hidden: (p) => !p.rotationEnabled,
     },
 
-    // Hover
-    hoverReactive: {
+    // ── Hover ──
+    hoverEnabled: {
         type: ControlType.Boolean,
-        title: "Hover Reactive",
+        title: "Enabled",
         defaultValue: true,
     },
     hoverRadius: {
         type: ControlType.Number,
-        title: "Hover Radius",
+        title: "Radius",
         min: 30,
-        max: 400,
+        max: 300,
         step: 5,
         unit: "px",
-        defaultValue: 120,
-        hidden: (props) => !props.hoverReactive,
+        defaultValue: 100,
+        hidden: (p) => !p.hoverEnabled,
     },
     hoverIntensity: {
         type: ControlType.Number,
-        title: "Hover Intensity",
+        title: "Intensity",
         min: 0,
         max: 1,
         step: 0.05,
-        defaultValue: 0.7,
-        hidden: (props) => !props.hoverReactive,
+        defaultValue: 0.6,
+        hidden: (p) => !p.hoverEnabled,
     },
-    hoverFalloff: {
+    hoverRecovery: {
         type: ControlType.Number,
-        title: "Hover Falloff",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.5,
-        hidden: (props) => !props.hoverReactive,
-    },
-    hoverSpawnIslands: {
-        type: ControlType.Boolean,
-        title: "Hover Islands",
-        defaultValue: true,
-        hidden: (props) => !props.hoverReactive,
-    },
-    hoverRecoverySpeed: {
-        type: ControlType.Number,
-        title: "Hover Recovery",
+        title: "Recovery",
         min: 0.01,
-        max: 0.3,
+        max: 0.2,
         step: 0.01,
-        defaultValue: 0.08,
-        hidden: (props) => !props.hoverReactive,
-    },
-    hoverRotationBoost: {
-        type: ControlType.Number,
-        title: "Hover Rotation Boost",
-        min: 0,
-        max: 3,
-        step: 0.1,
-        defaultValue: 1.5,
-        hidden: (props) => !props.hoverReactive,
+        defaultValue: 0.06,
+        hidden: (p) => !p.hoverEnabled,
     },
 
-    // Scroll
-    scrollReactive: {
-        type: ControlType.Boolean,
-        title: "Scroll Reactive",
-        defaultValue: false,
-    },
-    scrollIntensity: {
-        type: ControlType.Number,
-        title: "Scroll Intensity",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.3,
-        hidden: (props) => !props.scrollReactive,
-    },
-    scrollDrift: {
-        type: ControlType.Number,
-        title: "Scroll Drift",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.2,
-        hidden: (props) => !props.scrollReactive,
-    },
-    scrollCompression: {
-        type: ControlType.Number,
-        title: "Scroll Compression",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.1,
-        hidden: (props) => !props.scrollReactive,
-    },
-    scrollClampToCoverage: {
-        type: ControlType.Boolean,
-        title: "Clamp to Coverage",
-        defaultValue: true,
-        hidden: (props) => !props.scrollReactive,
-    },
-    scrollRotationModulation: {
-        type: ControlType.Number,
-        title: "Scroll Rotation",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.3,
-        hidden: (props) => !props.scrollReactive,
-    },
-
-    // Style
-    blendMode: {
-        type: ControlType.Enum,
-        title: "Blend Mode",
-        options: [
-            "normal",
-            "multiply",
-            "screen",
-            "overlay",
-            "darken",
-            "lighten",
-            "color-dodge",
-            "color-burn",
-            "hard-light",
-            "soft-light",
-            "difference",
-            "exclusion",
-        ],
-        optionTitles: [
-            "Normal",
-            "Multiply",
-            "Screen",
-            "Overlay",
-            "Darken",
-            "Lighten",
-            "Color Dodge",
-            "Color Burn",
-            "Hard Light",
-            "Soft Light",
-            "Difference",
-            "Exclusion",
-        ],
-        defaultValue: "normal",
-    },
-    brightnessShift: {
-        type: ControlType.Number,
-        title: "Brightness",
-        min: -50,
-        max: 50,
-        step: 1,
-        defaultValue: 0,
-    },
-    contrastShift: {
+    // ── Style ──
+    contrast: {
         type: ControlType.Number,
         title: "Contrast",
         min: -50,
@@ -1340,18 +990,18 @@ addPropertyControls(FragmentField, {
         step: 1,
         defaultValue: 0,
     },
-    softBlur: {
+    blur: {
         type: ControlType.Number,
-        title: "Soft Blur",
+        title: "Blur",
         min: 0,
-        max: 10,
+        max: 8,
         step: 0.5,
         unit: "px",
         defaultValue: 0,
     },
-    grainOverlay: {
+    grain: {
         type: ControlType.Boolean,
-        title: "Grain Overlay",
+        title: "Grain",
         defaultValue: false,
     },
 })
