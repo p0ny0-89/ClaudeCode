@@ -8,24 +8,25 @@ import React, {
 } from "react"
 
 /*
- * FragmentField — Editorial image fragmentation
+ * FragmentField — Fractal cellular repetition
  *
- * A portrait-grade distortion field that decomposes an image into
- * displaced sample fragments. The effect reads as systematic image
- * fragmentation, not a filter or tile grid.
+ * The portrait dissolves into recursive clusters of repeated image
+ * cells. Each cluster originates from a "seed" — a source sample
+ * point in the image. From that seed, cells branch outward across
+ * multiple generations: each parent spawns smaller children that
+ * echo the same image content. The result is a field of self-similar
+ * cellular repetition where small units feel derived from a common
+ * structural rule.
  *
- * Three cell tiers create intentional hierarchy:
- *   - Block samples: few large anchor pieces at medium distance
- *   - Fragment cells: main body of displaced image samples
- *   - Debris: small scattered fragments at edges and core
+ * Key visual language:
+ *   - Duplication, not displacement
+ *   - Branching, not scattering
+ *   - Self-similar nesting, not uniform tiling
+ *   - Clustered density, not even distribution
  *
- * Anchor zones suppress cells around key portrait areas (eyes,
- * ear, hairline) so the viewer has legible reference points.
- *
- * Primary distortion is sample displacement (background-position
- * offset), not visible rotation. Cells show image content from
- * shifted positions, creating duplicated/dragged image samples.
- * Rotation is secondary — subtle, small angles only.
+ * Each cell's background-position references its cluster's source
+ * point, so all cells in a cluster show the same (or closely related)
+ * image content at different scales.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -34,26 +35,31 @@ type Direction =
     | "left" | "right" | "top" | "bottom"
     | "top-left" | "top-right" | "bottom-left" | "bottom-right"
 
-interface Attractor {
-    cx: number; cy: number
-    strength: number; radius: number; spin: number
-}
-
-interface AnchorZone {
-    cx: number; cy: number; radius: number
-}
-
 interface CellData {
     id: number
     x: number; y: number; w: number; h: number
-    nx: number; ny: number
-    dispX: number; dispY: number   // sample displacement in px
-    angle: number                  // subtle rotation (radians)
-    zone: "core" | "falloff" | "island"
+    // Source sample: where this cell's image content comes from
+    srcX: number; srcY: number
+    angle: number
+    generation: number    // 0=root, 1,2,3... = descendants
+    clusterId: number
     activity: number
-    tier: "block" | "fragment" | "debris"
-    fieldDist: number              // 0=deep in field, 1=edge
     phase: number
+}
+
+interface SeedPoint {
+    // Where the cluster grows from (in container px)
+    cx: number; cy: number
+    // Where in the image to sample (in container px)
+    srcX: number; srcY: number
+    // Growth direction (radians)
+    growAngle: number
+    // Scale
+    rootSize: number
+    // Max branching depth
+    maxGen: number
+    // Strength / intensity
+    strength: number
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -93,17 +99,16 @@ function getDistance(nx: number, ny: number, dir: Direction): number {
     }
 }
 
-// Displacement direction vector (normalized) for the field direction
-function getFieldVector(dir: Direction): { dx: number; dy: number } {
+function getFieldAngle(dir: Direction): number {
     switch (dir) {
-        case "left": return { dx: -1, dy: 0 }
-        case "right": return { dx: 1, dy: 0 }
-        case "top": return { dx: 0, dy: -1 }
-        case "bottom": return { dx: 0, dy: 1 }
-        case "top-left": return { dx: -0.707, dy: -0.707 }
-        case "top-right": return { dx: 0.707, dy: -0.707 }
-        case "bottom-left": return { dx: -0.707, dy: 0.707 }
-        case "bottom-right": return { dx: 0.707, dy: 0.707 }
+        case "right": return 0
+        case "bottom-right": return Math.PI * 0.25
+        case "bottom": return Math.PI * 0.5
+        case "bottom-left": return Math.PI * 0.75
+        case "left": return Math.PI
+        case "top-left": return Math.PI * 1.25
+        case "top": return Math.PI * 1.5
+        case "top-right": return Math.PI * 1.75
     }
 }
 
@@ -125,404 +130,269 @@ function computeCoverSize(
     }
 }
 
-// ─── Attractors ─────────────────────────────────────────────────────────────
+// ─── Seed Generation ────────────────────────────────────────────────────────
+// Seeds are source points from which clusters branch.
+// Placed within the active field zone with intentional spacing.
+// Each seed references a nearby image region as its source content.
 
-function makeAttractors(
-    dir: Direction, coverage: number, falloffWidth: number, rotStr: number
-): Attractor[] {
+function makeSeeds(
+    contW: number, contH: number,
+    dir: Direction, fieldAngle: number,
+    coverage: number, falloffWidth: number,
+    cellSize: number, density: number,
+    distStr: number, randomness: number
+): SeedPoint[] {
     const covN = coverage / 100
-    const fallEnd = covN + falloffWidth / 100
+    const fallN = falloffWidth / 100
+    const fallEnd = covN + fallN
+    const seeds: SeedPoint[] = []
 
-    function placeInField(
-        depthFrac: number, lateralFrac: number
-    ): { cx: number; cy: number } {
-        const d = depthFrac * fallEnd
-        switch (dir) {
-            case "left": return { cx: d, cy: lateralFrac }
-            case "right": return { cx: 1 - d, cy: lateralFrac }
-            case "top": return { cx: lateralFrac, cy: d }
-            case "bottom": return { cx: lateralFrac, cy: 1 - d }
-            case "top-left": return { cx: d * 0.8, cy: d * 0.8 + lateralFrac * (1 - d) }
-            case "top-right": return { cx: 1 - d * 0.8, cy: d * 0.8 + lateralFrac * (1 - d) }
-            case "bottom-left": return { cx: d * 0.8 + lateralFrac * (1 - d), cy: 1 - d * 0.8 }
-            case "bottom-right": return { cx: 1 - d * 0.8, cy: 1 - d * 0.8 }
+    // Place seeds in a Poisson-like distribution within the active zone.
+    // Use the field direction to bias growth angles.
+    // Seeds closer to the origin grow larger/deeper; outer seeds are smaller.
+
+    // Candidate grid: test positions and keep those in the active zone
+    const spacing = cellSize * 3.5 / Math.max(0.3, density)
+    const cols = Math.ceil(contW / spacing)
+    const rows = Math.ceil(contH / spacing)
+
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            // Jittered position
+            const jx = (sr3(c + 0.3, r + 0.7, 11) - 0.5) * spacing * 0.7 * randomness
+            const jy = (sr3(c + 0.7, r + 0.3, 13) - 0.5) * spacing * 0.7 * randomness
+            const px = (c + 0.5) * spacing + jx
+            const py = (r + 0.5) * spacing + jy
+            const nx = px / contW, ny = py / contH
+            if (nx < 0 || nx > 1 || ny < 0 || ny > 1) continue
+
+            const dist = getDistance(nx, ny, dir)
+            if (dist > fallEnd * 1.1) continue
+
+            // Field depth: 0 = deep in core, 1 = at falloff edge
+            const fieldDepth = Math.min(1, dist / Math.max(0.01, fallEnd))
+
+            // Probability of placing a seed: denser near core
+            const placePr = (1 - fieldDepth * 0.6) * density
+            const placeSeed = sr3(c * 2.1 + 0.1, r * 3.3 + 0.1, 77)
+            if (placeSeed > placePr) continue
+
+            // Root size: larger in core, smaller at edges
+            const rootSize = cellSize * lerp(2.8, 1.2, fieldDepth)
+
+            // Max generations: deeper in field = more recursion
+            const maxGen = fieldDepth < 0.3 ? 4
+                : fieldDepth < 0.55 ? 3
+                : fieldDepth < 0.8 ? 2
+                : 1
+
+            // Growth direction: follows field direction with variation
+            const angleJitter = (sr3(c + 0.1, r + 0.1, 33) - 0.5) * Math.PI * 0.6
+            const growAngle = fieldAngle + angleJitter
+
+            // Source point: sample from nearby image content
+            // Offset slightly along the field direction so cells show
+            // content from "behind" their position (dragged repetition)
+            const srcOffset = rootSize * distStr * 0.5
+            const srcX = px - Math.cos(fieldAngle) * srcOffset
+            const srcY = py - Math.sin(fieldAngle) * srcOffset
+
+            // Strength: how much activity/opacity this cluster has
+            const strength = fieldDepth < 0.3 ? 1
+                : fieldDepth < 0.6 ? 0.85
+                : lerp(0.65, 0.3, (fieldDepth - 0.6) / 0.4)
+
+            seeds.push({
+                cx: px, cy: py,
+                srcX, srcY,
+                growAngle,
+                rootSize,
+                maxGen,
+                strength,
+            })
         }
     }
 
-    const s1 = sr(42), s2 = sr(137)
-    const p1 = placeInField(0.25, 0.35 + s1 * 0.3)
-    const p2 = placeInField(0.55, 0.25 + s2 * 0.5)
-    const baseRad = rotStr * (Math.PI / 180)
-
-    return [
-        { cx: p1.cx, cy: p1.cy, strength: baseRad * 1.2, radius: 0.28 + covN * 0.18, spin: 1 },
-        { cx: p2.cx, cy: p2.cy, strength: baseRad * 0.7, radius: 0.20 + covN * 0.12, spin: -1 },
-    ]
+    return seeds
 }
 
-// ─── Anchor Zones ───────────────────────────────────────────────────────────
-// Areas where cells are suppressed so the portrait remains legible.
-// Placed at positions that typically correspond to key facial features
-// in a centered portrait (eyes, lower face).
+// ─── Cluster Growth ─────────────────────────────────────────────────────────
+// From each seed, grow a branching cluster of cells.
+// Each parent spawns 2-3 children in a spreading fan pattern.
+// All cells in a cluster reference the same source sample.
 
-function makeAnchors(dir: Direction, coverage: number): AnchorZone[] {
-    const covN = coverage / 100
-
-    // Anchor 1: eye/upper face region — always partially in field
-    // Anchor 2: lower face / chin — smaller, further from field origin
-    // Positions adjust based on field direction so anchors
-    // sit inside the active zone regardless of direction
-
-    const anchors: AnchorZone[] = []
-
-    // Portrait center is roughly (0.5, 0.42) for eyes, (0.5, 0.62) for chin
-    // Adjust for direction so anchors sit inside active area
-    const dist1 = getDistance(0.48, 0.38, dir)
-    const dist2 = getDistance(0.52, 0.58, dir)
-
-    // Only create anchors if they're inside the active zone
-    if (dist1 < covN * 1.3) {
-        anchors.push({ cx: 0.48, cy: 0.38, radius: 0.08 + covN * 0.04 })
-    }
-    if (dist2 < covN * 1.3) {
-        anchors.push({ cx: 0.52, cy: 0.58, radius: 0.06 + covN * 0.03 })
-    }
-
-    return anchors
-}
-
-// ─── Cell Generation ────────────────────────────────────────────────────────
-
-function makeCells(
+function growClusters(
+    seeds: SeedPoint[],
     contW: number, contH: number,
-    attractors: Attractor[],
-    anchors: AnchorZone[],
     dir: Direction,
-    coverage: number, falloffWidth: number,
-    edgeStepping: number, randomness: number,
     cellSize: number, density: number,
+    randomness: number, distStr: number,
+    coverage: number, falloffWidth: number,
     islandDensity: number, islandScatter: number, islandFade: number,
-    distStr: number
+    edgeStepping: number
 ): CellData[] {
-    if (contW <= 0 || contH <= 0) return []
-
     const covN = coverage / 100
     const fallN = falloffWidth / 100
     const fallEnd = covN + fallN
     const steps = Math.max(1, edgeStepping)
-    const scale = Math.max(contW, contH)
-    const fieldVec = getFieldVector(dir)
+    const minDim = Math.max(6, cellSize * 0.22)
+    const cells: CellData[] = []
+    let cid = 0
 
-    // Zone classification
-    function getZone(nx: number, ny: number): {
-        zone: "core" | "falloff" | "island" | "clean"
-        activity: number
-    } {
+    // Occupancy grid to prevent over-stacking
+    const occStep = cellSize * 0.4
+    const occupied = new Set<string>()
+    function gk(x: number, y: number): string {
+        return `${Math.floor(x / occStep)},${Math.floor(y / occStep)}`
+    }
+    function tryOccupy(x: number, y: number, w: number, h: number): boolean {
+        const key = gk(x + w / 2, y + h / 2)
+        if (occupied.has(key)) return false
+        occupied.add(key)
+        return true
+    }
+
+    // Activity at a point (zone-aware)
+    function getActivity(nx: number, ny: number): number {
         const dist = getDistance(nx, ny, dir)
         const seed = sr2(nx * 10.7, ny * 10.7)
-        const jit = (seed - 0.5) * randomness * 0.08
+        const jit = (seed - 0.5) * randomness * 0.06
 
-        if (dist < covN + jit) return { zone: "core", activity: 1 }
+        if (dist < covN + jit) return 1
         if (dist < fallEnd + jit) {
             const t = (dist - covN) / Math.max(0.001, fallN)
             const stepped = Math.floor(t * steps) / steps
             const act = Math.max(0, 1 - stepped)
-            if (seed > density * act) return { zone: "clean", activity: 0 }
-            return { zone: "falloff", activity: act }
+            if (seed > density * act) return 0
+            return act
         }
         if (dist < fallEnd + islandScatter / 100) {
             const thresh = 1 - (islandDensity / 100) * 0.18
-            const phase = sr3(nx * 10.7, ny * 10.7, 17)
-            if (phase > thresh) {
+            if (sr3(nx * 10.7, ny * 10.7, 17) > thresh) {
                 const id2 = (dist - fallEnd) / (islandScatter / 100)
-                const act = Math.max(0, 1 - id2) * (1 - islandFade) * 0.45
-                if (act > 0.02) return { zone: "island", activity: act }
+                return Math.max(0, 1 - id2) * (1 - islandFade) * 0.4
             }
         }
-        return { zone: "clean", activity: 0 }
+        return 0
     }
 
-    // Anchor suppression: how much to suppress cells near anchors (0=full suppress, 1=no effect)
-    function anchorAllow(nx: number, ny: number): number {
-        let allow = 1
-        for (const a of anchors) {
-            const d = Math.sqrt((nx - a.cx) ** 2 + (ny - a.cy) ** 2)
-            if (d < a.radius) {
-                // Hard suppression in inner 60%, soft falloff in outer 40%
-                const inner = a.radius * 0.6
-                if (d < inner) return 0
-                allow *= smoothstep(inner, a.radius, d)
-            }
-        }
-        return allow
-    }
+    for (let si = 0; si < seeds.length; si++) {
+        const seed = seeds[si]
 
-    // Attractor-based subtle rotation
-    function getSubtleAngle(nx: number, ny: number): number {
-        let angle = 0
-        for (const a of attractors) {
-            const dx = nx - a.cx, dy = ny - a.cy
-            const d = Math.sqrt(dx * dx + dy * dy)
-            if (d > a.radius * 2) continue
-            const influence = smoothstep(a.radius * 2, 0, d)
-            // Much subtler than before — rotation is secondary
-            angle += a.strength * a.spin * influence * 0.3
-        }
-        return angle
-    }
-
-    // Displacement vector: directional pull along field direction,
-    // with attractor-based tangential component
-    function getDisplacement(
-        nx: number, ny: number, activity: number, dim: number
-    ): { dx: number; dy: number } {
-        // Base displacement follows field direction
-        const baseMag = dim * distStr * activity * 1.2
-
-        // Attractor tangential component
-        let tangX = 0, tangY = 0
-        for (const a of attractors) {
-            const adx = nx - a.cx, ady = ny - a.cy
-            const d = Math.sqrt(adx * adx + ady * ady)
-            if (d > a.radius * 2 || d < 0.001) continue
-            const inf = smoothstep(a.radius * 2, 0, d)
-            // Tangential = perpendicular to radius
-            tangX += (-ady / d) * a.spin * inf * dim * 0.4
-            tangY += (adx / d) * a.spin * inf * dim * 0.4
+        // Queue: each entry is a cell to place + branch from
+        interface BranchNode {
+            x: number; y: number
+            size: number
+            gen: number
+            angle: number // growth direction for this branch
         }
 
-        // Seed-based variation so neighboring cells don't all displace identically
-        const s1 = sr2(nx * 17.3, ny * 13.1)
-        const s2 = sr2(nx * 13.1, ny * 17.3)
-        const variation = 0.3 + s1 * 0.7
+        const queue: BranchNode[] = [{
+            x: seed.cx,
+            y: seed.cy,
+            size: seed.rootSize,
+            gen: 0,
+            angle: seed.growAngle,
+        }]
 
-        return {
-            dx: fieldVec.dx * baseMag * variation + tangX + (s2 - 0.5) * dim * 0.15,
-            dy: fieldVec.dy * baseMag * variation + tangY + (s1 - 0.5) * dim * 0.15,
-        }
-    }
+        let placed = 0
+        const maxCellsPerCluster = 35
 
-    const cells: CellData[] = []
-    let cid = 0
-    const occupied = new Set<string>()
-    function gridKey(x: number, y: number, step: number): string {
-        return `${Math.floor(x / step)},${Math.floor(y / step)}`
-    }
+        while (queue.length > 0 && placed < maxCellsPerCluster) {
+            const node = queue.shift()!
+            const { x, y, size, gen, angle } = node
 
-    // ── TIER 1: Block samples ──
-    // Few large cells placed deliberately at medium distance from attractors.
-    // These are the "anchor" fragments — large displaced image pieces.
-    const blockSize = cellSize * 3.5
-    const blockCols = Math.ceil(contW / (blockSize * 1.5))
-    const blockRows = Math.ceil(contH / (blockSize * 1.5))
+            // Aspect variation per cell
+            const aSeed = sr3(x * 0.1, y * 0.1, gen * 7 + si * 31)
+            const aspect = 0.65 + aSeed * 0.7
+            const w = size * Math.sqrt(aspect)
+            const h = size / Math.sqrt(aspect)
 
-    for (let r = 0; r < blockRows; r++) {
-        for (let c = 0; c < blockCols; c++) {
-            const baseX = (c + 0.5) * (contW / blockCols)
-            const baseY = (r + 0.5) * (contH / blockRows)
-            const jx = (sr3(c + 0.1, r + 0.1, 77) - 0.5) * blockSize * 0.8
-            const jy = (sr3(c + 0.1, r + 0.1, 88) - 0.5) * blockSize * 0.8
-            const px = baseX + jx
-            const py = baseY + jy
-            const nx = px / contW, ny = py / contH
-            if (nx < -0.02 || nx > 1.02 || ny < -0.02 || ny > 1.02) continue
+            const cellX = x - w / 2
+            const cellY = y - h / 2
+            const nx = x / contW, ny = y / contH
 
-            const { zone, activity } = getZone(nx, ny)
-            if (zone === "clean" || activity < 0.15) continue
+            // Bounds check
+            if (nx < -0.03 || nx > 1.03 || ny < -0.03 || ny > 1.03) continue
 
-            const allow = anchorAllow(nx, ny)
-            if (allow < 0.3) continue
+            // Activity check
+            const activity = getActivity(nx, ny)
+            if (activity < 0.03) continue
 
-            // Blocks work best at medium field depth (not deepest core, not outer edge)
-            const dist = getDistance(nx, ny, dir)
-            const fieldNorm = dist / Math.max(0.01, fallEnd)
-            if (fieldNorm < 0.15 || fieldNorm > 0.85) continue
+            // Occupancy check
+            if (!tryOccupy(cellX, cellY, w, h)) continue
 
-            // Only ~40% of positions become blocks
-            const placeSeed = sr3(c * 3.1, r * 5.7, 99)
-            if (placeSeed > 0.4 * density) continue
+            // Source sample: same as cluster seed, with tiny per-cell jitter
+            // so cells aren't pixel-identical (feels sampled, not cloned)
+            const srcJitX = (sr3(x * 0.3, y * 0.3, gen * 5 + 1) - 0.5) * size * 0.15
+            const srcJitY = (sr3(x * 0.3, y * 0.3, gen * 5 + 2) - 0.5) * size * 0.15
+            const srcX = seed.srcX + srcJitX
+            const srcY = seed.srcY + srcJitY
 
-            // Aspect variation
-            const aspect = 0.6 + sr3(c + 0.1, r + 0.1, 55) * 0.8
-            const w = blockSize * Math.sqrt(aspect)
-            const h = blockSize / Math.sqrt(aspect)
-
-            const disp = getDisplacement(nx, ny, activity * 0.7, blockSize)
-            const angle = getSubtleAngle(nx, ny) * activity * 0.4
-
-            const gk = gridKey(px, py, blockSize * 0.5)
-            if (occupied.has(gk)) continue
-            occupied.add(gk)
-            // Also mark surrounding grid cells for blocks
-            for (let di = -1; di <= 1; di++) {
-                for (let dj = -1; dj <= 1; dj++) {
-                    occupied.add(gridKey(px + di * blockSize * 0.3, py + dj * blockSize * 0.3, blockSize * 0.5))
-                }
-            }
+            // Subtle rotation: increases slightly with generation
+            const rotSeed = sr3(x * 0.2, y * 0.2, gen * 11 + si * 7)
+            const cellAngle = (rotSeed - 0.5) * 0.06 * (gen + 1) * distStr
 
             cells.push({
                 id: cid++,
-                x: px - w / 2, y: py - h / 2, w, h,
-                nx, ny,
-                dispX: disp.dx, dispY: disp.dy,
-                angle,
-                zone: zone as CellData["zone"],
-                activity: activity * allow,
-                tier: "block",
-                fieldDist: fieldNorm,
-                phase: sr3(px * 0.1, py * 0.1, 17),
+                x: cellX, y: cellY, w, h,
+                srcX, srcY,
+                angle: cellAngle,
+                generation: gen,
+                clusterId: si,
+                activity: activity * seed.strength,
+                phase: sr3(x * 0.1, y * 0.1, 17),
             })
-        }
-    }
+            placed++
 
-    // ── TIER 2: Fragment cells (radial rings around attractors) ──
-    for (let ai = 0; ai < attractors.length; ai++) {
-        const att = attractors[ai]
-        const attPxX = att.cx * contW
-        const attPxY = att.cy * contH
-        const maxR = att.radius * scale * 1.6
+            // ── Branch: spawn children ──
+            if (gen >= seed.maxGen) continue
 
-        const minDim = Math.max(8, cellSize * 0.55)
-        const maxDim = cellSize * 2.2
+            // Number of children: 2-4, fewer at deeper generations
+            const nChildren = gen === 0 ? 3 + Math.floor(sr3(si + 0.1, gen + 0.1, 55) * 2)
+                : gen === 1 ? 2 + Math.floor(sr3(x * 0.1, y * 0.1, 66) * 2)
+                : 2
 
-        let ringR = minDim * 0.8
-        let ringIdx = 0
+            // Spread angle: children fan out from parent
+            const spreadTotal = Math.PI * (0.5 + gen * 0.2)
+            const spreadStep = spreadTotal / Math.max(1, nChildren - 1)
+            const spreadStart = angle - spreadTotal / 2
 
-        while (ringR < maxR) {
-            const t = Math.min(1, ringR / maxR)
-            const dim = lerp(minDim, maxDim, Math.pow(t, 0.5))
+            for (let ci = 0; ci < nChildren; ci++) {
+                // Skip some children for organic irregularity
+                const skipSeed = sr3(x * 0.1 + ci, y * 0.1, gen * 3 + si * 13)
+                if (skipSeed > density * 0.9) continue
 
-            const circ = 2 * Math.PI * ringR
-            const spacedDim = dim * (1.3 + (1 - density) * 1.0)
-            const nCells = Math.max(3, Math.floor(circ / spacedDim))
-            const angStep = (2 * Math.PI) / nCells
-            const ringOffset = sr(ringIdx * 31 + ai * 97) * angStep * 0.7
+                // Child size: 50-70% of parent
+                const childScale = 0.5 + sr3(ci + 0.1, gen + 0.1, si * 7 + 22) * 0.2
+                const childSize = size * childScale
+                if (childSize < minDim) continue
 
-            for (let ci = 0; ci < nCells; ci++) {
-                // Skip for breathing room — more aggressive than before
-                const skipSeed = sr3(ringIdx + 0.1, ci + 0.1, ai * 13 + 0.1)
-                const keepProb = lerp(0.85, 0.35, Math.pow(t, 1.2)) * density
-                if (skipSeed > keepProb) continue
+                // Child direction: within the fan spread
+                const childAngle = nChildren === 1
+                    ? angle + (sr3(ci + 0.1, gen + 0.1, si + 44) - 0.5) * 0.4
+                    : spreadStart + ci * spreadStep
+                        + (sr3(ci * 3.1, gen + 0.1, si * 5 + 33) - 0.5) * spreadStep * 0.3
 
-                const theta = ci * angStep + ringOffset
-                const jitR = (sr3(ringR * 0.1, theta * 10, ai * 7 + 1) - 0.5) * dim * 0.4 * randomness
-                const jitT = (sr3(ringR * 0.1, theta * 10, ai * 7 + 2) - 0.5) * angStep * 0.35 * randomness
-                const finalR = ringR + jitR
-                const finalTheta = theta + jitT
+                // Distance from parent: proportional to parent size
+                const branchDist = size * (0.55 + sr3(ci + 0.1, gen + 0.1, si + 88) * 0.35)
 
-                const px = attPxX + finalR * Math.cos(finalTheta)
-                const py = attPxY + finalR * Math.sin(finalTheta)
-                const nx = px / contW, ny = py / contH
-                if (nx < -0.02 || nx > 1.02 || ny < -0.02 || ny > 1.02) continue
+                const childX = x + Math.cos(childAngle) * branchDist
+                const childY = y + Math.sin(childAngle) * branchDist
 
-                const { zone, activity } = getZone(nx, ny)
-                if (zone === "clean" || activity < 0.02) continue
-
-                const allow = anchorAllow(nx, ny)
-                if (allow < 0.15) continue
-
-                const gStep = dim * 0.55
-                const gk = gridKey(px, py, gStep)
-                if (occupied.has(gk)) continue
-                occupied.add(gk)
-
-                // Aspect ratio variation
-                const aspectSeed = sr(ringIdx * 47 + ci * 13 + ai * 200)
-                const aspect = 0.7 + aspectSeed * 0.6
-                const cellW = dim * Math.sqrt(aspect)
-                const cellH = dim / Math.sqrt(aspect)
-
-                const disp = getDisplacement(nx, ny, activity, dim)
-                const angle = getSubtleAngle(nx, ny) * activity
-
-                const dist = getDistance(nx, ny, dir)
-                const fieldNorm = dist / Math.max(0.01, fallEnd)
-
-                cells.push({
-                    id: cid++,
-                    x: px - cellW / 2, y: py - cellH / 2,
-                    w: cellW, h: cellH,
-                    nx, ny,
-                    dispX: disp.dx, dispY: disp.dy,
-                    angle,
-                    zone: zone as CellData["zone"],
-                    activity: activity * allow,
-                    tier: "fragment",
-                    fieldDist: fieldNorm,
-                    phase: sr3(px * 0.1, py * 0.1, 17),
+                queue.push({
+                    x: childX, y: childY,
+                    size: childSize,
+                    gen: gen + 1,
+                    angle: childAngle + (sr3(childX * 0.1, childY * 0.1, gen * 9) - 0.5) * 0.3,
                 })
             }
-
-            ringR += dim * (0.7 + (1 - density) * 0.5)
-            ringIdx++
         }
     }
 
-    // ── TIER 3: Debris cells ──
-    // Small scattered fragments near core edges and at falloff boundary.
-    // These fill the space between blocks and fragments organically.
-    const debrisSize = cellSize * 0.65
-    const debrisCols = Math.ceil(contW / debrisSize)
-    const debrisRows = Math.ceil(contH / debrisSize)
-
-    for (let r = 0; r < debrisRows; r++) {
-        for (let c = 0; c < debrisCols; c++) {
-            // Only ~15% of grid positions become debris
-            const placeSeed = sr3(c * 2.3 + 0.1, r * 3.7 + 0.1, 44)
-            if (placeSeed > 0.15 * density) continue
-
-            const baseX = (c + 0.5) * debrisSize
-            const baseY = (r + 0.5) * debrisSize
-            const jx = (sr2(c * 5.3, r * 9.1) - 0.5) * debrisSize * 0.9
-            const jy = (sr2(c * 9.1, r * 5.3) - 0.5) * debrisSize * 0.9
-            const px = baseX + jx, py = baseY + jy
-            const nx = px / contW, ny = py / contH
-            if (nx < -0.02 || nx > 1.02 || ny < -0.02 || ny > 1.02) continue
-
-            const { zone, activity } = getZone(nx, ny)
-            if (zone === "clean" || activity < 0.05) continue
-
-            const allow = anchorAllow(nx, ny)
-            if (allow < 0.2) continue
-
-            // Debris prefers transition zones (core edges and falloff)
-            const dist = getDistance(nx, ny, dir)
-            const fieldNorm = dist / Math.max(0.01, fallEnd)
-            const transitionBoost = 1 - Math.abs(fieldNorm - 0.5) * 1.5
-            if (sr3(c + 0.1, r + 0.1, 66) > Math.max(0.3, transitionBoost) * density) continue
-
-            const gStep = debrisSize * 0.5
-            const gk = gridKey(px, py, gStep)
-            if (occupied.has(gk)) continue
-            occupied.add(gk)
-
-            const dim = debrisSize * (0.5 + sr3(c + 0.1, r + 0.1, 22) * 0.8)
-            const disp = getDisplacement(nx, ny, activity, dim)
-            const angle = getSubtleAngle(nx, ny) * activity * 0.6
-
-            cells.push({
-                id: cid++,
-                x: px - dim / 2, y: py - dim / 2, w: dim, h: dim,
-                nx, ny,
-                dispX: disp.dx * 1.3, dispY: disp.dy * 1.3,
-                angle,
-                zone: zone as CellData["zone"],
-                activity: activity * allow,
-                tier: "debris",
-                fieldDist: fieldNorm,
-                phase: sr3(px * 0.1, py * 0.1, 17),
-            })
-        }
-    }
-
-    // Sort: blocks first (bottom), then fragments, then debris on top
-    // Within each tier, outer cells paint first
-    const tierOrder = { block: 0, fragment: 1, debris: 2 }
-    cells.sort((a, b) => {
-        const to = tierOrder[a.tier] - tierOrder[b.tier]
-        if (to !== 0) return to
-        return b.fieldDist - a.fieldDist
-    })
+    // Sort: root cells first (background), deepest generation on top
+    // This creates the visual nesting: small descendants overlay parents
+    cells.sort((a, b) => a.generation - b.generation)
 
     return cells
 }
@@ -651,27 +521,29 @@ export default function FragmentField(rawProps: Partial<Props>) {
         return computeCoverSize(imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY)
     }, [imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY])
 
-    const attractors = useMemo(
-        () => makeAttractors(p.direction, p.coverage, p.falloffWidth, p.rotationStrength),
-        [p.direction, p.coverage, p.falloffWidth, p.rotationStrength]
-    )
+    const fieldAngle = useMemo(() => getFieldAngle(p.direction), [p.direction])
 
-    const anchors = useMemo(
-        () => makeAnchors(p.direction, p.coverage),
-        [p.direction, p.coverage]
+    const seeds = useMemo(
+        () => makeSeeds(
+            size.w, size.h, p.direction, fieldAngle,
+            p.coverage, p.falloffWidth, p.cellSize, p.density,
+            p.distortionStrength, p.randomness
+        ),
+        [size.w, size.h, p.direction, fieldAngle, p.coverage, p.falloffWidth,
+         p.cellSize, p.density, p.distortionStrength, p.randomness]
     )
 
     const cells = useMemo(
-        () => makeCells(
-            size.w, size.h, attractors, anchors, p.direction,
-            p.coverage, p.falloffWidth, p.edgeStepping, p.randomness,
-            p.cellSize, p.density,
+        () => growClusters(
+            seeds, size.w, size.h, p.direction,
+            p.cellSize, p.density, p.randomness, p.distortionStrength,
+            p.coverage, p.falloffWidth,
             p.islandDensity, p.islandScatter, p.islandFade,
-            p.distortionStrength
+            p.edgeStepping
         ),
-        [size.w, size.h, attractors, anchors, p.direction, p.coverage, p.falloffWidth,
-         p.edgeStepping, p.randomness, p.cellSize, p.density,
-         p.islandDensity, p.islandScatter, p.islandFade, p.distortionStrength]
+        [seeds, size.w, size.h, p.direction, p.cellSize, p.density,
+         p.randomness, p.distortionStrength, p.coverage, p.falloffWidth,
+         p.islandDensity, p.islandScatter, p.islandFade, p.edgeStepping]
     )
 
     const onMM = useCallback((e: React.MouseEvent) => {
@@ -732,64 +604,58 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const hInf = hoverRef.current.get(c.id) || 0
             const act = Math.min(1, c.activity + hInf * 0.5)
 
-            // ── Displacement ──
-            // Primary distortion: background-position offset
-            let dispX = c.dispX * act
-            let dispY = c.dispY * act
+            // ── Background position: uses SOURCE coordinates, not cell position ──
+            // This is the key: all cells in a cluster show the SAME image region
+            let bgX = -(c.srcX + cropX) + (c.w - cW) * 0 // source-based
+            let bgY = -(c.srcY + cropY)
 
-            // ── Subtle rotation ── (secondary, subdued)
-            let angle = p.rotationEnabled ? c.angle : 0
+            // Clamp source to reasonable range to avoid showing blank
+            // Offset so the cell window shows the source region
+            bgX = -(c.srcX + cropX)
+            bgY = -(c.srcY + cropY)
 
-            // Ambient motion
+            // ── Subtle rotation ──
+            let angle = p.rotationEnabled ? c.angle * p.rotationStrength / 8 : 0
+
+            // Ambient
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
                 const wave = Math.sin(
-                    time * s * 0.3 + c.fieldDist * Math.PI * 2 + c.phase * 1.5
+                    time * s * 0.3 + c.phase * Math.PI * 4 + c.generation * 0.7
                 )
-                // Ambient affects displacement more than rotation
-                dispX += wave * a * c.w * 0.06 * p.distortionStrength
-                dispY += Math.cos(
-                    time * s * 0.25 + c.phase * 3
-                ) * a * c.h * 0.04 * p.distortionStrength
-                // Very subtle angular drift
-                angle += wave * a * 0.015 * p.distortionStrength
+                angle += wave * a * 0.012 * p.distortionStrength
+                // Subtle source drift: the repeated content shifts slightly
+                bgX += Math.sin(time * s * 0.15 + c.phase * 3) * a * c.w * 0.03
+                bgY += Math.cos(time * s * 0.12 + c.phase * 5) * a * c.h * 0.02
             }
 
-            // Hover intensifies displacement
+            // Hover
             if (hInf > 0) {
-                dispX *= 1 + hInf * 0.5
-                dispY *= 1 + hInf * 0.5
                 angle *= 1 + hInf * 0.3
             }
 
             const angleDeg = angle * (180 / Math.PI)
 
-            // ── Background position: cover-correct + displacement ──
-            const bgX = -(c.x + cropX) + dispX
-            const bgY = -(c.y + cropY) + dispY
-
-            // ── Expansion for subtle rotation ──
+            // ── Expansion for rotation ──
             const absAngle = Math.abs(angle)
             const sinA = Math.sin(absAngle), cosA = Math.cos(absAngle)
             const expandX = (c.w * cosA + c.h * sinA - c.w) / 2 + 1
             const expandY = (c.w * sinA + c.h * cosA - c.h) / 2 + 1
 
-            // ── Opacity with tonal hierarchy ──
-            let op = p.cellOpacity
-            // Blocks: slightly more transparent to feel like large displaced pieces
-            if (c.tier === "block") op *= 0.92
-            // Debris: varied opacity for tonal richness
-            if (c.tier === "debris") op *= 0.7 + c.phase * 0.3
-            // Islands: subtle
-            if (c.zone === "island") op *= 0.55 * act
-            // Field depth: cells deeper in field are slightly more opaque
-            op *= lerp(0.85, 1, 1 - c.fieldDist)
-            // Flicker
+            // ── Opacity: generation-based hierarchy ──
+            let op = p.cellOpacity * act
+            // Root cells: slightly transparent so the portrait reads through
+            if (c.generation === 0) op *= 0.88
+            // Mid-generation: full
+            if (c.generation >= 1 && c.generation <= 2) op *= 0.95
+            // Deep descendants: varied for tonal richness
+            if (c.generation >= 3) op *= 0.75 + c.phase * 0.25
+
             if (p.ambientMotion && p.flicker > 0) {
                 op += Math.sin(time * 1.5 + c.phase * Math.PI * 6) * p.flicker * 0.04
             }
-            op = Math.max(0.1, Math.min(1, op))
+            op = Math.max(0.08, Math.min(1, op))
 
             // Filters
             let filter: string | undefined
@@ -835,7 +701,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 }} />
             )}
 
-            {/* Fragment field */}
+            {/* Fractal cell field */}
             <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                 {renderData.map((d) => (
                     <div
