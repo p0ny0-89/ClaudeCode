@@ -202,12 +202,13 @@ function makeCells(
             const growAngle = fieldAngle + angleJit
 
             // ── BASE DISPLACEMENT ──
-            // Each cluster gets a significant displacement along the
-            // field direction. This is what makes cells visibly different
-            // from the base image. Stronger in core, weaker at edges.
-            const dispMag = cellSize * distStr * lerp(2.5, 0.6, fieldDepth) * activity
-            const dispJitX = (sr3(sc + 0.1, sr_ + 0.1, 44) - 0.5) * cellSize * 0.6
-            const dispJitY = (sr3(sc + 0.1, sr_ + 0.1, 55) - 0.5) * cellSize * 0.6
+            // Each cluster gets a strong displacement along the field
+            // direction. This is the primary visual event: cells show
+            // image content from a noticeably different position.
+            // Core: 3.5× cellSize displacement. Edges: 1× cellSize.
+            const dispMag = cellSize * distStr * lerp(3.5, 1.0, fieldDepth) * activity
+            const dispJitX = (sr3(sc + 0.1, sr_ + 0.1, 44) - 0.5) * cellSize * 0.9
+            const dispJitY = (sr3(sc + 0.1, sr_ + 0.1, 55) - 0.5) * cellSize * 0.9
             const baseOffX = fcos * dispMag + dispJitX
             const baseOffY = fsin * dispMag + dispJitY
 
@@ -240,9 +241,9 @@ function makeCells(
         const h = size / Math.sqrt(aspect)
 
         // Per-generation offset: accumulates to create echo drift
-        // Meaningful size: ~60-100% of cell size per generation
-        const genOffsetX = (sr3(cx * 0.1, cy * 0.1, gen * 11 + 1) - 0.5) * size * 0.9 * distStr
-        const genOffsetY = (sr3(cx * 0.1, cy * 0.1, gen * 11 + 2) - 0.5) * size * 0.9 * distStr
+        // ~80-120% of cell size per generation for clearly visible echo
+        const genOffsetX = (sr3(cx * 0.1, cy * 0.1, gen * 11 + 1) - 0.5) * size * 1.2 * distStr
+        const genOffsetY = (sr3(cx * 0.1, cy * 0.1, gen * 11 + 2) - 0.5) * size * 1.2 * distStr
         const totalOffX = cumOffsetX + genOffsetX
         const totalOffY = cumOffsetY + genOffsetY
 
@@ -363,9 +364,9 @@ const defaults: Partial<Props> = {
     falloffWidth: 24,
     edgeStepping: 5,
     randomness: 0.45,
-    cellSize: 24,
-    density: 0.82,
-    distortionStrength: 1.4,
+    cellSize: 26,
+    density: 0.85,
+    distortionStrength: 1.8,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
@@ -692,15 +693,15 @@ addPropertyControls(FragmentField, {
     },
     cellSize: {
         type: ControlType.Number, title: "Cell Size",
-        min: 8, max: 60, step: 2, unit: "px", defaultValue: 24,
+        min: 8, max: 60, step: 2, unit: "px", defaultValue: 26,
     },
     density: {
         type: ControlType.Number, title: "Density",
-        min: 0.2, max: 1, step: 0.05, defaultValue: 0.82,
+        min: 0.2, max: 1, step: 0.05, defaultValue: 0.85,
     },
     distortionStrength: {
         type: ControlType.Number, title: "Distortion",
-        min: 0, max: 4, step: 0.1, defaultValue: 1.4,
+        min: 0, max: 4, step: 0.1, defaultValue: 1.8,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
