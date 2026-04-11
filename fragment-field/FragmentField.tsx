@@ -411,7 +411,7 @@ const defaults: Partial<Props> = {
     drift: 0.18,
     flicker: 0.05,
     rotationEnabled: true,
-    rotationStrength: 2,
+    rotationStrength: 4,
     hoverEnabled: true,
     hoverRadius: 100,
     hoverIntensity: 0.55,
@@ -564,12 +564,25 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 sy *= 1 + hInf * 0.4
             }
 
-            // Internal rotation: very subtle, only on echo layers in core
+            // Internal rotation: applied to sampled content inside stable cell frames
+            // Stronger in core, diminishes through falloff, subtle on islands
             let rot = 0
-            if (p.rotationEnabled && f.layer > 0 && f.zone === "core") {
-                rot = (sr3(f.x, f.y, f.layer * 77) - 0.5) * p.rotationStrength * act * 0.8
+            if (p.rotationEnabled) {
+                // Base rotation from cell seed — cluster-coherent via position
+                const rotSeed = sr3(f.x, f.y, f.layer * 77 + 3)
+                const zoneScale = f.zone === "core" ? 1
+                    : f.zone === "falloff" ? 0.5
+                    : 0.25
+                rot = (rotSeed - 0.5) * 2 * p.rotationStrength * act * zoneScale
+
+                // Echo layers get additional rotation offset for visual separation
+                if (f.layer > 0) {
+                    rot += (sr3(f.x, f.y, f.layer * 131) - 0.5) * p.rotationStrength * 0.4 * act
+                }
+
+                // Ambient oscillation
                 if (p.ambientMotion) {
-                    rot += Math.sin(time * p.drift * 0.15 + f.nx * Math.PI * 2) * 0.3 * p.motionAmount * act
+                    rot += Math.sin(time * p.drift * 0.2 + f.nx * Math.PI * 2.5) * p.rotationStrength * 0.15 * p.motionAmount * act
                 }
             }
 
@@ -794,7 +807,7 @@ addPropertyControls(FragmentField, {
     },
     rotationStrength: {
         type: ControlType.Number, title: "Rotation Strength",
-        min: 0, max: 8, step: 0.5, unit: "°", defaultValue: 2,
+        min: 0, max: 20, step: 0.5, unit: "°", defaultValue: 4,
         hidden: (p) => !p.rotationEnabled,
     },
     hoverEnabled: {
