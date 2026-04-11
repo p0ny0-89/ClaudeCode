@@ -8,43 +8,35 @@ import React, {
 } from "react"
 
 /*
- * FragmentField — Directional cell-based image fragmentation
+ * FragmentField — Rotational cascade fragmentation
  *
  * Visual model:
- * A rectangular grid of cells overlays source media. Within the
- * distortion zone, each active cell shows image content sampled
- * from a displaced position — driven by cluster pull vectors.
+ * A rotational field defines a smooth angular flow across the
+ * distortion zone. Cells subdivide recursively: large parent cells
+ * at the field edges break into smaller descendants toward the core.
+ * Each cell's image sample is displaced by rotating its source
+ * position around a pivot by the local field angle. Because the
+ * field is continuous, neighboring cells inherit related angles,
+ * creating coherent rotational drift rather than random offsets.
  *
- * Key design decisions:
- * - ONE div per cell, FULL opacity. No multi-layer stacking.
- * - background-size computed to match object-fit:cover exactly
- *   so cells show the SAME image rendering as the base layer.
- * - When a cell has zero displacement it is invisible (identical
- *   to base). Displacement makes cells visibly different.
- * - "Echo" effect: neighboring cells share related cluster offsets,
- *   creating grouped pockets of repeated image content.
- * - Some core cells inherit a neighbor's sample position entirely,
- *   creating crisp optical reiteration.
+ * Architecture:
+ * - Vortex centers define the rotational field (replacing linear clusters)
+ * - Quadtree subdivision creates recursive nesting (large → small)
+ * - Field angle determines sample displacement (not random per-cell)
+ * - Single div per cell, full opacity, cover-correct sizing
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Direction =
-    | "left"
-    | "right"
-    | "top"
-    | "bottom"
-    | "top-left"
-    | "top-right"
-    | "bottom-left"
-    | "bottom-right"
+    | "left" | "right" | "top" | "bottom"
+    | "top-left" | "top-right" | "bottom-left" | "bottom-right"
 
-interface ClusterSource {
-    cx: number
+interface Vortex {
+    cx: number     // normalized center
     cy: number
-    pullX: number
-    pullY: number
-    radius: number
+    angle: number  // radians: base rotation at center
+    radius: number // normalized influence radius
     strength: number
 }
 
@@ -54,16 +46,15 @@ interface CellData {
     y: number
     w: number
     h: number
-    col: number
-    row: number
     nx: number
     ny: number
+    depth: number  // recursion depth (0=largest, higher=smaller)
+    fieldAngle: number
     zone: "core" | "falloff" | "island"
     activity: number
-    sampleX: number // px displacement of image sample
+    sampleX: number
     sampleY: number
     phase: number
-    seed: number
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -72,19 +63,16 @@ function sr(seed: number): number {
     const x = Math.sin(seed * 127.1 + seed * 311.7) * 43758.5453
     return x - Math.floor(x)
 }
-
 function sr2(a: number, b: number): number {
     const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453
     return x - Math.floor(x)
 }
-
 function sr3(a: number, b: number, c: number): number {
     const x = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453
     return x - Math.floor(x)
 }
-
-function smoothstep(edge0: number, edge1: number, x: number): number {
-    const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
+function smoothstep(e0: number, e1: number, x: number): number {
+    const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)))
     return t * t * (3 - 2 * t)
 }
 
@@ -95,80 +83,66 @@ function getDistance(nx: number, ny: number, dir: Direction): number {
         case "top": return ny
         case "bottom": return 1 - ny
         case "top-left": return Math.sqrt(nx * nx + ny * ny) / Math.SQRT2
-        case "top-right": return Math.sqrt((1 - nx) ** 2 + ny * ny) / Math.SQRT2
-        case "bottom-left": return Math.sqrt(nx * nx + (1 - ny) ** 2) / Math.SQRT2
+        case "top-right": return Math.sqrt((1 - nx) ** 2 + ny ** 2) / Math.SQRT2
+        case "bottom-left": return Math.sqrt(nx ** 2 + (1 - ny) ** 2) / Math.SQRT2
         case "bottom-right": return Math.sqrt((1 - nx) ** 2 + (1 - ny) ** 2) / Math.SQRT2
     }
 }
 
-function getDirVec(dir: Direction): { dx: number; dy: number } {
+function getDirAngle(dir: Direction): number {
+    // Returns a base sweep angle aligned with the field direction
     switch (dir) {
-        case "left": return { dx: 1, dy: 0 }
-        case "right": return { dx: -1, dy: 0 }
-        case "top": return { dx: 0, dy: 1 }
-        case "bottom": return { dx: 0, dy: -1 }
-        case "top-left": return { dx: 0.707, dy: 0.707 }
-        case "top-right": return { dx: -0.707, dy: 0.707 }
-        case "bottom-left": return { dx: 0.707, dy: -0.707 }
-        case "bottom-right": return { dx: -0.707, dy: -0.707 }
+        case "left": return 0
+        case "right": return Math.PI
+        case "top": return Math.PI / 2
+        case "bottom": return -Math.PI / 2
+        case "top-left": return Math.PI / 4
+        case "top-right": return 3 * Math.PI / 4
+        case "bottom-left": return -Math.PI / 4
+        case "bottom-right": return -3 * Math.PI / 4
     }
 }
 
-// ─── Cover-equivalent background size ────────────────────────────────────────
-// Computes the background-size and crop offset that replicates
-// object-fit:cover + object-position for use with background-image.
+// ─── Cover computation ──────────────────────────────────────────────────────
 
 function computeCoverSize(
-    imgW: number,
-    imgH: number,
-    containerW: number,
-    containerH: number,
-    posX: number,
-    posY: number
+    imgW: number, imgH: number,
+    contW: number, contH: number,
+    posX: number, posY: number
 ): { bgW: number; bgH: number; cropX: number; cropY: number } {
-    const imgAspect = imgW / imgH
-    const contAspect = containerW / containerH
+    const imgA = imgW / imgH, contA = contW / contH
     let bgW: number, bgH: number
-
-    if (imgAspect > contAspect) {
-        // Image wider than container: height fills, width overflows
-        bgH = containerH
-        bgW = containerH * imgAspect
-    } else {
-        // Image taller: width fills, height overflows
-        bgW = containerW
-        bgH = containerW / imgAspect
+    if (imgA > contA) { bgH = contH; bgW = contH * imgA }
+    else { bgW = contW; bgH = contW / imgA }
+    return {
+        bgW, bgH,
+        cropX: (bgW - contW) * (posX / 100),
+        cropY: (bgH - contH) * (posY / 100),
     }
-
-    // Crop offset based on position (0-100%)
-    const cropX = (bgW - containerW) * (posX / 100)
-    const cropY = (bgH - containerH) * (posY / 100)
-
-    return { bgW, bgH, cropX, cropY }
 }
 
-// ─── Clusters ────────────────────────────────────────────────────────────────
+// ─── Rotational Vortex Field ─────────────────────────────────────────────────
+// Vortices create a smooth rotational field. Each vortex defines an
+// angular influence that sweeps gradually across space. Neighboring
+// points get similar angles → angular inheritance.
 
-function makeClusters(
-    dir: Direction,
-    coverage: number,
-    falloffWidth: number,
-    strength: number
-): ClusterSource[] {
+function makeVortices(
+    dir: Direction, coverage: number, falloffWidth: number, rotStr: number
+): Vortex[] {
     const covN = coverage / 100
     const fallEnd = covN + falloffWidth / 100
-    const { dx, dy } = getDirVec(dir)
-    const clusters: ClusterSource[] = []
-    const count = Math.round(8 + covN * 10)
+    const baseAngle = getDirAngle(dir)
+    const vortices: Vortex[] = []
+    const count = 5 + Math.round(covN * 6)
 
     for (let i = 0; i < count; i++) {
         const s1 = sr(i * 73 + 13)
         const s2 = sr(i * 137 + 29)
         const s3 = sr(i * 251 + 41)
-        const s4 = sr(i * 397 + 67)
 
+        // Position within the distortion zone
         let cx: number, cy: number
-        const reach = fallEnd * 0.9
+        const reach = fallEnd * 0.85
 
         switch (dir) {
             case "left": cx = s1 * reach; cy = s2; break
@@ -184,180 +158,188 @@ function makeClusters(
         const dist = getDistance(cx, cy, dir)
         const depthStr = Math.max(0, 1 - dist / fallEnd)
 
-        const mag = strength * (14 + s3 * 28) * depthStr
-        const lat = (s4 - 0.5) * strength * 10 * depthStr
+        // Angle: sweeps along the field direction with per-vortex variation
+        // Deeper vortices rotate more strongly
+        const angle = baseAngle * depthStr * rotStr * (Math.PI / 180) * (0.5 + s3)
+            + (s3 - 0.5) * 0.6 * rotStr * (Math.PI / 180)
 
-        clusters.push({
+        vortices.push({
             cx, cy,
-            pullX: dx * mag + dy * lat,
-            pullY: dy * mag + dx * lat,
-            radius: 0.06 + s2 * 0.1,
+            angle,
+            radius: 0.08 + s2 * 0.14,
             strength: depthStr,
         })
     }
-    return clusters
+    return vortices
 }
 
-function resolveClusterPull(
-    nx: number, ny: number, clusters: ClusterSource[]
-): { px: number; py: number } {
-    let px = 0, py = 0, tw = 0
-    for (const c of clusters) {
-        const ddx = nx - c.cx, ddy = ny - c.cy
-        const d = Math.sqrt(ddx * ddx + ddy * ddy)
-        if (d > c.radius * 2.5) continue
-        const w = smoothstep(c.radius * 2.5, 0, d) * c.strength
+// Resolve the field angle at a point: smooth blend of all vortex influences
+function getFieldAngle(nx: number, ny: number, vortices: Vortex[]): number {
+    let angle = 0, tw = 0
+    for (const v of vortices) {
+        const dx = nx - v.cx, dy = ny - v.cy
+        const d = Math.sqrt(dx * dx + dy * dy)
+        if (d > v.radius * 3) continue
+        const w = smoothstep(v.radius * 3, 0, d) * v.strength
         if (w < 0.001) continue
-        px += c.pullX * w
-        py += c.pullY * w
+        angle += v.angle * w
         tw += w
     }
-    if (tw > 0.001) {
-        const n = Math.min(tw, 1.5)
-        return { px: px / n, py: py / n }
-    }
-    return { px: 0, py: 0 }
+    return tw > 0.001 ? angle / Math.min(tw, 1.2) : 0
 }
 
-// ─── Cell Generation ─────────────────────────────────────────────────────────
+// ─── Recursive Cell Generation ───────────────────────────────────────────────
+// Quadtree subdivision: large cells at field edges, progressively
+// smaller cells toward the core. Creates spatial hierarchy where
+// parent regions visibly contain descendant cells.
 
 function makeCells(
-    cW: number, cH: number,
-    clusters: ClusterSource[],
+    contW: number, contH: number,
+    vortices: Vortex[],
     dir: Direction,
     coverage: number, falloffWidth: number,
     edgeStepping: number, randomness: number,
     cellSize: number, density: number,
     islandDensity: number, islandScatter: number, islandFade: number,
-    distStr: number, rotEnabled: boolean, rotStr: number
+    distStr: number, rotStr: number
 ): CellData[] {
-    if (cW <= 0 || cH <= 0) return []
+    if (contW <= 0 || contH <= 0) return []
 
-    const cols = Math.max(1, Math.floor(cW / cellSize))
-    const rows = Math.max(1, Math.floor(cH / cellSize))
-    const cellW = cW / cols
-    const cellH = cH / rows
     const covN = coverage / 100
     const fallN = falloffWidth / 100
     const fallEnd = covN + fallN
     const steps = Math.max(1, edgeStepping)
 
+    const startSize = cellSize * 4  // largest cell tier
+    const minSize = cellSize * 0.5  // smallest subdivision
     const cells: CellData[] = []
     let cid = 0
 
-    // First pass: compute base data for all cells so neighbors can reference each other
-    const grid: {
-        zone: CellData["zone"] | "clean"
-        activity: number
-        pull: { px: number; py: number }
-    }[][] = []
+    // Recursive subdivision
+    function subdivide(
+        x: number, y: number, w: number, h: number, depth: number
+    ) {
+        // Cell center in normalized space
+        const nx = (x + w / 2) / contW
+        const ny = (y + h / 2) / contH
+        if (nx < -0.1 || nx > 1.1 || ny < -0.1 || ny > 1.1) return
 
-    for (let row = 0; row < rows; row++) {
-        grid[row] = []
-        for (let col = 0; col < cols; col++) {
-            const nx = (col + 0.5) / cols
-            const ny = (row + 0.5) / rows
-            const seed = sr2(col, row)
-            const dist = getDistance(nx, ny, dir)
+        const dist = getDistance(nx, ny, dir)
 
-            let zone: CellData["zone"] | "clean" = "clean"
-            let activity = 0
-            const jitter = (seed - 0.5) * randomness * 0.08
+        // Field depth: 0 at falloff edge, 1 at origin
+        const fieldDepth = Math.max(0, 1 - dist / Math.max(0.01, fallEnd))
 
-            if (dist < covN + jitter) {
-                zone = "core"
-                activity = 1
-            } else if (dist < fallEnd + jitter) {
-                zone = "falloff"
-                const t = (dist - covN) / Math.max(0.001, fallN)
-                const stepped = Math.floor(t * steps) / steps
-                activity = Math.max(0, 1 - stepped)
-                if (seed > density * activity) {
-                    zone = "clean"
-                    activity = 0
-                }
+        // Should this cell subdivide further?
+        // Deeper in the field → more subdivision → smaller cells
+        const halfW = w / 2, halfH = h / 2
+        const canSubdivide = halfW >= minSize && halfH >= minSize && depth < 4
+
+        // Subdivision threshold: deeper field depth = easier to subdivide
+        // This creates the gradient from large to small
+        const subdivThreshold = depth === 0 ? 0.1
+            : depth === 1 ? 0.3
+            : depth === 2 ? 0.55
+            : 0.75
+
+        // Add some randomness to prevent uniform subdivision boundaries
+        const subdivSeed = sr3(Math.floor(x), Math.floor(y), depth * 7)
+        const subdivJitter = (subdivSeed - 0.5) * 0.15
+
+        if (canSubdivide && fieldDepth > subdivThreshold + subdivJitter) {
+            // Some cells skip subdivision for rhythm (fewer at deeper levels)
+            const skipChance = depth === 0 ? 0.02 : depth === 1 ? 0.08 : 0.15
+            if (subdivSeed < skipChance) {
+                // Don't subdivide — emit as larger cell
+                emitCell(x, y, w, h, depth, nx, ny, dist, fieldDepth)
+                return
             }
-
-            // Islands
-            if (zone === "clean" && dist >= fallEnd && dist < fallEnd + islandScatter / 100) {
-                const thresh = 1 - (islandDensity / 100) * 0.18
-                const phase = sr(col * 571 + row * 239 + 17)
-                const nb = sr2(col + 1, row)
-                if (phase > thresh && nb > thresh * 0.96) {
-                    zone = "island"
-                    const id2 = (dist - fallEnd) / (islandScatter / 100)
-                    activity = Math.max(0, 1 - id2) * (1 - islandFade) * 0.45
-                }
-            }
-
-            const pull = zone !== "clean"
-                ? resolveClusterPull(nx, ny, clusters)
-                : { px: 0, py: 0 }
-
-            grid[row][col] = { zone, activity, pull }
+            subdivide(x, y, halfW, halfH, depth + 1)
+            subdivide(x + halfW, y, halfW, halfH, depth + 1)
+            subdivide(x, y + halfH, halfW, halfH, depth + 1)
+            subdivide(x + halfW, y + halfH, halfW, halfH, depth + 1)
+            return
         }
+
+        emitCell(x, y, w, h, depth, nx, ny, dist, fieldDepth)
     }
 
-    // Second pass: build cells with neighbor-aware sampling
-    for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-            const g = grid[row][col]
-            if (g.zone === "clean" || g.activity < 0.02) continue
+    function emitCell(
+        x: number, y: number, w: number, h: number,
+        depth: number, nx: number, ny: number,
+        dist: number, fieldDepth: number
+    ) {
+        const seed = sr2(x * 0.1, y * 0.1)
+        const jitter = (seed - 0.5) * randomness * 0.08
 
-            const nx = (col + 0.5) / cols
-            const ny = (row + 0.5) / rows
-            const seed = sr2(col, row)
-            const phase = sr(col * 571 + row * 239 + 17)
+        // Zone determination
+        let zone: CellData["zone"] | "clean" = "clean"
+        let activity = 0
 
-            let sampleX = g.pull.px * g.activity * distStr
-            let sampleY = g.pull.py * g.activity * distStr
-
-            // ── Neighbor echo: some core cells duplicate a neighbor's sample ──
-            // This creates visible repeated image fragments across the grid
-            if (g.zone === "core") {
-                const echoSeed = sr3(col, row, 55)
-                if (echoSeed > 0.65) {
-                    // Pick a neighbor to echo
-                    const echoDir = Math.floor(sr3(col, row, 77) * 4)
-                    const nCol = col + (echoDir === 0 ? -1 : echoDir === 1 ? 1 : 0)
-                    const nRow = row + (echoDir === 2 ? -1 : echoDir === 3 ? 1 : 0)
-
-                    if (nRow >= 0 && nRow < rows && nCol >= 0 && nCol < cols) {
-                        const ng = grid[nRow][nCol]
-                        if (ng.zone === "core" || ng.zone === "falloff") {
-                            // Blend toward neighbor's sample: creates reiteration
-                            const blend = 0.5 + echoSeed * 0.4
-                            const neighborSX = ng.pull.px * ng.activity * distStr
-                            const neighborSY = ng.pull.py * ng.activity * distStr
-                            sampleX = sampleX * (1 - blend) + neighborSX * blend
-                            sampleY = sampleY * (1 - blend) + neighborSY * blend
-                        }
-                    }
-                }
+        if (dist < covN + jitter) {
+            zone = "core"
+            activity = 1
+        } else if (dist < fallEnd + jitter) {
+            zone = "falloff"
+            const t = (dist - covN) / Math.max(0.001, fallN)
+            const stepped = Math.floor(t * steps) / steps
+            activity = Math.max(0, 1 - stepped)
+            if (seed > density * activity) {
+                zone = "clean"
+                activity = 0
             }
+        }
 
-            // ── Rotation as sample displacement ──
-            if (rotEnabled) {
-                const rotSeed = sr3(col, row, 3)
-                const zoneScale = g.zone === "core" ? 1
-                    : g.zone === "falloff" ? 0.5 : 0.25
-                let angle = (rotSeed - 0.5) * 2 * rotStr * g.activity * zoneScale * (Math.PI / 180)
-                const pivotR = (cellW + cellH) * 0.35 * distStr
-                sampleX += Math.sin(angle) * pivotR
-                sampleY += (1 - Math.cos(angle)) * pivotR
+        // Islands
+        if (zone === "clean" && dist >= fallEnd && dist < fallEnd + islandScatter / 100) {
+            const thresh = 1 - (islandDensity / 100) * 0.18
+            const phase = sr3(x * 0.1, y * 0.1, 17)
+            if (phase > thresh) {
+                zone = "island"
+                const id2 = (dist - fallEnd) / (islandScatter / 100)
+                activity = Math.max(0, 1 - id2) * (1 - islandFade) * 0.45
             }
+        }
 
-            cells.push({
-                id: cid++,
-                x: col * cellW,
-                y: row * cellH,
-                w: cellW, h: cellH,
-                col, row, nx, ny,
-                zone: g.zone as CellData["zone"],
-                activity: g.activity,
-                sampleX, sampleY,
-                phase, seed,
-            })
+        if (zone === "clean" || activity < 0.02) return
+
+        // ── Rotational field angle at this cell ──
+        const fieldAngle = getFieldAngle(nx, ny, vortices)
+
+        // ── Sample displacement from field rotation ──
+        // The pivot radius scales with cell size: smaller descendant
+        // cells get proportionally smaller displacement, creating
+        // the recursive cascade where children's rotation is
+        // subordinate to their parent region's rotation.
+        const pivotR = Math.sqrt(w * h) * 0.5 * distStr * activity
+        const sampleX = Math.sin(fieldAngle) * pivotR
+        const sampleY = (1 - Math.cos(fieldAngle)) * pivotR
+
+        const phase = sr3(x * 0.1, y * 0.1, 17)
+
+        cells.push({
+            id: cid++,
+            x, y, w, h, nx, ny,
+            depth,
+            fieldAngle,
+            zone: zone as CellData["zone"],
+            activity,
+            sampleX, sampleY,
+            phase,
+        })
+    }
+
+    // Start recursion from a grid of large starting cells
+    const startCols = Math.ceil(contW / startSize)
+    const startRows = Math.ceil(contH / startSize)
+    for (let r = 0; r < startRows; r++) {
+        for (let c = 0; c < startCols; c++) {
+            const x = c * startSize
+            const y = r * startSize
+            const w = Math.min(startSize, contW - x)
+            const h = Math.min(startSize, contH - y)
+            if (w > 4 && h > 4) {
+                subdivide(x, y, w, h, 0)
+            }
         }
     }
 
@@ -409,28 +391,28 @@ const defaults: Partial<Props> = {
     positionX: 50,
     positionY: 50,
     borderRadius: 0,
-    direction: "left",
-    coverage: 38,
-    falloffWidth: 22,
-    edgeStepping: 6,
+    direction: "top-right",
+    coverage: 40,
+    falloffWidth: 24,
+    edgeStepping: 5,
     randomness: 0.5,
-    cellSize: 32,
+    cellSize: 28,
     density: 0.92,
-    distortionStrength: 1.2,
+    distortionStrength: 1.4,
     cellOpacity: 1,
-    islandDensity: 25,
-    islandScatter: 16,
+    islandDensity: 22,
+    islandScatter: 14,
     islandFade: 0.4,
     ambientMotion: true,
     motionAmount: 0.3,
-    drift: 0.18,
-    flicker: 0.05,
+    drift: 0.15,
+    flicker: 0.04,
     rotationEnabled: true,
-    rotationStrength: 6,
+    rotationStrength: 10,
     hoverEnabled: true,
-    hoverRadius: 100,
-    hoverIntensity: 0.55,
-    hoverRecovery: 0.06,
+    hoverRadius: 110,
+    hoverIntensity: 0.5,
+    hoverRecovery: 0.05,
     contrast: 0,
     blur: 0,
     grain: false,
@@ -464,7 +446,6 @@ export default function FragmentField(rawProps: Partial<Props>) {
     const rafRef = useRef(0)
     const [tick, setTick] = useState(0)
 
-    // Load image natural dimensions for correct cover computation
     useEffect(() => {
         if (p.mediaType !== "image") return
         const img = new Image()
@@ -472,7 +453,6 @@ export default function FragmentField(rawProps: Partial<Props>) {
         img.src = p.source
     }, [p.source, p.mediaType])
 
-    // Resize
     useEffect(() => {
         const el = containerRef.current
         if (!el) return
@@ -484,36 +464,31 @@ export default function FragmentField(rawProps: Partial<Props>) {
         return () => obs.disconnect()
     }, [])
 
-    // Cover-equivalent background sizing
     const cover = useMemo(() => {
-        if (imgDims.w <= 0 || imgDims.h <= 0 || size.w <= 0 || size.h <= 0) {
+        if (imgDims.w <= 0 || imgDims.h <= 0 || size.w <= 0 || size.h <= 0)
             return { bgW: size.w, bgH: size.h, cropX: 0, cropY: 0 }
-        }
         return computeCoverSize(imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY)
     }, [imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY])
 
-    // Clusters
-    const clusters = useMemo(
-        () => makeClusters(p.direction, p.coverage, p.falloffWidth, p.distortionStrength),
-        [p.direction, p.coverage, p.falloffWidth, p.distortionStrength]
+    const vortices = useMemo(
+        () => makeVortices(p.direction, p.coverage, p.falloffWidth, p.rotationStrength),
+        [p.direction, p.coverage, p.falloffWidth, p.rotationStrength]
     )
 
-    // Cells
     const cells = useMemo(
         () => makeCells(
-            size.w, size.h, clusters, p.direction,
+            size.w, size.h, vortices, p.direction,
             p.coverage, p.falloffWidth, p.edgeStepping, p.randomness,
             p.cellSize, p.density,
             p.islandDensity, p.islandScatter, p.islandFade,
-            p.distortionStrength, p.rotationEnabled, p.rotationStrength
+            p.distortionStrength, p.rotationStrength
         ),
-        [size.w, size.h, clusters, p.direction, p.coverage, p.falloffWidth,
+        [size.w, size.h, vortices, p.direction, p.coverage, p.falloffWidth,
          p.edgeStepping, p.randomness, p.cellSize, p.density,
          p.islandDensity, p.islandScatter, p.islandFade,
-         p.distortionStrength, p.rotationEnabled, p.rotationStrength]
+         p.distortionStrength, p.rotationStrength]
     )
 
-    // Mouse
     const onMM = useCallback((e: React.MouseEvent) => {
         if (!p.hoverEnabled) return
         const r = containerRef.current?.getBoundingClientRect()
@@ -525,7 +500,6 @@ export default function FragmentField(rawProps: Partial<Props>) {
         mouseRef.current = { ...mouseRef.current, on: false }
     }, [])
 
-    // Animation
     useEffect(() => {
         if (!p.ambientMotion && !p.hoverEnabled) return
         let last = performance.now()
@@ -549,7 +523,6 @@ export default function FragmentField(rawProps: Partial<Props>) {
         return () => cancelAnimationFrame(rafRef.current)
     }, [p.ambientMotion, p.hoverEnabled, p.hoverRecovery])
 
-    // Hover
     if (p.hoverEnabled && mouseRef.current.on && size.w > 0) {
         const mx = mouseRef.current.x, my = mouseRef.current.y, r = p.hoverRadius
         for (const c of cells) {
@@ -567,7 +540,6 @@ export default function FragmentField(rawProps: Partial<Props>) {
     const cW = size.w, cH = size.h
     const { bgW, bgH, cropX, cropY } = cover
 
-    // Render
     const renderData = useMemo(() => {
         if (cW <= 0 || cH <= 0) return []
 
@@ -578,37 +550,32 @@ export default function FragmentField(rawProps: Partial<Props>) {
             let sx = c.sampleX * act
             let sy = c.sampleY * act
 
-            // Ambient drift — spatially coherent
+            // Ambient: rotational oscillation aligned with field angle
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
-                sx += Math.sin(time * s * 0.4 + c.nx * Math.PI * 1.6) * a * 2
-                sy += Math.cos(time * s * 0.28 + c.ny * Math.PI * 1.2) * a * 1.2
+                // Oscillate along the cell's own field angle direction
+                const osc = Math.sin(time * s * 0.35 + c.nx * Math.PI * 1.4 + c.ny * 0.8) * a
+                sx += Math.sin(c.fieldAngle + Math.PI / 2) * osc * 2.5
+                sy += Math.cos(c.fieldAngle + Math.PI / 2) * osc * 1.5
             }
 
-            // Hover boost
             if (hInf > 0) {
                 sx *= 1 + hInf * 0.5
                 sy *= 1 + hInf * 0.5
             }
 
-            // Background position: cover-correct alignment + displacement
-            // With zero displacement, this exactly matches the base <img>
             const bgX = -(c.x + cropX) + sx
             const bgY = -(c.y + cropY) + sy
 
-            // Opacity: full for most cells, only islands are slightly reduced
             let op = p.cellOpacity
-            if (c.zone === "island") {
-                op *= 0.65 * act
-            }
-            // Flicker
+            if (c.zone === "island") op *= 0.6 * act
+
             if (p.ambientMotion && p.flicker > 0) {
                 op += Math.sin(time * 1.5 + c.phase * Math.PI * 6) * p.flicker * 0.04
                 op = Math.max(0.1, Math.min(1, op))
             }
 
-            // Filters
             let filter: string | undefined
             const fl: string[] = []
             if (p.contrast !== 0) fl.push(`contrast(${1 + p.contrast * act * 0.01})`)
@@ -635,30 +602,22 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 borderRadius: p.borderRadius,
             }}
         >
-            {/* Base media — clean, always visible */}
             {p.mediaType === "image" ? (
-                <img
-                    src={p.source} alt=""
-                    style={{
-                        position: "absolute", inset: 0,
-                        width: "100%", height: "100%",
-                        objectFit: p.objectFit, objectPosition: objPos,
-                        display: "block",
-                    }}
-                />
+                <img src={p.source} alt="" style={{
+                    position: "absolute", inset: 0,
+                    width: "100%", height: "100%",
+                    objectFit: p.objectFit, objectPosition: objPos,
+                    display: "block",
+                }} />
             ) : (
-                <video
-                    src={p.source} autoPlay loop muted playsInline
-                    style={{
-                        position: "absolute", inset: 0,
-                        width: "100%", height: "100%",
-                        objectFit: p.objectFit, objectPosition: objPos,
-                        display: "block",
-                    }}
-                />
+                <video src={p.source} autoPlay loop muted playsInline style={{
+                    position: "absolute", inset: 0,
+                    width: "100%", height: "100%",
+                    objectFit: p.objectFit, objectPosition: objPos,
+                    display: "block",
+                }} />
             )}
 
-            {/* Fragment cells — one div per cell, full opacity, displaced sampling */}
             <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                 {renderData.map((d) => (
                     <div
@@ -681,7 +640,6 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 ))}
             </div>
 
-            {/* Grain */}
             {p.grain && (
                 <div style={{
                     position: "absolute", inset: 0, pointerEvents: "none",
@@ -725,19 +683,19 @@ addPropertyControls(FragmentField, {
         type: ControlType.Enum, title: "Direction",
         options: ["left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"],
         optionTitles: ["Left", "Right", "Top", "Bottom", "Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right"],
-        defaultValue: "left",
+        defaultValue: "top-right",
     },
     coverage: {
         type: ControlType.Number, title: "Coverage",
-        min: 5, max: 85, step: 1, unit: "%", defaultValue: 38,
+        min: 5, max: 85, step: 1, unit: "%", defaultValue: 40,
     },
     falloffWidth: {
         type: ControlType.Number, title: "Falloff Width",
-        min: 0, max: 50, step: 1, unit: "%", defaultValue: 22,
+        min: 0, max: 50, step: 1, unit: "%", defaultValue: 24,
     },
     edgeStepping: {
         type: ControlType.Number, title: "Edge Stepping",
-        min: 2, max: 12, step: 1, defaultValue: 6,
+        min: 2, max: 12, step: 1, defaultValue: 5,
     },
     randomness: {
         type: ControlType.Number, title: "Randomness",
@@ -745,7 +703,7 @@ addPropertyControls(FragmentField, {
     },
     cellSize: {
         type: ControlType.Number, title: "Cell Size",
-        min: 12, max: 120, step: 2, unit: "px", defaultValue: 32,
+        min: 12, max: 80, step: 2, unit: "px", defaultValue: 28,
     },
     density: {
         type: ControlType.Number, title: "Density",
@@ -753,7 +711,7 @@ addPropertyControls(FragmentField, {
     },
     distortionStrength: {
         type: ControlType.Number, title: "Distortion",
-        min: 0, max: 3, step: 0.1, defaultValue: 1.2,
+        min: 0, max: 4, step: 0.1, defaultValue: 1.4,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
@@ -761,11 +719,11 @@ addPropertyControls(FragmentField, {
     },
     islandDensity: {
         type: ControlType.Number, title: "Island Density",
-        min: 0, max: 80, step: 1, unit: "%", defaultValue: 25,
+        min: 0, max: 80, step: 1, unit: "%", defaultValue: 22,
     },
     islandScatter: {
         type: ControlType.Number, title: "Island Scatter",
-        min: 0, max: 40, step: 1, unit: "%", defaultValue: 16,
+        min: 0, max: 40, step: 1, unit: "%", defaultValue: 14,
     },
     islandFade: {
         type: ControlType.Number, title: "Island Fade",
@@ -781,12 +739,12 @@ addPropertyControls(FragmentField, {
     },
     drift: {
         type: ControlType.Number, title: "Drift",
-        min: 0, max: 2, step: 0.05, defaultValue: 0.18,
+        min: 0, max: 2, step: 0.05, defaultValue: 0.15,
         hidden: (p) => !p.ambientMotion,
     },
     flicker: {
         type: ControlType.Number, title: "Flicker",
-        min: 0, max: 1, step: 0.05, defaultValue: 0.05,
+        min: 0, max: 1, step: 0.05, defaultValue: 0.04,
         hidden: (p) => !p.ambientMotion,
     },
     rotationEnabled: {
@@ -794,7 +752,7 @@ addPropertyControls(FragmentField, {
     },
     rotationStrength: {
         type: ControlType.Number, title: "Rotation Strength",
-        min: 0, max: 20, step: 0.5, unit: "°", defaultValue: 6,
+        min: 0, max: 30, step: 1, unit: "°", defaultValue: 10,
         hidden: (p) => !p.rotationEnabled,
     },
     hoverEnabled: {
@@ -802,17 +760,17 @@ addPropertyControls(FragmentField, {
     },
     hoverRadius: {
         type: ControlType.Number, title: "Hover Radius",
-        min: 30, max: 300, step: 5, unit: "px", defaultValue: 100,
+        min: 30, max: 300, step: 5, unit: "px", defaultValue: 110,
         hidden: (p) => !p.hoverEnabled,
     },
     hoverIntensity: {
         type: ControlType.Number, title: "Hover Intensity",
-        min: 0, max: 1, step: 0.05, defaultValue: 0.55,
+        min: 0, max: 1, step: 0.05, defaultValue: 0.5,
         hidden: (p) => !p.hoverEnabled,
     },
     hoverRecovery: {
         type: ControlType.Number, title: "Hover Recovery",
-        min: 0.01, max: 0.2, step: 0.01, defaultValue: 0.06,
+        min: 0.01, max: 0.2, step: 0.01, defaultValue: 0.05,
         hidden: (p) => !p.hoverEnabled,
     },
     contrast: {
