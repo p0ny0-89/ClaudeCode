@@ -8,27 +8,26 @@ import React, {
 } from "react"
 
 /*
- * FragmentField — Spherical cell-based distortion field
+ * FragmentField — Spherical magnification cell field
  *
  * A uniform square grid overlays the image. In the active zone,
- * each cell's internal media is displaced (shifted) according to
- * a spherical lens distortion emanating from the origin corner.
+ * each cell's content is locally magnified (scaled from its center).
+ * The magnification factor varies across the field following a
+ * spherical gradient from the origin corner.
  *
- * The effect simulates looking through a convex glass sphere
- * pressed against the image from one corner. Cells near the
- * sphere center are displaced most; cells at the edge less so.
- * The displacement is radial — each cell's content shifts away
- * from the sphere center along the vector from center to cell.
+ * Because each cell magnifies independently, adjacent cells with
+ * different zoom levels create stepped discontinuities at their
+ * boundaries. This produces the characteristic "looking through
+ * textured glass" effect — the image proportions stay correct
+ * overall, but each cell facet refracts the view slightly.
  *
  * The visual effect emerges from:
  *   - The fixed square cell grid (overflow: hidden)
- *   - The displaced image sampling position per cell
- *   - The stepped discontinuities at cell boundaries where
- *     adjacent cells have different displacement amounts
+ *   - Each cell showing the CORRECT image region, but scaled
+ *   - The scale factor varying smoothly across the sphere field
+ *   - The stepped edges at cell boundaries where adjacent cells
+ *     have different magnification levels
  *   - The base image showing through inactive regions
- *
- * Cover-correct background sizing ensures the displaced content
- * matches the base image's scale and crop exactly.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -41,8 +40,7 @@ interface CellData {
     id: number
     col: number; row: number
     x: number; y: number; w: number; h: number
-    dispX: number       // displacement in pixels (X)
-    dispY: number       // displacement in pixels (Y)
+    scale: number       // local magnification factor (1 = no change)
     activity: number
     phase: number
 }
@@ -93,18 +91,16 @@ function computeCoverSize(
     }
 }
 
-// ─── Spherical Lens Distortion ──────────────────────────────────────────────
-// Models a convex glass sphere pressed against the image from the
-// direction corner. The sphere refracts the image: cells near the
-// sphere center are displaced most, pulling content TOWARD the
-// origin corner. This creates the look of the image being warped
-// inward toward the corner through a curved lens.
+// ─── Spherical Magnification Field ─────────────────────────────────────────
+// Each cell gets a local magnification factor based on its distance
+// from the sphere origin. Cells near the origin are magnified most;
+// cells at the edge of the sphere have no magnification (scale = 1).
 //
-// The displacement profile uses a smooth cubic falloff:
-//   d(r) = strength * (1 - r/R)^2 * r/R
-// This gives zero at the center, rises to a peak at ~1/3 radius,
-// then falls back to zero at the edge. The result is a smooth
-// refraction field that doesn't overshoot at the origin.
+// The magnification is applied as a CSS scale transform centered on
+// each cell, combined with cover-correct background sizing. This means
+// each cell still shows its own image region — just zoomed in slightly.
+// The overflow:hidden on the cell frame clips the zoomed content,
+// creating the stepped-edge interference pattern at cell boundaries.
 
 function getOrigin(dir: Direction): { ox: number; oy: number } {
     switch (dir) {
@@ -119,17 +115,16 @@ function getOrigin(dir: Direction): { ox: number; oy: number } {
     }
 }
 
-function computeDisplacement(
+function computeScale(
     nx: number, ny: number,
     activity: number,
     col: number, row: number,
     ox: number, oy: number,
-    strength: number,   // max displacement in pixels
+    strength: number,   // max magnification boost (e.g. 0.5 = up to 1.5x)
     sphereRadius: number, // normalized radius of the sphere
-    randomness: number,
-    contW: number, contH: number
-): { dx: number; dy: number } {
-    if (activity < 0.01) return { dx: 0, dy: 0 }
+    randomness: number
+): number {
+    if (activity < 0.01) return 1
 
     // Vector from sphere origin to this cell (normalized coords)
     const vx = nx - ox
@@ -138,36 +133,23 @@ function computeDisplacement(
     // Distance from origin (normalized)
     const dist = Math.sqrt(vx * vx + vy * vy)
 
-    if (dist < 0.001) return { dx: 0, dy: 0 }
-
     // Normalized distance within sphere (0 at center, 1 at edge)
     const rNorm = Math.min(1, dist / Math.max(0.01, sphereRadius))
 
-    // Refraction profile: smooth bell curve
-    // Peaks at ~0.33R, zero at center and edge
-    // This avoids the out-of-bounds artifacts at the origin
-    // and gives a natural lens refraction shape
-    const bell = rNorm * (1 - rNorm) * (1 - rNorm) * 4  // peaks at r=1/3
+    // Smooth falloff: maximum magnification at origin, tapering to 1 at edge
+    // Using smoothstep for a natural lens-like profile
+    const profile = 1 - smoothstep(0, 1, rNorm)
 
-    // Direction: pull content TOWARD the origin (negate outward vector)
-    // This creates the "sucked toward the corner" refraction look
-    const dirX = -vx / dist
-    const dirY = -vy / dist
-
-    // Displacement magnitude: refraction profile * strength * activity
-    const mag = bell * strength * activity
-
-    // Convert to pixel displacement
-    let dx = dirX * mag
-    let dy = dirY * mag
+    // Scale factor: 1 + (strength * profile * activity)
+    // At origin with full activity: scale = 1 + strength
+    // At sphere edge or zero activity: scale = 1
+    let scale = 1 + strength * profile * activity
 
     // Small per-cell jitter for organic variation
-    const jitX = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
-    const jitY = (sr3(col * 0.7, row * 0.7, 77) - 0.5) * 2
-    dx += jitX * strength * 0.03 * randomness * activity
-    dy += jitY * strength * 0.03 * randomness * activity
+    const jit = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
+    scale += jit * strength * 0.06 * randomness * activity
 
-    return { dx, dy }
+    return Math.max(1, scale) // never scale below 1
 }
 
 // ─── Grid Cell Generation ───────────────────────────────────────────────────
@@ -228,17 +210,15 @@ function makeCells(
 
             if (activity < 0.03) continue
 
-            const { dx, dy } = computeDisplacement(
+            const scale = computeScale(
                 nx, ny, activity, col, row,
-                ox, oy, strength, sphereRadius,
-                randomness, contW, contH
+                ox, oy, strength, sphereRadius, randomness
             )
 
             cells.push({
                 id: cid++,
                 col, row, x, y, w, h,
-                dispX: dx,
-                dispY: dy,
+                scale,
                 activity,
                 phase: sr3(col * 0.7, row * 0.7, 17),
             })
@@ -299,8 +279,8 @@ const defaults: Partial<Props> = {
     randomness: 0.3,
     cellSize: 30,
     density: 1.0,
-    distortionStrength: 60,
-    sphereRadius: 1.5,
+    distortionStrength: 0.5,
+    sphereRadius: 1.2,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
@@ -442,28 +422,42 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const hInf = hoverRef.current.get(c.id) || 0
             const act = Math.min(1, c.activity + hInf * 0.4)
 
-            let dx = c.dispX
-            let dy = c.dispY
+            let scale = c.scale
 
-            // Ambient: gentle displacement oscillation
+            // Ambient: gentle scale oscillation
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
                 const osc = Math.sin(time * s * 0.3 + c.phase * Math.PI * 4) * a
-                // Oscillate along the displacement direction
-                dx += osc * (c.dispX !== 0 ? Math.sign(c.dispX) : 1) * 2
-                dy += osc * (c.dispY !== 0 ? Math.sign(c.dispY) : 1) * 2
+                scale += osc * 0.02 * p.distortionStrength
             }
 
-            // Hover: intensify displacement
+            // Hover: boost magnification
             if (hInf > 0) {
-                dx *= 1 + hInf * 0.6
-                dy *= 1 + hInf * 0.6
+                scale += (scale - 1) * hInf * 0.5
             }
 
-            // Background position: cover-correct + displacement
-            const bgX = -(c.x + cropX) + dx
-            const bgY = -(c.y + cropY) + dy
+            scale = Math.max(1.001, scale) // always slightly above 1 for active cells
+
+            // Background position: cover-correct, centered on this cell
+            // The cell shows its own correct image region
+            const baseBgX = -(c.x + cropX)
+            const baseBgY = -(c.y + cropY)
+
+            // To scale from cell center, we need to adjust background-size
+            // and background-position together:
+            // - background-size is multiplied by scale
+            // - background-position adjusts to keep the cell center fixed
+            const scaledBgW = bgW * scale
+            const scaledBgH = bgH * scale
+
+            // Center of the cell in image-space
+            const cellCx = c.x + c.w / 2
+            const cellCy = c.y + c.h / 2
+
+            // Position: scale the background around the cell center point
+            const scaledBgX = -(cellCx + cropX) * scale + c.w / 2
+            const scaledBgY = -(cellCy + cropY) * scale + c.h / 2
 
             // Opacity
             let op = p.cellOpacity
@@ -479,7 +473,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
             if (p.blur > 0) fl.push(`blur(${p.blur * act * 0.25}px)`)
             if (fl.length) filter = fl.join(" ")
 
-            return { c, bgX, bgY, op, filter }
+            return { c, scaledBgW, scaledBgH, scaledBgX, scaledBgY, op, filter }
         })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cells, tick, p, cW, cH, bgW, bgH, cropX, cropY])
@@ -536,8 +530,8 @@ export default function FragmentField(rawProps: Partial<Props>) {
                             width: d.c.w,
                             height: d.c.h,
                             backgroundImage: `url(${p.source})`,
-                            backgroundSize: `${bgW}px ${bgH}px`,
-                            backgroundPosition: `${d.bgX}px ${d.bgY}px`,
+                            backgroundSize: `${d.scaledBgW}px ${d.scaledBgH}px`,
+                            backgroundPosition: `${d.scaledBgX}px ${d.scaledBgY}px`,
                             backgroundRepeat: "no-repeat",
                             filter: d.filter,
                         }} />
@@ -615,12 +609,12 @@ addPropertyControls(FragmentField, {
         min: 0.2, max: 1, step: 0.05, defaultValue: 1.0,
     },
     distortionStrength: {
-        type: ControlType.Number, title: "Distortion",
-        min: 5, max: 120, step: 1, unit: "px", defaultValue: 60,
+        type: ControlType.Number, title: "Magnification",
+        min: 0.05, max: 1.5, step: 0.05, defaultValue: 0.5,
     },
     sphereRadius: {
         type: ControlType.Number, title: "Sphere Radius",
-        min: 0.3, max: 2.5, step: 0.05, defaultValue: 1.5,
+        min: 0.3, max: 2.5, step: 0.05, defaultValue: 1.2,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
