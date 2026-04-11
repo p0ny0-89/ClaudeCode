@@ -95,17 +95,31 @@ function computeCoverSize(
     }
 }
 
-// ─── Angular Field ──────────────────────────────────────────────────────────
-// Smooth rotation angle based on position in the field.
-// Core: strong rotation. Falloff: decreasing. Clean: zero.
-// The angle includes a directional component so cells flow
-// coherently, plus gentle per-cell variation for organic feel.
+// ─── Radial Angular Field ────────────────────────────────────────────────────
+// The rotation angle at each cell is derived from its polar angle
+// (atan2) relative to the field's origin point. This creates a
+// sweeping radial pattern — like a spherical distortion emanating
+// from the origin corner. The strength scales with distance from
+// the origin (closer = stronger) and with zone activity.
+
+function getOrigin(dir: Direction): { ox: number; oy: number } {
+    switch (dir) {
+        case "left": return { ox: 0, oy: 0.5 }
+        case "right": return { ox: 1, oy: 0.5 }
+        case "top": return { ox: 0.5, oy: 0 }
+        case "bottom": return { ox: 0.5, oy: 1 }
+        case "top-left": return { ox: 0, oy: 0 }
+        case "top-right": return { ox: 1, oy: 0 }
+        case "bottom-left": return { ox: 0, oy: 1 }
+        case "bottom-right": return { ox: 1, oy: 1 }
+    }
+}
 
 function computeAngle(
     nx: number, ny: number,
     activity: number,
     col: number, row: number,
-    dir: Direction,
+    ox: number, oy: number,
     rotStr: number,    // degrees
     randomness: number
 ): number {
@@ -113,27 +127,30 @@ function computeAngle(
 
     const maxRad = rotStr * (Math.PI / 180)
 
-    // Base rotation scales with activity (stronger in core)
-    let angle = maxRad * activity
+    // Vector from origin to this cell
+    const dx = nx - ox
+    const dy = ny - oy
 
-    // Directional variation: angle shifts based on position
-    // relative to field direction, creating angular flow
-    const dist = getDistance(nx, ny, dir)
-    // Cells closer to the origin get a slight angular offset
-    // based on their lateral position — creates the wave/flow
-    const lateralPhase = (nx + ny) * Math.PI * 1.5
-    angle *= (0.85 + 0.15 * Math.sin(lateralPhase))
+    // Polar angle from origin — this IS the rotation direction
+    // Cells in different directions from the origin rotate differently,
+    // creating the radial sweep pattern
+    const polarAngle = Math.atan2(dy, dx)
 
-    // Per-cell organic jitter (small relative to base angle)
+    // Distance from origin (0 at corner, ~1.4 at opposite corner)
+    const dist = Math.sqrt(dx * dx + dy * dy)
+
+    // Rotation angle: polar angle scaled by strength and activity
+    // The polar angle naturally creates the directional sweep
+    let angle = polarAngle * (maxRad / Math.PI) * activity
+
+    // Distance modulation: cells further from origin rotate more
+    // (they've "swept" further around the radial field)
+    const distScale = Math.min(1, dist * 1.2)
+    angle *= distScale
+
+    // Small per-cell jitter for organic variation
     const jit = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
-    angle += jit * maxRad * 0.12 * randomness
-
-    // Alternating sign pattern: neighboring cells can rotate
-    // in slightly different directions for richer interference.
-    // Checker offset: every other diagonal row flips sign tendency
-    const checker = ((col + row) % 3 === 0) ? -1 : 1
-    const signBlend = 0.7 + 0.3 * checker
-    angle *= signBlend
+    angle += jit * maxRad * 0.06 * randomness
 
     return angle
 }
@@ -158,6 +175,7 @@ function makeCells(
 
     const gridCols = Math.ceil(contW / cellSize)
     const gridRows = Math.ceil(contH / cellSize)
+    const { ox, oy } = getOrigin(dir)
     const cells: CellData[] = []
     let cid = 0
 
@@ -197,7 +215,7 @@ function makeCells(
 
             const angle = computeAngle(
                 nx, ny, activity, col, row,
-                dir, rotStr, randomness
+                ox, oy, rotStr, randomness
             )
 
             cells.push({
