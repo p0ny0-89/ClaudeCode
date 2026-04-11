@@ -8,22 +8,21 @@ import React, {
 } from "react"
 
 /*
- * FragmentField — Fractal cellular repetition
+ * FragmentField — Modular cellular image field
  *
- * Recursive clusters of image-sampled cells create a directional
- * distortion field. Each cluster has a base displacement vector
- * (biased along the field direction) so all its cells show image
- * content from a shifted position — making the distortion clearly
- * visible. Children inherit and accumulate displacement per
- * generation, creating echoed/propagated sample offsets.
+ * The portrait is reorganized through a grid of adjacent rectangular
+ * cells. Cells are packed together like architectural panels — no
+ * gaps, no fractal subdivision, no random scatter. The grid uses a
+ * column-based layout where each column is divided into rows of
+ * varying height, creating a modular mosaic feel.
  *
- * The core zone is dense with deep recursion (4-5 generations).
- * The falloff zone steps down in density with clear visual
- * transitions. Islands scatter beyond the falloff edge.
+ * Active cells show displaced image content: the cell frame stays
+ * on-grid, but the image inside is sampled from a shifted position
+ * along the field direction. Neighboring cells share related
+ * displacement vectors, creating banded regions of coherent offset.
  *
- * The result reads as a controlled fragmentation field: the
- * portrait is actively being re-sampled and reconstructed
- * through repeated local image cells.
+ * The result reads as the portrait being filtered through a
+ * segmented panel system — modular, architectural, controlled.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -35,19 +34,15 @@ type Direction =
 interface CellData {
     id: number
     x: number; y: number; w: number; h: number
-    offsetX: number; offsetY: number
-    angle: number
-    generation: number
+    // Displacement: how much the sampled image is shifted
+    dispX: number; dispY: number
     activity: number
+    band: number      // which displacement band this cell belongs to
     phase: number
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
-function sr(seed: number): number {
-    const x = Math.sin(seed * 127.1 + seed * 311.7) * 43758.5453
-    return x - Math.floor(x)
-}
 function sr2(a: number, b: number): number {
     const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453
     return x - Math.floor(x)
@@ -77,16 +72,16 @@ function getDistance(nx: number, ny: number, dir: Direction): number {
     }
 }
 
-function getFieldAngle(dir: Direction): number {
+function getFieldVector(dir: Direction): { dx: number; dy: number } {
     switch (dir) {
-        case "right": return 0
-        case "bottom-right": return Math.PI * 0.25
-        case "bottom": return Math.PI * 0.5
-        case "bottom-left": return Math.PI * 0.75
-        case "left": return Math.PI
-        case "top-left": return Math.PI * 1.25
-        case "top": return Math.PI * 1.5
-        case "top-right": return Math.PI * 1.75
+        case "left": return { dx: -1, dy: 0 }
+        case "right": return { dx: 1, dy: 0 }
+        case "top": return { dx: 0, dy: -1 }
+        case "bottom": return { dx: 0, dy: 1 }
+        case "top-left": return { dx: -0.707, dy: -0.707 }
+        case "top-right": return { dx: 0.707, dy: -0.707 }
+        case "bottom-left": return { dx: -0.707, dy: 0.707 }
+        case "bottom-right": return { dx: 0.707, dy: 0.707 }
     }
 }
 
@@ -108,27 +103,29 @@ function computeCoverSize(
     }
 }
 
-// ─── Fractal Cell Generation ────────────────────────────────────────────────
+// ─── Modular Grid Generation ────────────────────────────────────────────────
 //
-// Each seed cluster gets a base displacement vector biased along
-// the field direction. This ensures cells show visibly different
-// content than the base image. Children inherit the parent's
-// displacement and add their own per-generation offset, so
-// neighboring cells in a cluster echo each other with progressive
-// drift — creating the repeated sampling / cellular echo effect.
-//
-// Core zone: dense seeds, 4-5 generations, strong displacement
-// Falloff: fewer seeds, 2-3 generations, weaker displacement
-// Islands: single cells scattered beyond falloff
+// 1. Divide the container into columns of varying width
+//    (from a small family of sizes: 1×, 1.5×, 2× base unit)
+// 2. Within each column, stack rows of varying height
+//    (same size family)
+// 3. Every cell is axis-aligned and tightly packed — no gaps
+// 4. Cells in the active zone get displacement vectors:
+//    - Direction follows the field vector
+//    - Magnitude depends on field depth
+//    - Neighboring cells share a "band" so displacement is
+//      locally coherent, not per-cell random
+// 5. Cells outside the active zone are skipped (base image
+//    shows through)
 
 function makeCells(
     contW: number, contH: number,
-    dir: Direction, fieldAngle: number,
+    dir: Direction,
     coverage: number, falloffWidth: number,
     edgeStepping: number, randomness: number,
     cellSize: number, density: number,
     islandDensity: number, islandScatter: number, islandFade: number,
-    distStr: number, rotStr: number
+    distStr: number
 ): CellData[] {
     if (contW <= 0 || contH <= 0) return []
 
@@ -136,180 +133,128 @@ function makeCells(
     const fallN = falloffWidth / 100
     const fallEnd = covN + fallN
     const steps = Math.max(1, edgeStepping)
-    const fcos = Math.cos(fieldAngle), fsin = Math.sin(fieldAngle)
+    const fv = getFieldVector(dir)
 
-    function getActivity(nx: number, ny: number): number {
-        const dist = getDistance(nx, ny, dir)
-        const seed = sr2(nx * 10.7, ny * 10.7)
-        const jit = (seed - 0.5) * randomness * 0.06
-        if (dist < covN + jit) return 1
-        if (dist < fallEnd + jit) {
-            const t = (dist - covN) / Math.max(0.001, fallN)
-            const stepped = Math.floor(t * steps) / steps
-            const act = Math.max(0, 1 - stepped)
-            if (seed > density * act) return 0
-            return act
-        }
-        if (dist < fallEnd + islandScatter / 100) {
-            const thresh = 1 - (islandDensity / 100) * 0.18
-            if (sr3(nx * 10.7, ny * 10.7, 17) > thresh) {
-                const id2 = (dist - fallEnd) / (islandScatter / 100)
-                return Math.max(0, 1 - id2) * (1 - islandFade) * 0.4
-            }
-        }
-        return 0
+    // Size family: cells pick from these multiples of base unit
+    const unit = cellSize
+    const sizes = [unit, unit * 1.5, unit * 2, unit * 2.5]
+
+    // ── Build columns ──
+    // Each column gets a width from the size family.
+    // Columns tile left-to-right with no gaps.
+    const columns: { x: number; w: number }[] = []
+    let cx = 0
+    let colIdx = 0
+    while (cx < contW) {
+        // Pick column width: seeded by column index for determinism
+        const sizeIdx = Math.floor(sr2(colIdx * 7.3, 0.5) * sizes.length)
+        let w = sizes[sizeIdx]
+        // Last column: clamp to container edge
+        if (cx + w > contW) w = contW - cx
+        if (w < unit * 0.4) break
+        columns.push({ x: cx, w })
+        cx += w
+        colIdx++
     }
 
     const cells: CellData[] = []
     let cid = 0
 
-    // ── Seed placement ──
-    // Tighter spacing in core, wider at edges
-    const baseSpacing = cellSize * 2.0 / Math.max(0.3, density)
-    const seedCols = Math.ceil(contW / baseSpacing)
-    const seedRows = Math.ceil(contH / baseSpacing)
+    // ── Displacement bands ──
+    // Divide the field into ~6-10 diagonal bands perpendicular to
+    // the field direction. All cells in the same band share a
+    // displacement vector, creating coherent regional offset.
+    const bandCount = Math.max(4, Math.round(6 + density * 4))
 
-    for (let sr_ = 0; sr_ < seedRows; sr_++) {
-        for (let sc = 0; sc < seedCols; sc++) {
-            const jx = (sr3(sc + 0.3, sr_ + 0.7, 11) - 0.5) * baseSpacing * 0.55 * randomness
-            const jy = (sr3(sc + 0.7, sr_ + 0.3, 13) - 0.5) * baseSpacing * 0.55 * randomness
-            const px = (sc + 0.5) * baseSpacing + jx
-            const py = (sr_ + 0.5) * baseSpacing + jy
-            const nx = px / contW, ny = py / contH
-            if (nx < -0.01 || nx > 1.01 || ny < -0.01 || ny > 1.01) continue
-
-            const activity = getActivity(nx, ny)
-            if (activity < 0.05) continue
-
-            const placeSeed = sr3(sc * 2.1 + 0.1, sr_ * 3.3 + 0.1, 77)
-            if (placeSeed > 0.75 * density) continue
-
-            const dist = getDistance(nx, ny, dir)
-            const fieldDepth = Math.min(1, dist / Math.max(0.01, fallEnd))
-
-            // Root size
-            const rootSize = cellSize * lerp(2.2, 1.0, fieldDepth)
-
-            // Max generations: deep in core = more recursion
-            const maxGen = fieldDepth < 0.2 ? 4
-                : fieldDepth < 0.4 ? 3
-                : fieldDepth < 0.65 ? 3
-                : fieldDepth < 0.85 ? 2
-                : 1
-
-            // Growth direction
-            const angleJit = (sr3(sc + 0.1, sr_ + 0.1, 33) - 0.5) * Math.PI * 0.6
-            const growAngle = fieldAngle + angleJit
-
-            // ── BASE DISPLACEMENT ──
-            // Each cluster gets a strong displacement along the field
-            // direction. This is the primary visual event: cells show
-            // image content from a noticeably different position.
-            // Core: 3.5× cellSize displacement. Edges: 1× cellSize.
-            const dispMag = cellSize * distStr * lerp(3.5, 1.0, fieldDepth) * activity
-            const dispJitX = (sr3(sc + 0.1, sr_ + 0.1, 44) - 0.5) * cellSize * 0.9
-            const dispJitY = (sr3(sc + 0.1, sr_ + 0.1, 55) - 0.5) * cellSize * 0.9
-            const baseOffX = fcos * dispMag + dispJitX
-            const baseOffY = fsin * dispMag + dispJitY
-
-            subdivide(
-                px, py, rootSize, 0, maxGen, growAngle,
-                activity, baseOffX, baseOffY,
-                sc * 100 + sr_
-            )
-        }
+    function getBand(nx: number, ny: number): number {
+        // Project position onto field direction
+        const proj = nx * fv.dx + ny * fv.dy
+        // Normalize to 0..1 range approximately
+        const norm = (proj + 1) / 2
+        return Math.floor(norm * bandCount) % bandCount
     }
 
-    function subdivide(
-        cx: number, cy: number,
-        size: number, gen: number, maxGen: number,
-        angle: number, parentActivity: number,
-        cumOffsetX: number, cumOffsetY: number,
-        clusterSeed: number
-    ) {
-        const nx = cx / contW, ny = cy / contH
-        if (nx < -0.05 || nx > 1.05 || ny < -0.05 || ny > 1.05) return
-        if (size < 5) return
-
-        const activity = Math.min(parentActivity, getActivity(nx, ny))
-        if (activity < 0.03) return
-
-        // Aspect ratio variation
-        const aSeed = sr3(cx * 0.13, cy * 0.17, gen * 7 + clusterSeed * 0.01)
-        const aspect = 0.6 + aSeed * 0.8
-        const w = size * Math.sqrt(aspect)
-        const h = size / Math.sqrt(aspect)
-
-        // Per-generation offset: accumulates to create echo drift
-        // ~80-120% of cell size per generation for clearly visible echo
-        const genOffsetX = (sr3(cx * 0.1, cy * 0.1, gen * 11 + 1) - 0.5) * size * 1.2 * distStr
-        const genOffsetY = (sr3(cx * 0.1, cy * 0.1, gen * 11 + 2) - 0.5) * size * 1.2 * distStr
-        const totalOffX = cumOffsetX + genOffsetX
-        const totalOffY = cumOffsetY + genOffsetY
-
-        // Rotation: subtle, increases with generation
-        const rotSeed = sr3(cx * 0.2, cy * 0.2, gen * 13 + clusterSeed * 0.01)
-        const cellAngle = (rotSeed - 0.5) * 0.06 * (gen + 1) * rotStr * (Math.PI / 180)
-
-        cells.push({
-            id: cid++,
-            x: cx - w / 2, y: cy - h / 2, w, h,
-            offsetX: totalOffX,
-            offsetY: totalOffY,
-            angle: cellAngle * activity,
-            generation: gen,
-            activity,
-            phase: sr3(cx * 0.1, cy * 0.1, 17),
+    // Pre-compute displacement per band
+    const bandDisp: { dx: number; dy: number }[] = []
+    for (let b = 0; b < bandCount; b++) {
+        const t = b / bandCount
+        // Base displacement along field direction, varying per band
+        const mag = distStr * unit * (1.5 + sr2(b * 3.7, 11) * 2.5)
+        // Alternate direction slightly per band for visual interest
+        const angJit = (sr2(b * 5.1, 22) - 0.5) * 0.3
+        const cos = Math.cos(angJit), sin = Math.sin(angJit)
+        bandDisp.push({
+            dx: (fv.dx * cos - fv.dy * sin) * mag,
+            dy: (fv.dx * sin + fv.dy * cos) * mag,
         })
-
-        // ── Spawn children ──
-        if (gen >= maxGen) return
-
-        // More children in early generations for denser clusters
-        const nBase = gen === 0 ? 4 : gen === 1 ? 3 : 3
-        const nJit = sr3(cx * 0.1 + gen, cy * 0.1, clusterSeed + gen * 7)
-        const nChildren = Math.max(2, nBase - Math.floor(nJit * 1.5))
-
-        // Child scale: 50-65% of parent
-        const baseScale = 0.52 + sr3(cx * 0.1, cy * 0.1, gen * 9 + 55) * 0.13
-
-        // Fan spread
-        const spreadTotal = Math.PI * (0.6 + gen * 0.12)
-        const spreadStep = spreadTotal / Math.max(1, nChildren - 1)
-        const spreadStart = angle - spreadTotal / 2
-
-        for (let ci = 0; ci < nChildren; ci++) {
-            const skipS = sr3(cx * 0.1 + ci * 3.7, cy * 0.1, gen * 5 + clusterSeed)
-            const skipThresh = gen < 2 ? 0.9 * density : 0.75 * density
-            if (skipS > skipThresh) continue
-
-            const childScale = baseScale + (sr3(ci + 0.1, gen + 0.1, clusterSeed + ci * 11) - 0.5) * 0.08
-            const childSize = size * childScale
-            if (childSize < 5) continue
-
-            const childAngle = nChildren === 1
-                ? angle + (sr3(ci + 0.1, gen + 0.1, clusterSeed + 44) - 0.5) * 0.5
-                : spreadStart + ci * spreadStep
-                    + (sr3(ci * 3.1, gen + 0.1, clusterSeed + ci * 5) - 0.5) * spreadStep * 0.2
-
-            // Branch distance: close enough for overlap/clustering
-            const branchDist = size * (0.38 + sr3(ci + 0.1, gen + 0.1, clusterSeed + 88) * 0.18)
-            const childX = cx + Math.cos(childAngle) * branchDist
-            const childY = cy + Math.sin(childAngle) * branchDist
-
-            const nextAngle = childAngle + (sr3(childX * 0.1, childY * 0.1, gen * 9 + ci) - 0.5) * 0.35
-
-            subdivide(
-                childX, childY, childSize,
-                gen + 1, maxGen, nextAngle,
-                activity, totalOffX, totalOffY,
-                clusterSeed + ci * 100 + gen * 10
-            )
-        }
     }
 
-    // Sort: generation ascending — parents behind, children on top
-    cells.sort((a, b) => a.generation - b.generation)
+    // ── Fill each column with stacked rows ──
+    for (let ci = 0; ci < columns.length; ci++) {
+        const col = columns[ci]
+        let ry = 0
+        let rowIdx = 0
+
+        while (ry < contH) {
+            // Pick row height from size family
+            const sizeIdx = Math.floor(sr3(ci * 3.1, rowIdx * 5.7, 1) * sizes.length)
+            let h = sizes[sizeIdx]
+            if (ry + h > contH) h = contH - ry
+            if (h < unit * 0.4) break
+
+            const cellX = col.x
+            const cellY = ry
+            const cellW = col.w
+            const cellH = h
+
+            // Center of cell in normalized coords
+            const nx = (cellX + cellW / 2) / contW
+            const ny = (cellY + cellH / 2) / contH
+
+            // ── Zone / activity ──
+            const dist = getDistance(nx, ny, dir)
+            const seed = sr2(nx * 10.7, ny * 10.7)
+            const jit = (seed - 0.5) * randomness * 0.06
+            let activity = 0
+
+            if (dist < covN + jit) {
+                activity = 1
+            } else if (dist < fallEnd + jit) {
+                const t = (dist - covN) / Math.max(0.001, fallN)
+                const stepped = Math.floor(t * steps) / steps
+                activity = Math.max(0, 1 - stepped)
+                if (seed > density * activity) activity = 0
+            } else if (dist < fallEnd + islandScatter / 100) {
+                const thresh = 1 - (islandDensity / 100) * 0.18
+                if (sr3(nx * 10.7, ny * 10.7, 17) > thresh) {
+                    const id2 = (dist - fallEnd) / (islandScatter / 100)
+                    activity = Math.max(0, 1 - id2) * (1 - islandFade) * 0.4
+                }
+            }
+
+            ry += h
+            rowIdx++
+
+            if (activity < 0.03) continue
+
+            // ── Displacement ──
+            const band = getBand(nx, ny)
+            const bd = bandDisp[band]
+            // Scale by activity so falloff cells displace less
+            const dispX = bd.dx * activity
+            const dispY = bd.dy * activity
+
+            cells.push({
+                id: cid++,
+                x: cellX, y: cellY,
+                w: cellW, h: cellH,
+                dispX, dispY,
+                activity,
+                band,
+                phase: sr3(nx * 10, ny * 10, 17),
+            })
+        }
+    }
 
     return cells
 }
@@ -339,8 +284,6 @@ interface Props {
     motionAmount: number
     drift: number
     flicker: number
-    rotationEnabled: boolean
-    rotationStrength: number
     hoverEnabled: boolean
     hoverRadius: number
     hoverIntensity: number
@@ -363,22 +306,20 @@ const defaults: Partial<Props> = {
     coverage: 42,
     falloffWidth: 24,
     edgeStepping: 5,
-    randomness: 0.45,
-    cellSize: 26,
-    density: 0.85,
-    distortionStrength: 1.8,
+    randomness: 0.4,
+    cellSize: 40,
+    density: 0.9,
+    distortionStrength: 1.6,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
     islandFade: 0.4,
     ambientMotion: true,
-    motionAmount: 0.25,
-    drift: 0.12,
-    flicker: 0.03,
-    rotationEnabled: true,
-    rotationStrength: 6,
+    motionAmount: 0.2,
+    drift: 0.1,
+    flicker: 0.02,
     hoverEnabled: true,
-    hoverRadius: 110,
+    hoverRadius: 120,
     hoverIntensity: 0.5,
     hoverRecovery: 0.05,
     contrast: 0,
@@ -438,20 +379,17 @@ export default function FragmentField(rawProps: Partial<Props>) {
         return computeCoverSize(imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY)
     }, [imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY])
 
-    const fieldAngle = useMemo(() => getFieldAngle(p.direction), [p.direction])
-
     const cells = useMemo(
         () => makeCells(
-            size.w, size.h, p.direction, fieldAngle,
+            size.w, size.h, p.direction,
             p.coverage, p.falloffWidth, p.edgeStepping, p.randomness,
             p.cellSize, p.density,
             p.islandDensity, p.islandScatter, p.islandFade,
-            p.distortionStrength, p.rotationStrength
+            p.distortionStrength
         ),
-        [size.w, size.h, p.direction, fieldAngle, p.coverage, p.falloffWidth,
+        [size.w, size.h, p.direction, p.coverage, p.falloffWidth,
          p.edgeStepping, p.randomness, p.cellSize, p.density,
-         p.islandDensity, p.islandScatter, p.islandFade,
-         p.distortionStrength, p.rotationStrength]
+         p.islandDensity, p.islandScatter, p.islandFade, p.distortionStrength]
     )
 
     const onMM = useCallback((e: React.MouseEvent) => {
@@ -491,8 +429,8 @@ export default function FragmentField(rawProps: Partial<Props>) {
     if (p.hoverEnabled && mouseRef.current.on && size.w > 0) {
         const mx = mouseRef.current.x, my = mouseRef.current.y, r = p.hoverRadius
         for (const c of cells) {
-            const cx = c.x + c.w / 2, cy = c.y + c.h / 2
-            const d = Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2)
+            const ccx = c.x + c.w / 2, ccy = c.y + c.h / 2
+            const d = Math.sqrt((mx - ccx) ** 2 + (my - ccy) ** 2)
             if (d < r) {
                 const inf = smoothstep(r, r * 0.15, d) * p.hoverIntensity
                 const cur = hoverRef.current.get(c.id) || 0
@@ -510,50 +448,33 @@ export default function FragmentField(rawProps: Partial<Props>) {
 
         return cells.map((c) => {
             const hInf = hoverRef.current.get(c.id) || 0
-            const act = Math.min(1, c.activity + hInf * 0.5)
+            const act = Math.min(1, c.activity + hInf * 0.4)
 
-            // Background position: cell position + displacement offset
-            let bgX = -(c.x + cropX) + c.offsetX * act
-            let bgY = -(c.y + cropY) + c.offsetY * act
+            // Background position: cell position + band displacement
+            let bgX = -(c.x + cropX) + c.dispX * act
+            let bgY = -(c.y + cropY) + c.dispY * act
 
-            // Subtle rotation
-            let angle = p.rotationEnabled ? c.angle : 0
-
-            // Ambient motion
+            // Ambient: gentle displacement drift
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
-                const wave = Math.sin(time * s * 0.3 + c.phase * Math.PI * 4 + c.generation * 0.5)
-                bgX += wave * a * c.w * 0.06
-                bgY += Math.cos(time * s * 0.2 + c.phase * 3) * a * c.h * 0.05
-                angle += wave * a * 0.01 * p.distortionStrength
+                bgX += Math.sin(time * s * 0.25 + c.phase * Math.PI * 4 + c.band * 0.7) * a * c.w * 0.05
+                bgY += Math.cos(time * s * 0.2 + c.phase * 3 + c.band * 0.5) * a * c.h * 0.04
             }
 
+            // Hover: additional displacement
             if (hInf > 0) {
-                angle *= 1 + hInf * 0.3
-                bgX += (sr2(c.x * 0.1, c.y * 0.1) - 0.5) * hInf * c.w * 0.3
-                bgY += (sr2(c.y * 0.1, c.x * 0.1) - 0.5) * hInf * c.h * 0.3
+                bgX += (sr2(c.x * 0.1, c.y * 0.1) - 0.5) * hInf * c.w * 0.4
+                bgY += (sr2(c.y * 0.1, c.x * 0.1) - 0.5) * hInf * c.h * 0.4
             }
 
-            const angleDeg = angle * (180 / Math.PI)
-
-            // Expansion for rotation
-            const absAngle = Math.abs(angle)
-            const sinA = Math.sin(absAngle), cosA = Math.cos(absAngle)
-            const expandX = (c.w * cosA + c.h * sinA - c.w) / 2 + 1
-            const expandY = (c.w * sinA + c.h * cosA - c.h) / 2 + 1
-
-            // Opacity: full for active cells, generation-adjusted
+            // Opacity
             let op = p.cellOpacity
-            if (c.generation === 0) op *= 0.9
-            else if (c.generation >= 3) op *= 0.85 + c.phase * 0.15
-            // Scale with activity for zone transitions
-            op *= lerp(0.6, 1, act)
-
+            op *= lerp(0.7, 1, act)
             if (p.ambientMotion && p.flicker > 0) {
                 op += Math.sin(time * 1.5 + c.phase * Math.PI * 6) * p.flicker * 0.04
             }
-            op = Math.max(0.08, Math.min(1, op))
+            op = Math.max(0.15, Math.min(1, op))
 
             // Filters
             let filter: string | undefined
@@ -562,7 +483,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
             if (p.blur > 0) fl.push(`blur(${p.blur * act * 0.25}px)`)
             if (fl.length) filter = fl.join(" ")
 
-            return { c, bgX, bgY, angleDeg, expandX, expandY, op, filter }
+            return { c, bgX, bgY, op, filter }
         })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cells, tick, p, cW, cH, bgW, bgH, cropX, cropY])
@@ -614,16 +535,11 @@ export default function FragmentField(rawProps: Partial<Props>) {
                     >
                         <div style={{
                             position: "absolute",
-                            left: -d.expandX,
-                            top: -d.expandY,
-                            width: d.c.w + d.expandX * 2,
-                            height: d.c.h + d.expandY * 2,
+                            inset: 0,
                             backgroundImage: `url(${p.source})`,
                             backgroundSize: `${bgW}px ${bgH}px`,
-                            backgroundPosition: `${d.bgX - d.expandX}px ${d.bgY - d.expandY}px`,
+                            backgroundPosition: `${d.bgX}px ${d.bgY}px`,
                             backgroundRepeat: "no-repeat",
-                            transform: d.angleDeg !== 0 ? `rotate(${d.angleDeg}deg)` : undefined,
-                            transformOrigin: "center center",
                             filter: d.filter,
                         }} />
                     </div>
@@ -689,19 +605,19 @@ addPropertyControls(FragmentField, {
     },
     randomness: {
         type: ControlType.Number, title: "Randomness",
-        min: 0, max: 1, step: 0.05, defaultValue: 0.45,
+        min: 0, max: 1, step: 0.05, defaultValue: 0.4,
     },
     cellSize: {
         type: ControlType.Number, title: "Cell Size",
-        min: 8, max: 60, step: 2, unit: "px", defaultValue: 26,
+        min: 20, max: 100, step: 2, unit: "px", defaultValue: 40,
     },
     density: {
         type: ControlType.Number, title: "Density",
-        min: 0.2, max: 1, step: 0.05, defaultValue: 0.85,
+        min: 0.2, max: 1, step: 0.05, defaultValue: 0.9,
     },
     distortionStrength: {
         type: ControlType.Number, title: "Distortion",
-        min: 0, max: 4, step: 0.1, defaultValue: 1.8,
+        min: 0, max: 4, step: 0.1, defaultValue: 1.6,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
@@ -724,33 +640,25 @@ addPropertyControls(FragmentField, {
     },
     motionAmount: {
         type: ControlType.Number, title: "Motion Amount",
-        min: 0, max: 2, step: 0.05, defaultValue: 0.25,
+        min: 0, max: 2, step: 0.05, defaultValue: 0.2,
         hidden: (pp) => !pp.ambientMotion,
     },
     drift: {
         type: ControlType.Number, title: "Drift",
-        min: 0, max: 2, step: 0.05, defaultValue: 0.12,
+        min: 0, max: 2, step: 0.05, defaultValue: 0.1,
         hidden: (pp) => !pp.ambientMotion,
     },
     flicker: {
         type: ControlType.Number, title: "Flicker",
-        min: 0, max: 1, step: 0.05, defaultValue: 0.03,
+        min: 0, max: 1, step: 0.05, defaultValue: 0.02,
         hidden: (pp) => !pp.ambientMotion,
-    },
-    rotationEnabled: {
-        type: ControlType.Boolean, title: "Rotation", defaultValue: true,
-    },
-    rotationStrength: {
-        type: ControlType.Number, title: "Rotation Strength",
-        min: 0, max: 45, step: 1, unit: "°", defaultValue: 6,
-        hidden: (pp) => !pp.rotationEnabled,
     },
     hoverEnabled: {
         type: ControlType.Boolean, title: "Hover Reactive", defaultValue: true,
     },
     hoverRadius: {
         type: ControlType.Number, title: "Hover Radius",
-        min: 30, max: 300, step: 5, unit: "px", defaultValue: 110,
+        min: 30, max: 300, step: 5, unit: "px", defaultValue: 120,
         hidden: (pp) => !pp.hoverEnabled,
     },
     hoverIntensity: {
