@@ -8,25 +8,27 @@ import React, {
 } from "react"
 
 /*
- * FragmentField — Cell-based distortion field
+ * FragmentField — Rotational cell-based distortion field
  *
- * A uniform square grid of cells overlays the portrait. In the
- * active zone, each cell's internal image content is displaced
- * and optionally rotated — the cell frame stays fixed on the
- * grid, but the media inside pivots or shifts. Neighboring cells
- * in the same cluster share related displacement, creating
- * coherent local echoing.
+ * A uniform square grid overlays the image. In the active zone,
+ * each cell's internal media is strongly rotated. The square
+ * clipping of rotated content creates scalloped, fish-scale,
+ * and triangular interference patterns between adjacent cells.
  *
- * Grid: true square cells derived from cellSize, tiling the
- * entire container with no gaps. Cells are always axis-aligned
- * and stable.
+ * The rotation angle varies smoothly across the field — driven
+ * by a directional gradient, not random per-cell noise. Cells
+ * near the field origin rotate strongly; cells at the edge
+ * rotate gently. This creates a coherent directional flow.
  *
- * Internal distortion (per active cell):
- *   - Sample displacement along field direction
- *   - Optional rotational pivot of internal media
- *   - Cluster-coherent: neighbors echo the same behavior
+ * The visual effect emerges from the interaction between:
+ *   - The fixed square cell grid (overflow: hidden)
+ *   - The rotated image content inside each cell
+ *   - The triangular cutouts where rotation clips the content
+ *   - The base image showing through those cutouts
  *
- * Zones: core (full activity), stepped falloff, sparse islands.
+ * Cover-correct background sizing ensures the rotated content
+ * matches the base image exactly. Expansion compensates for
+ * rotation so the inner content always fills the cell.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -39,10 +41,8 @@ interface CellData {
     id: number
     col: number; row: number
     x: number; y: number; w: number; h: number
-    dispX: number; dispY: number
-    angle: number       // internal rotation (radians)
+    angle: number       // rotation in radians — the primary effect
     activity: number
-    clusterIdx: number
     phase: number
 }
 
@@ -77,19 +77,6 @@ function getDistance(nx: number, ny: number, dir: Direction): number {
     }
 }
 
-function getFieldVector(dir: Direction): { dx: number; dy: number } {
-    switch (dir) {
-        case "left": return { dx: -1, dy: 0 }
-        case "right": return { dx: 1, dy: 0 }
-        case "top": return { dx: 0, dy: -1 }
-        case "bottom": return { dx: 0, dy: 1 }
-        case "top-left": return { dx: -0.707, dy: -0.707 }
-        case "top-right": return { dx: 0.707, dy: -0.707 }
-        case "bottom-left": return { dx: -0.707, dy: 0.707 }
-        case "bottom-right": return { dx: 0.707, dy: 0.707 }
-    }
-}
-
 // ─── Cover computation ──────────────────────────────────────────────────────
 
 function computeCoverSize(
@@ -108,43 +95,47 @@ function computeCoverSize(
     }
 }
 
-// ─── Cluster System ─────────────────────────────────────────────────────────
-// Groups of ~3×3 cells share displacement + rotation parameters.
-// This creates local coherence: neighbors echo each other.
+// ─── Angular Field ──────────────────────────────────────────────────────────
+// Smooth rotation angle based on position in the field.
+// Core: strong rotation. Falloff: decreasing. Clean: zero.
+// The angle includes a directional component so cells flow
+// coherently, plus gentle per-cell variation for organic feel.
 
-interface ClusterParams {
-    dispX: number; dispY: number
-    angle: number  // shared base rotation
-}
+function computeAngle(
+    nx: number, ny: number,
+    activity: number,
+    col: number, row: number,
+    dir: Direction,
+    rotStr: number,    // degrees
+    randomness: number
+): number {
+    if (activity < 0.01) return 0
 
-function makeClusterGrid(
-    gridCols: number, gridRows: number,
-    cellSize: number, dir: Direction,
-    distStr: number, rotStr: number
-): { cCols: number; cRows: number; params: ClusterParams[] } {
-    const fv = getFieldVector(dir)
-    const clusterSpan = 3 // each cluster covers 3×3 cells
-    const cCols = Math.max(1, Math.ceil(gridCols / clusterSpan))
-    const cRows = Math.max(1, Math.ceil(gridRows / clusterSpan))
-    const params: ClusterParams[] = []
+    const maxRad = rotStr * (Math.PI / 180)
 
-    for (let cr = 0; cr < cRows; cr++) {
-        for (let cc = 0; cc < cCols; cc++) {
-            const s1 = sr3(cc + 0.1, cr + 0.1, 11)
-            const s2 = sr3(cc + 0.1, cr + 0.1, 22)
-            const s3 = sr3(cc + 0.1, cr + 0.1, 33)
-            const s4 = sr3(cc + 0.1, cr + 0.1, 44)
+    // Base rotation scales with activity (stronger in core)
+    let angle = maxRad * activity
 
-            const mag = cellSize * distStr * (1.2 + s1 * 2.0)
-            params.push({
-                dispX: fv.dx * mag + (s2 - 0.5) * cellSize * distStr * 0.6,
-                dispY: fv.dy * mag + (s3 - 0.5) * cellSize * distStr * 0.6,
-                angle: (s4 - 0.5) * rotStr * (Math.PI / 180) * 2,
-            })
-        }
-    }
+    // Directional variation: angle shifts based on position
+    // relative to field direction, creating angular flow
+    const dist = getDistance(nx, ny, dir)
+    // Cells closer to the origin get a slight angular offset
+    // based on their lateral position — creates the wave/flow
+    const lateralPhase = (nx + ny) * Math.PI * 1.5
+    angle *= (0.85 + 0.15 * Math.sin(lateralPhase))
 
-    return { cCols, cRows, params }
+    // Per-cell organic jitter (small relative to base angle)
+    const jit = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
+    angle += jit * maxRad * 0.12 * randomness
+
+    // Alternating sign pattern: neighboring cells can rotate
+    // in slightly different directions for richer interference.
+    // Checker offset: every other diagonal row flips sign tendency
+    const checker = ((col + row) % 3 === 0) ? -1 : 1
+    const signBlend = 0.7 + 0.3 * checker
+    angle *= signBlend
+
+    return angle
 }
 
 // ─── Grid Cell Generation ───────────────────────────────────────────────────
@@ -156,7 +147,7 @@ function makeCells(
     edgeStepping: number, randomness: number,
     cellSize: number, density: number,
     islandDensity: number, islandScatter: number, islandFade: number,
-    distStr: number, rotStr: number
+    rotStr: number
 ): CellData[] {
     if (contW <= 0 || contH <= 0 || cellSize < 4) return []
 
@@ -167,9 +158,6 @@ function makeCells(
 
     const gridCols = Math.ceil(contW / cellSize)
     const gridRows = Math.ceil(contH / cellSize)
-
-    const clusters = makeClusterGrid(gridCols, gridRows, cellSize, dir, distStr, rotStr)
-
     const cells: CellData[] = []
     let cid = 0
 
@@ -184,7 +172,7 @@ function makeCells(
             const nx = (x + w / 2) / contW
             const ny = (y + h / 2) / contH
 
-            // ── Zone / activity ──
+            // Zone / activity
             const dist = getDistance(nx, ny, dir)
             const seed = sr2(nx * 10.7, ny * 10.7)
             const jit = (seed - 0.5) * randomness * 0.06
@@ -207,26 +195,16 @@ function makeCells(
 
             if (activity < 0.03) continue
 
-            // ── Cluster lookup ──
-            const cc = Math.min(clusters.cCols - 1, Math.floor(col / 3))
-            const cr = Math.min(clusters.cRows - 1, Math.floor(row / 3))
-            const clusterIdx = cr * clusters.cCols + cc
-            const cp = clusters.params[clusterIdx]
-
-            // Per-cell jitter on top of cluster values
-            const cellJitX = (sr3(col + 0.1, row + 0.1, 55) - 0.5) * cellSize * distStr * 0.25
-            const cellJitY = (sr3(col + 0.1, row + 0.1, 66) - 0.5) * cellSize * distStr * 0.25
-            const cellJitA = (sr3(col + 0.1, row + 0.1, 77) - 0.5) * rotStr * (Math.PI / 180) * 0.3
+            const angle = computeAngle(
+                nx, ny, activity, col, row,
+                dir, rotStr, randomness
+            )
 
             cells.push({
                 id: cid++,
-                col, row,
-                x, y, w, h,
-                dispX: (cp.dispX + cellJitX) * activity,
-                dispY: (cp.dispY + cellJitY) * activity,
-                angle: (cp.angle + cellJitA) * activity,
+                col, row, x, y, w, h,
+                angle,
                 activity,
-                clusterIdx,
                 phase: sr3(col * 0.7, row * 0.7, 17),
             })
         }
@@ -251,7 +229,7 @@ interface Props {
     randomness: number
     cellSize: number
     density: number
-    distortionStrength: number
+    rotationStrength: number
     cellOpacity: number
     islandDensity: number
     islandScatter: number
@@ -260,7 +238,6 @@ interface Props {
     motionAmount: number
     drift: number
     flicker: number
-    rotationStrength: number
     hoverEnabled: boolean
     hoverRadius: number
     hoverIntensity: number
@@ -284,9 +261,9 @@ const defaults: Partial<Props> = {
     falloffWidth: 24,
     edgeStepping: 5,
     randomness: 0.4,
-    cellSize: 38,
+    cellSize: 34,
     density: 0.9,
-    distortionStrength: 1.8,
+    rotationStrength: 55,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
@@ -295,7 +272,6 @@ const defaults: Partial<Props> = {
     motionAmount: 0.2,
     drift: 0.1,
     flicker: 0.02,
-    rotationStrength: 12,
     hoverEnabled: true,
     hoverRadius: 120,
     hoverIntensity: 0.5,
@@ -363,12 +339,11 @@ export default function FragmentField(rawProps: Partial<Props>) {
             p.coverage, p.falloffWidth, p.edgeStepping, p.randomness,
             p.cellSize, p.density,
             p.islandDensity, p.islandScatter, p.islandFade,
-            p.distortionStrength, p.rotationStrength
+            p.rotationStrength
         ),
         [size.w, size.h, p.direction, p.coverage, p.falloffWidth,
          p.edgeStepping, p.randomness, p.cellSize, p.density,
-         p.islandDensity, p.islandScatter, p.islandFade,
-         p.distortionStrength, p.rotationStrength]
+         p.islandDensity, p.islandScatter, p.islandFade, p.rotationStrength]
     )
 
     const onMM = useCallback((e: React.MouseEvent) => {
@@ -429,42 +404,36 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const hInf = hoverRef.current.get(c.id) || 0
             const act = Math.min(1, c.activity + hInf * 0.4)
 
-            // Displacement
-            let dX = c.dispX
-            let dY = c.dispY
             let angle = c.angle
 
-            // Ambient motion
+            // Ambient: gentle angular oscillation
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
-                const wave = Math.sin(time * s * 0.3 + c.phase * Math.PI * 4 + c.clusterIdx * 0.5)
-                dX += wave * a * c.w * 0.06
-                dY += Math.cos(time * s * 0.2 + c.phase * 3) * a * c.h * 0.05
-                angle += wave * a * 0.015 * p.distortionStrength
+                angle += Math.sin(
+                    time * s * 0.3 + c.phase * Math.PI * 4
+                ) * a * 0.04 * p.rotationStrength * (Math.PI / 180)
             }
 
-            // Hover
+            // Hover: intensify rotation
             if (hInf > 0) {
-                dX *= 1 + hInf * 0.4
-                dY *= 1 + hInf * 0.4
                 angle *= 1 + hInf * 0.5
             }
 
-            // Background position with displacement
-            const bgX = -(c.x + cropX) + dX
-            const bgY = -(c.y + cropY) + dY
-
             const angleDeg = angle * (180 / Math.PI)
 
-            // Expand inner div for rotation coverage
+            // Background position: cover-correct, no displacement
+            const bgX = -(c.x + cropX)
+            const bgY = -(c.y + cropY)
+
+            // Expand inner div so rotated image fills the cell
             const absAngle = Math.abs(angle)
             const sinA = Math.sin(absAngle), cosA = Math.cos(absAngle)
             const expandX = (c.w * cosA + c.h * sinA - c.w) / 2 + 2
             const expandY = (c.w * sinA + c.h * cosA - c.h) / 2 + 2
 
             // Opacity
-            let op = p.cellOpacity * lerp(0.7, 1, act)
+            let op = p.cellOpacity
             if (p.ambientMotion && p.flicker > 0) {
                 op += Math.sin(time * 1.5 + c.phase * Math.PI * 6) * p.flicker * 0.04
             }
@@ -537,7 +506,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
                             backgroundSize: `${bgW}px ${bgH}px`,
                             backgroundPosition: `${d.bgX - d.expandX}px ${d.bgY - d.expandY}px`,
                             backgroundRepeat: "no-repeat",
-                            transform: d.angleDeg !== 0 ? `rotate(${d.angleDeg}deg)` : undefined,
+                            transform: `rotate(${d.angleDeg}deg)`,
                             transformOrigin: "center center",
                             filter: d.filter,
                         }} />
@@ -608,15 +577,15 @@ addPropertyControls(FragmentField, {
     },
     cellSize: {
         type: ControlType.Number, title: "Cell Size",
-        min: 16, max: 80, step: 2, unit: "px", defaultValue: 38,
+        min: 12, max: 80, step: 2, unit: "px", defaultValue: 34,
     },
     density: {
         type: ControlType.Number, title: "Density",
         min: 0.2, max: 1, step: 0.05, defaultValue: 0.9,
     },
-    distortionStrength: {
-        type: ControlType.Number, title: "Distortion",
-        min: 0, max: 4, step: 0.1, defaultValue: 1.8,
+    rotationStrength: {
+        type: ControlType.Number, title: "Rotation",
+        min: 5, max: 90, step: 1, unit: "°", defaultValue: 55,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
@@ -651,10 +620,6 @@ addPropertyControls(FragmentField, {
         type: ControlType.Number, title: "Flicker",
         min: 0, max: 1, step: 0.05, defaultValue: 0.02,
         hidden: (pp) => !pp.ambientMotion,
-    },
-    rotationStrength: {
-        type: ControlType.Number, title: "Rotation",
-        min: 0, max: 30, step: 1, unit: "°", defaultValue: 12,
     },
     hoverEnabled: {
         type: ControlType.Boolean, title: "Hover Reactive", defaultValue: true,
