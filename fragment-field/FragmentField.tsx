@@ -8,27 +8,27 @@ import React, {
 } from "react"
 
 /*
- * FragmentField — Rotational cell-based distortion field
+ * FragmentField — Spherical cell-based distortion field
  *
  * A uniform square grid overlays the image. In the active zone,
- * each cell's internal media is strongly rotated. The square
- * clipping of rotated content creates scalloped, fish-scale,
- * and triangular interference patterns between adjacent cells.
+ * each cell's internal media is displaced (shifted) according to
+ * a spherical lens distortion emanating from the origin corner.
  *
- * The rotation angle varies smoothly across the field — driven
- * by a directional gradient, not random per-cell noise. Cells
- * near the field origin rotate strongly; cells at the edge
- * rotate gently. This creates a coherent directional flow.
+ * The effect simulates looking through a convex glass sphere
+ * pressed against the image from one corner. Cells near the
+ * sphere center are displaced most; cells at the edge less so.
+ * The displacement is radial — each cell's content shifts away
+ * from the sphere center along the vector from center to cell.
  *
- * The visual effect emerges from the interaction between:
+ * The visual effect emerges from:
  *   - The fixed square cell grid (overflow: hidden)
- *   - The rotated image content inside each cell
- *   - The triangular cutouts where rotation clips the content
- *   - The base image showing through those cutouts
+ *   - The displaced image sampling position per cell
+ *   - The stepped discontinuities at cell boundaries where
+ *     adjacent cells have different displacement amounts
+ *   - The base image showing through inactive regions
  *
- * Cover-correct background sizing ensures the rotated content
- * matches the base image exactly. Expansion compensates for
- * rotation so the inner content always fills the cell.
+ * Cover-correct background sizing ensures the displaced content
+ * matches the base image's scale and crop exactly.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -41,7 +41,8 @@ interface CellData {
     id: number
     col: number; row: number
     x: number; y: number; w: number; h: number
-    angle: number       // rotation in radians — the primary effect
+    dispX: number       // displacement in pixels (X)
+    dispY: number       // displacement in pixels (Y)
     activity: number
     phase: number
 }
@@ -59,9 +60,6 @@ function sr3(a: number, b: number, c: number): number {
 function smoothstep(e0: number, e1: number, x: number): number {
     const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)))
     return t * t * (3 - 2 * t)
-}
-function lerp(a: number, b: number, t: number): number {
-    return a + (b - a) * t
 }
 
 function getDistance(nx: number, ny: number, dir: Direction): number {
@@ -95,12 +93,17 @@ function computeCoverSize(
     }
 }
 
-// ─── Radial Angular Field ────────────────────────────────────────────────────
-// The rotation angle at each cell is derived from its polar angle
-// (atan2) relative to the field's origin point. This creates a
-// sweeping radial pattern — like a spherical distortion emanating
-// from the origin corner. The strength scales with distance from
-// the origin (closer = stronger) and with zone activity.
+// ─── Spherical Lens Distortion ──────────────────────────────────────────────
+// Models a convex sphere pressed against the image from the origin corner.
+// The sphere has a center point and a radius. Cells within the sphere's
+// footprint have their image sampling displaced radially outward from
+// the sphere center — barrel distortion.
+//
+// The displacement magnitude follows a spherical profile:
+//   d(r) = strength * (1 - (r/R)^2)
+// where r = distance from sphere center, R = sphere radius.
+// This gives maximum displacement at the center and zero at the edge,
+// matching the cross-section of a sphere.
 
 function getOrigin(dir: Direction): { ox: number; oy: number } {
     switch (dir) {
@@ -115,44 +118,52 @@ function getOrigin(dir: Direction): { ox: number; oy: number } {
     }
 }
 
-function computeAngle(
+function computeDisplacement(
     nx: number, ny: number,
     activity: number,
     col: number, row: number,
     ox: number, oy: number,
-    rotStr: number,    // degrees
-    randomness: number
-): number {
-    if (activity < 0.01) return 0
+    strength: number,   // max displacement in pixels
+    sphereRadius: number, // normalized radius of the sphere
+    randomness: number,
+    contW: number, contH: number
+): { dx: number; dy: number } {
+    if (activity < 0.01) return { dx: 0, dy: 0 }
 
-    const maxRad = rotStr * (Math.PI / 180)
+    // Vector from sphere origin to this cell (normalized coords)
+    const vx = nx - ox
+    const vy = ny - oy
 
-    // Vector from origin to this cell
-    const dx = nx - ox
-    const dy = ny - oy
+    // Distance from origin (normalized)
+    const dist = Math.sqrt(vx * vx + vy * vy)
 
-    // Polar angle from origin — this IS the rotation direction
-    // Cells in different directions from the origin rotate differently,
-    // creating the radial sweep pattern
-    const polarAngle = Math.atan2(dy, dx)
+    if (dist < 0.001) return { dx: 0, dy: 0 }
 
-    // Distance from origin (0 at corner, ~1.4 at opposite corner)
-    const dist = Math.sqrt(dx * dx + dy * dy)
+    // Normalized distance within sphere (0 at center, 1 at edge)
+    const rNorm = Math.min(1, dist / Math.max(0.01, sphereRadius))
 
-    // Rotation angle: polar angle scaled by strength and activity
-    // The polar angle naturally creates the directional sweep
-    let angle = polarAngle * (maxRad / Math.PI) * activity
+    // Spherical profile: maximum at center, zero at edge
+    // d(r) = (1 - r^2) — cross-section of a sphere
+    const sphereProfile = 1 - rNorm * rNorm
 
-    // Distance modulation: cells further from origin rotate more
-    // (they've "swept" further around the radial field)
-    const distScale = Math.min(1, dist * 1.2)
-    angle *= distScale
+    // Direction: unit vector from origin to cell
+    const dirX = vx / dist
+    const dirY = vy / dist
+
+    // Displacement magnitude: sphere profile * strength * activity
+    const mag = sphereProfile * strength * activity
+
+    // Convert to pixel displacement
+    let dx = dirX * mag
+    let dy = dirY * mag
 
     // Small per-cell jitter for organic variation
-    const jit = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
-    angle += jit * maxRad * 0.06 * randomness
+    const jitX = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
+    const jitY = (sr3(col * 0.7, row * 0.7, 77) - 0.5) * 2
+    dx += jitX * strength * 0.04 * randomness * activity
+    dy += jitY * strength * 0.04 * randomness * activity
 
-    return angle
+    return { dx, dy }
 }
 
 // ─── Grid Cell Generation ───────────────────────────────────────────────────
@@ -164,7 +175,7 @@ function makeCells(
     edgeStepping: number, randomness: number,
     cellSize: number, density: number,
     islandDensity: number, islandScatter: number, islandFade: number,
-    rotStr: number
+    strength: number, sphereRadius: number
 ): CellData[] {
     if (contW <= 0 || contH <= 0 || cellSize < 4) return []
 
@@ -213,15 +224,17 @@ function makeCells(
 
             if (activity < 0.03) continue
 
-            const angle = computeAngle(
+            const { dx, dy } = computeDisplacement(
                 nx, ny, activity, col, row,
-                ox, oy, rotStr, randomness
+                ox, oy, strength, sphereRadius,
+                randomness, contW, contH
             )
 
             cells.push({
                 id: cid++,
                 col, row, x, y, w, h,
-                angle,
+                dispX: dx,
+                dispY: dy,
                 activity,
                 phase: sr3(col * 0.7, row * 0.7, 17),
             })
@@ -247,7 +260,8 @@ interface Props {
     randomness: number
     cellSize: number
     density: number
-    rotationStrength: number
+    distortionStrength: number
+    sphereRadius: number
     cellOpacity: number
     islandDensity: number
     islandScatter: number
@@ -281,7 +295,8 @@ const defaults: Partial<Props> = {
     randomness: 0.3,
     cellSize: 30,
     density: 1.0,
-    rotationStrength: 65,
+    distortionStrength: 40,
+    sphereRadius: 1.2,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
@@ -357,11 +372,12 @@ export default function FragmentField(rawProps: Partial<Props>) {
             p.coverage, p.falloffWidth, p.edgeStepping, p.randomness,
             p.cellSize, p.density,
             p.islandDensity, p.islandScatter, p.islandFade,
-            p.rotationStrength
+            p.distortionStrength, p.sphereRadius
         ),
         [size.w, size.h, p.direction, p.coverage, p.falloffWidth,
          p.edgeStepping, p.randomness, p.cellSize, p.density,
-         p.islandDensity, p.islandScatter, p.islandFade, p.rotationStrength]
+         p.islandDensity, p.islandScatter, p.islandFade,
+         p.distortionStrength, p.sphereRadius]
     )
 
     const onMM = useCallback((e: React.MouseEvent) => {
@@ -422,33 +438,28 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const hInf = hoverRef.current.get(c.id) || 0
             const act = Math.min(1, c.activity + hInf * 0.4)
 
-            let angle = c.angle
+            let dx = c.dispX
+            let dy = c.dispY
 
-            // Ambient: gentle angular oscillation
+            // Ambient: gentle displacement oscillation
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
-                angle += Math.sin(
-                    time * s * 0.3 + c.phase * Math.PI * 4
-                ) * a * 0.04 * p.rotationStrength * (Math.PI / 180)
+                const osc = Math.sin(time * s * 0.3 + c.phase * Math.PI * 4) * a
+                // Oscillate along the displacement direction
+                dx += osc * (c.dispX !== 0 ? Math.sign(c.dispX) : 1) * 2
+                dy += osc * (c.dispY !== 0 ? Math.sign(c.dispY) : 1) * 2
             }
 
-            // Hover: intensify rotation
+            // Hover: intensify displacement
             if (hInf > 0) {
-                angle *= 1 + hInf * 0.5
+                dx *= 1 + hInf * 0.6
+                dy *= 1 + hInf * 0.6
             }
 
-            const angleDeg = angle * (180 / Math.PI)
-
-            // Background position: cover-correct, no displacement
-            const bgX = -(c.x + cropX)
-            const bgY = -(c.y + cropY)
-
-            // Expand inner div so rotated image fills the cell
-            const absAngle = Math.abs(angle)
-            const sinA = Math.sin(absAngle), cosA = Math.cos(absAngle)
-            const expandX = (c.w * cosA + c.h * sinA - c.w) / 2 + 2
-            const expandY = (c.w * sinA + c.h * cosA - c.h) / 2 + 2
+            // Background position: cover-correct + displacement
+            const bgX = -(c.x + cropX) + dx
+            const bgY = -(c.y + cropY) + dy
 
             // Opacity
             let op = p.cellOpacity
@@ -464,7 +475,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
             if (p.blur > 0) fl.push(`blur(${p.blur * act * 0.25}px)`)
             if (fl.length) filter = fl.join(" ")
 
-            return { c, bgX, bgY, angleDeg, expandX, expandY, op, filter }
+            return { c, bgX, bgY, op, filter }
         })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cells, tick, p, cW, cH, bgW, bgH, cropX, cropY])
@@ -516,16 +527,14 @@ export default function FragmentField(rawProps: Partial<Props>) {
                     >
                         <div style={{
                             position: "absolute",
-                            left: -d.expandX,
-                            top: -d.expandY,
-                            width: d.c.w + d.expandX * 2,
-                            height: d.c.h + d.expandY * 2,
+                            left: 0,
+                            top: 0,
+                            width: d.c.w,
+                            height: d.c.h,
                             backgroundImage: `url(${p.source})`,
                             backgroundSize: `${bgW}px ${bgH}px`,
-                            backgroundPosition: `${d.bgX - d.expandX}px ${d.bgY - d.expandY}px`,
+                            backgroundPosition: `${d.bgX}px ${d.bgY}px`,
                             backgroundRepeat: "no-repeat",
-                            transform: `rotate(${d.angleDeg}deg)`,
-                            transformOrigin: "center center",
                             filter: d.filter,
                         }} />
                     </div>
@@ -601,9 +610,13 @@ addPropertyControls(FragmentField, {
         type: ControlType.Number, title: "Density",
         min: 0.2, max: 1, step: 0.05, defaultValue: 1.0,
     },
-    rotationStrength: {
-        type: ControlType.Number, title: "Rotation",
-        min: 5, max: 90, step: 1, unit: "°", defaultValue: 65,
+    distortionStrength: {
+        type: ControlType.Number, title: "Distortion",
+        min: 5, max: 120, step: 1, unit: "px", defaultValue: 40,
+    },
+    sphereRadius: {
+        type: ControlType.Number, title: "Sphere Radius",
+        min: 0.3, max: 2.5, step: 0.05, defaultValue: 1.2,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
