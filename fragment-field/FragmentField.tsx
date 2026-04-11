@@ -10,20 +10,17 @@ import React, {
 /*
  * FragmentField — Rotational cascade fragmentation
  *
- * Visual model:
- * A rotational field defines a smooth angular flow across the
- * distortion zone. Cells subdivide recursively: large parent cells
- * at the field edges break into smaller descendants toward the core.
- * Each cell's image sample is displaced by rotating its source
- * position around a pivot by the local field angle. Because the
- * field is continuous, neighboring cells inherit related angles,
- * creating coherent rotational drift rather than random offsets.
+ * Two rotational attractors create a smooth angular field.
+ * Cells subdivide recursively via quadtree: large cells at
+ * the field edges break into smaller descendants toward the
+ * core. Each child inherits its parent's rotation angle and
+ * adds a small angular increment, creating coherent rotational
+ * flow with nested scale relationships.
  *
- * Architecture:
- * - Vortex centers define the rotational field (replacing linear clusters)
- * - Quadtree subdivision creates recursive nesting (large → small)
- * - Field angle determines sample displacement (not random per-cell)
- * - Single div per cell, full opacity, cover-correct sizing
+ * The image content inside each cell is CSS-rotated (not offset-
+ * shifted), so the effect reads as a turning field, not shifted
+ * tiles. Cover-correct background sizing ensures cells show the
+ * same image rendering as the base layer.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -32,12 +29,12 @@ type Direction =
     | "left" | "right" | "top" | "bottom"
     | "top-left" | "top-right" | "bottom-left" | "bottom-right"
 
-interface Vortex {
-    cx: number     // normalized center
+interface Attractor {
+    cx: number
     cy: number
-    angle: number  // radians: base rotation at center
-    radius: number // normalized influence radius
-    strength: number
+    strength: number // radians at center
+    radius: number   // normalized falloff radius
+    spin: number     // +1 or -1 (CW / CCW)
 }
 
 interface CellData {
@@ -48,12 +45,10 @@ interface CellData {
     h: number
     nx: number
     ny: number
-    depth: number  // recursion depth (0=largest, higher=smaller)
-    fieldAngle: number
+    depth: number
+    angle: number     // inherited + accumulated rotation (radians)
     zone: "core" | "falloff" | "island"
     activity: number
-    sampleX: number
-    sampleY: number
     phase: number
 }
 
@@ -89,20 +84,6 @@ function getDistance(nx: number, ny: number, dir: Direction): number {
     }
 }
 
-function getDirAngle(dir: Direction): number {
-    // Returns a base sweep angle aligned with the field direction
-    switch (dir) {
-        case "left": return 0
-        case "right": return Math.PI
-        case "top": return Math.PI / 2
-        case "bottom": return -Math.PI / 2
-        case "top-left": return Math.PI / 4
-        case "top-right": return 3 * Math.PI / 4
-        case "bottom-left": return -Math.PI / 4
-        case "bottom-right": return -3 * Math.PI / 4
-    }
-}
-
 // ─── Cover computation ──────────────────────────────────────────────────────
 
 function computeCoverSize(
@@ -121,87 +102,98 @@ function computeCoverSize(
     }
 }
 
-// ─── Rotational Vortex Field ─────────────────────────────────────────────────
-// Vortices create a smooth rotational field. Each vortex defines an
-// angular influence that sweeps gradually across space. Neighboring
-// points get similar angles → angular inheritance.
+// ─── Rotational Attractors ──────────────────────────────────────────────────
+// Two attractors create the angular field. Each is a point that
+// rotates nearby cells. The angle at any point is the smooth
+// blend of attractor influences — this guarantees angular
+// coherence between neighbors.
 
-function makeVortices(
+function makeAttractors(
     dir: Direction, coverage: number, falloffWidth: number, rotStr: number
-): Vortex[] {
+): Attractor[] {
     const covN = coverage / 100
     const fallEnd = covN + falloffWidth / 100
-    const baseAngle = getDirAngle(dir)
-    const vortices: Vortex[] = []
-    const count = 5 + Math.round(covN * 6)
 
-    for (let i = 0; i < count; i++) {
-        const s1 = sr(i * 73 + 13)
-        const s2 = sr(i * 137 + 29)
-        const s3 = sr(i * 251 + 41)
+    // Place two attractors within the distortion zone
+    // Attractor 1: deeper, stronger, primary rotation
+    // Attractor 2: offset laterally, counter-rotation for tension
+    const s1 = sr(42), s2 = sr(137)
+    const depth1 = 0.25, depth2 = 0.55
 
-        // Position within the distortion zone
-        let cx: number, cy: number
-        const reach = fallEnd * 0.85
-
+    function placeInField(
+        depthFrac: number, lateralFrac: number
+    ): { cx: number; cy: number } {
+        // depthFrac: 0=origin, 1=falloff edge
+        // lateralFrac: 0-1 along perpendicular axis
+        const d = depthFrac * fallEnd
         switch (dir) {
-            case "left": cx = s1 * reach; cy = s2; break
-            case "right": cx = 1 - s1 * reach; cy = s2; break
-            case "top": cx = s2; cy = s1 * reach; break
-            case "bottom": cx = s2; cy = 1 - s1 * reach; break
-            case "top-left": cx = s1 * reach; cy = s2 * reach; break
-            case "top-right": cx = 1 - s1 * reach; cy = s2 * reach; break
-            case "bottom-left": cx = s1 * reach; cy = 1 - s2 * reach; break
-            case "bottom-right": cx = 1 - s1 * reach; cy = 1 - s2 * reach; break
+            case "left": return { cx: d, cy: lateralFrac }
+            case "right": return { cx: 1 - d, cy: lateralFrac }
+            case "top": return { cx: lateralFrac, cy: d }
+            case "bottom": return { cx: lateralFrac, cy: 1 - d }
+            case "top-left": return { cx: d * 0.8, cy: d * 0.8 + lateralFrac * (1 - d) }
+            case "top-right": return { cx: 1 - d * 0.8, cy: d * 0.8 + lateralFrac * (1 - d) }
+            case "bottom-left": return { cx: d * 0.8 + lateralFrac * (1 - d), cy: 1 - d * 0.8 }
+            case "bottom-right": return { cx: 1 - d * 0.8, cy: 1 - d * 0.8 }
         }
-
-        const dist = getDistance(cx, cy, dir)
-        const depthStr = Math.max(0, 1 - dist / fallEnd)
-
-        // Angle: sweeps along the field direction with per-vortex variation
-        // Deeper vortices rotate more strongly
-        const angle = baseAngle * depthStr * rotStr * (Math.PI / 180) * (0.5 + s3)
-            + (s3 - 0.5) * 0.6 * rotStr * (Math.PI / 180)
-
-        vortices.push({
-            cx, cy,
-            angle,
-            radius: 0.08 + s2 * 0.14,
-            strength: depthStr,
-        })
     }
-    return vortices
+
+    const p1 = placeInField(depth1, 0.35 + s1 * 0.3)
+    const p2 = placeInField(depth2, 0.25 + s2 * 0.5)
+
+    const baseRad = rotStr * (Math.PI / 180)
+
+    return [
+        {
+            cx: p1.cx, cy: p1.cy,
+            strength: baseRad * 1.2,
+            radius: 0.25 + covN * 0.15,
+            spin: 1,
+        },
+        {
+            cx: p2.cx, cy: p2.cy,
+            strength: baseRad * 0.7,
+            radius: 0.18 + covN * 0.1,
+            spin: -1,
+        },
+    ]
 }
 
-// Resolve the field angle at a point: smooth blend of all vortex influences
-function getFieldAngle(nx: number, ny: number, vortices: Vortex[]): number {
-    let angle = 0, tw = 0
-    for (const v of vortices) {
-        const dx = nx - v.cx, dy = ny - v.cy
+// Resolve field angle: smooth blend of attractor influences
+function getAttractorAngle(
+    nx: number, ny: number, attractors: Attractor[]
+): number {
+    let angle = 0
+    for (const a of attractors) {
+        const dx = nx - a.cx, dy = ny - a.cy
         const d = Math.sqrt(dx * dx + dy * dy)
-        if (d > v.radius * 3) continue
-        const w = smoothstep(v.radius * 3, 0, d) * v.strength
-        if (w < 0.001) continue
-        angle += v.angle * w
-        tw += w
+        if (d > a.radius * 2) continue
+
+        // Smooth radial falloff from attractor center
+        const influence = smoothstep(a.radius * 2, 0, d)
+
+        // Angular component: cells closer to the attractor rotate more
+        // Add a tangential twist based on the cell's position relative
+        // to the attractor, so it feels like orbiting, not uniform
+        const tangentialAngle = Math.atan2(dy, dx)
+        const twist = tangentialAngle * 0.15 * influence
+
+        angle += (a.strength * a.spin * influence) + twist
     }
-    return tw > 0.001 ? angle / Math.min(tw, 1.2) : 0
+    return angle
 }
 
 // ─── Recursive Cell Generation ───────────────────────────────────────────────
-// Quadtree subdivision: large cells at field edges, progressively
-// smaller cells toward the core. Creates spatial hierarchy where
-// parent regions visibly contain descendant cells.
 
 function makeCells(
     contW: number, contH: number,
-    vortices: Vortex[],
+    attractors: Attractor[],
     dir: Direction,
     coverage: number, falloffWidth: number,
     edgeStepping: number, randomness: number,
     cellSize: number, density: number,
     islandDensity: number, islandScatter: number, islandFade: number,
-    distStr: number, rotStr: number
+    distStr: number
 ): CellData[] {
     if (contW <= 0 || contH <= 0) return []
 
@@ -210,75 +202,67 @@ function makeCells(
     const fallEnd = covN + fallN
     const steps = Math.max(1, edgeStepping)
 
-    const startSize = cellSize * 4  // largest cell tier
-    const minSize = cellSize * 0.5  // smallest subdivision
+    const startSize = cellSize * 4
+    const minSize = Math.max(8, cellSize * 0.45)
     const cells: CellData[] = []
     let cid = 0
 
-    // Recursive subdivision
     function subdivide(
-        x: number, y: number, w: number, h: number, depth: number
+        x: number, y: number, w: number, h: number,
+        depth: number, parentAngle: number
     ) {
-        // Cell center in normalized space
         const nx = (x + w / 2) / contW
         const ny = (y + h / 2) / contH
-        if (nx < -0.1 || nx > 1.1 || ny < -0.1 || ny > 1.1) return
+        if (nx < -0.05 || nx > 1.05 || ny < -0.05 || ny > 1.05) return
 
         const dist = getDistance(nx, ny, dir)
-
-        // Field depth: 0 at falloff edge, 1 at origin
         const fieldDepth = Math.max(0, 1 - dist / Math.max(0.01, fallEnd))
 
-        // Should this cell subdivide further?
-        // Deeper in the field → more subdivision → smaller cells
+        // ── Angle inheritance ──
+        // Get this cell's angle from the attractor field
+        const attractorAngle = getAttractorAngle(nx, ny, attractors)
+        // Inherit from parent and blend with local attractor influence
+        // Deeper children lean more toward the attractor field,
+        // shallower cells lean toward their parent's angle
+        const inheritBlend = Math.min(1, 0.3 + depth * 0.2)
+        const cellAngle = parentAngle * (1 - inheritBlend) + attractorAngle * inheritBlend
+            // Add small angular increment per subdivision for fan-out
+            + (sr3(x * 0.1, y * 0.1, depth * 13) - 0.5) * 0.08 * (depth + 1)
+
+        // ── Subdivision decision ──
         const halfW = w / 2, halfH = h / 2
-        const canSubdivide = halfW >= minSize && halfH >= minSize && depth < 4
+        const canSub = halfW >= minSize && halfH >= minSize && depth < 4
 
-        // Subdivision threshold: deeper field depth = easier to subdivide
-        // This creates the gradient from large to small
-        const subdivThreshold = depth === 0 ? 0.1
-            : depth === 1 ? 0.3
-            : depth === 2 ? 0.55
-            : 0.75
+        const subThresh = depth === 0 ? 0.08
+            : depth === 1 ? 0.28
+            : depth === 2 ? 0.50
+            : 0.72
+        const subSeed = sr3(Math.floor(x * 0.7), Math.floor(y * 0.7), depth * 7)
+        const jitter = (subSeed - 0.5) * 0.12
 
-        // Add some randomness to prevent uniform subdivision boundaries
-        const subdivSeed = sr3(Math.floor(x), Math.floor(y), depth * 7)
-        const subdivJitter = (subdivSeed - 0.5) * 0.15
-
-        if (canSubdivide && fieldDepth > subdivThreshold + subdivJitter) {
-            // Some cells skip subdivision for rhythm (fewer at deeper levels)
-            const skipChance = depth === 0 ? 0.02 : depth === 1 ? 0.08 : 0.15
-            if (subdivSeed < skipChance) {
-                // Don't subdivide — emit as larger cell
-                emitCell(x, y, w, h, depth, nx, ny, dist, fieldDepth)
+        if (canSub && fieldDepth > subThresh + jitter) {
+            // Skip chance: occasional large cells survive in core for variety
+            const skipChance = depth === 0 ? 0.03 : depth === 1 ? 0.06 : 0.12
+            if (subSeed >= skipChance) {
+                subdivide(x, y, halfW, halfH, depth + 1, cellAngle)
+                subdivide(x + halfW, y, halfW, halfH, depth + 1, cellAngle)
+                subdivide(x, y + halfH, halfW, halfH, depth + 1, cellAngle)
+                subdivide(x + halfW, y + halfH, halfW, halfH, depth + 1, cellAngle)
                 return
             }
-            subdivide(x, y, halfW, halfH, depth + 1)
-            subdivide(x + halfW, y, halfW, halfH, depth + 1)
-            subdivide(x, y + halfH, halfW, halfH, depth + 1)
-            subdivide(x + halfW, y + halfH, halfW, halfH, depth + 1)
-            return
         }
 
-        emitCell(x, y, w, h, depth, nx, ny, dist, fieldDepth)
-    }
-
-    function emitCell(
-        x: number, y: number, w: number, h: number,
-        depth: number, nx: number, ny: number,
-        dist: number, fieldDepth: number
-    ) {
+        // ── Emit leaf cell ──
         const seed = sr2(x * 0.1, y * 0.1)
-        const jitter = (seed - 0.5) * randomness * 0.08
+        const jit = (seed - 0.5) * randomness * 0.08
 
-        // Zone determination
         let zone: CellData["zone"] | "clean" = "clean"
         let activity = 0
 
-        if (dist < covN + jitter) {
+        if (dist < covN + jit) {
             zone = "core"
             activity = 1
-        } else if (dist < fallEnd + jitter) {
+        } else if (dist < fallEnd + jit) {
             zone = "falloff"
             const t = (dist - covN) / Math.max(0.001, fallN)
             const stepped = Math.floor(t * steps) / steps
@@ -302,33 +286,18 @@ function makeCells(
 
         if (zone === "clean" || activity < 0.02) return
 
-        // ── Rotational field angle at this cell ──
-        const fieldAngle = getFieldAngle(nx, ny, vortices)
-
-        // ── Sample displacement from field rotation ──
-        // The pivot radius scales with cell size: smaller descendant
-        // cells get proportionally smaller displacement, creating
-        // the recursive cascade where children's rotation is
-        // subordinate to their parent region's rotation.
-        const pivotR = Math.sqrt(w * h) * 0.5 * distStr * activity
-        const sampleX = Math.sin(fieldAngle) * pivotR
-        const sampleY = (1 - Math.cos(fieldAngle)) * pivotR
-
-        const phase = sr3(x * 0.1, y * 0.1, 17)
-
         cells.push({
             id: cid++,
             x, y, w, h, nx, ny,
             depth,
-            fieldAngle,
+            angle: cellAngle * activity * distStr,
             zone: zone as CellData["zone"],
             activity,
-            sampleX, sampleY,
-            phase,
+            phase: sr3(x * 0.1, y * 0.1, 17),
         })
     }
 
-    // Start recursion from a grid of large starting cells
+    // Start recursion
     const startCols = Math.ceil(contW / startSize)
     const startRows = Math.ceil(contH / startSize)
     for (let r = 0; r < startRows; r++) {
@@ -338,7 +307,8 @@ function makeCells(
             const w = Math.min(startSize, contW - x)
             const h = Math.min(startSize, contH - y)
             if (w > 4 && h > 4) {
-                subdivide(x, y, w, h, 0)
+                // Root cells start with zero inherited angle
+                subdivide(x, y, w, h, 0, 0)
             }
         }
     }
@@ -392,23 +362,23 @@ const defaults: Partial<Props> = {
     positionY: 50,
     borderRadius: 0,
     direction: "top-right",
-    coverage: 40,
+    coverage: 42,
     falloffWidth: 24,
     edgeStepping: 5,
-    randomness: 0.5,
+    randomness: 0.45,
     cellSize: 28,
     density: 0.92,
-    distortionStrength: 1.4,
+    distortionStrength: 1.3,
     cellOpacity: 1,
-    islandDensity: 22,
+    islandDensity: 20,
     islandScatter: 14,
     islandFade: 0.4,
     ambientMotion: true,
-    motionAmount: 0.3,
-    drift: 0.15,
-    flicker: 0.04,
+    motionAmount: 0.25,
+    drift: 0.12,
+    flicker: 0.03,
     rotationEnabled: true,
-    rotationStrength: 10,
+    rotationStrength: 14,
     hoverEnabled: true,
     hoverRadius: 110,
     hoverIntensity: 0.5,
@@ -470,23 +440,22 @@ export default function FragmentField(rawProps: Partial<Props>) {
         return computeCoverSize(imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY)
     }, [imgDims.w, imgDims.h, size.w, size.h, p.positionX, p.positionY])
 
-    const vortices = useMemo(
-        () => makeVortices(p.direction, p.coverage, p.falloffWidth, p.rotationStrength),
+    const attractors = useMemo(
+        () => makeAttractors(p.direction, p.coverage, p.falloffWidth, p.rotationStrength),
         [p.direction, p.coverage, p.falloffWidth, p.rotationStrength]
     )
 
     const cells = useMemo(
         () => makeCells(
-            size.w, size.h, vortices, p.direction,
+            size.w, size.h, attractors, p.direction,
             p.coverage, p.falloffWidth, p.edgeStepping, p.randomness,
             p.cellSize, p.density,
             p.islandDensity, p.islandScatter, p.islandFade,
-            p.distortionStrength, p.rotationStrength
+            p.distortionStrength
         ),
-        [size.w, size.h, vortices, p.direction, p.coverage, p.falloffWidth,
+        [size.w, size.h, attractors, p.direction, p.coverage, p.falloffWidth,
          p.edgeStepping, p.randomness, p.cellSize, p.density,
-         p.islandDensity, p.islandScatter, p.islandFade,
-         p.distortionStrength, p.rotationStrength]
+         p.islandDensity, p.islandScatter, p.islandFade, p.distortionStrength]
     )
 
     const onMM = useCallback((e: React.MouseEvent) => {
@@ -529,7 +498,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const cx = c.x + c.w / 2, cy = c.y + c.h / 2
             const d = Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2)
             if (d < r) {
-                const inf = smoothstep(r, r * 0.2, d) * p.hoverIntensity
+                const inf = smoothstep(r, r * 0.15, d) * p.hoverIntensity
                 const cur = hoverRef.current.get(c.id) || 0
                 hoverRef.current.set(c.id, Math.max(cur, inf))
             }
@@ -547,42 +516,55 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const hInf = hoverRef.current.get(c.id) || 0
             const act = Math.min(1, c.activity + hInf * 0.5)
 
-            let sx = c.sampleX * act
-            let sy = c.sampleY * act
+            // ── Rotation angle ──
+            let angle = p.rotationEnabled ? c.angle : 0
 
-            // Ambient: rotational oscillation aligned with field angle
+            // Ambient: gentle angular oscillation
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
-                // Oscillate along the cell's own field angle direction
-                const osc = Math.sin(time * s * 0.35 + c.nx * Math.PI * 1.4 + c.ny * 0.8) * a
-                sx += Math.sin(c.fieldAngle + Math.PI / 2) * osc * 2.5
-                sy += Math.cos(c.fieldAngle + Math.PI / 2) * osc * 1.5
+                angle += Math.sin(
+                    time * s * 0.3 + c.nx * Math.PI * 1.2 + c.ny * 0.7
+                ) * a * 0.04 * p.distortionStrength
             }
 
+            // Hover: intensify rotation near cursor
             if (hInf > 0) {
-                sx *= 1 + hInf * 0.5
-                sy *= 1 + hInf * 0.5
+                angle *= 1 + hInf * 0.6
             }
 
-            const bgX = -(c.x + cropX) + sx
-            const bgY = -(c.y + cropY) + sy
+            const angleDeg = angle * (180 / Math.PI)
 
+            // ── Background position (cover-correct, no displacement) ──
+            // The rotation IS the distortion — no sample offset needed
+            const bgX = -(c.x + cropX)
+            const bgY = -(c.y + cropY)
+
+            // ── Inner div expansion to prevent gap artifacts ──
+            // When the content rotates, corners extend beyond the cell.
+            // Expand the inner div so the rotated image still fills the cell.
+            const absAngle = Math.abs(angle)
+            const sinA = Math.sin(absAngle), cosA = Math.cos(absAngle)
+            // Bounding box of rotated rectangle
+            const expandX = (c.w * cosA + c.h * sinA - c.w) / 2 + 2
+            const expandY = (c.w * sinA + c.h * cosA - c.h) / 2 + 2
+
+            // Opacity
             let op = p.cellOpacity
             if (c.zone === "island") op *= 0.6 * act
-
             if (p.ambientMotion && p.flicker > 0) {
                 op += Math.sin(time * 1.5 + c.phase * Math.PI * 6) * p.flicker * 0.04
                 op = Math.max(0.1, Math.min(1, op))
             }
 
+            // Filters
             let filter: string | undefined
             const fl: string[] = []
             if (p.contrast !== 0) fl.push(`contrast(${1 + p.contrast * act * 0.01})`)
             if (p.blur > 0) fl.push(`blur(${p.blur * act * 0.25}px)`)
             if (fl.length) filter = fl.join(" ")
 
-            return { c, bgX, bgY, op, filter }
+            return { c, bgX, bgY, angleDeg, expandX, expandY, op, filter }
         })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cells, tick, p, cW, cH, bgW, bgH, cropX, cropY])
@@ -602,6 +584,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 borderRadius: p.borderRadius,
             }}
         >
+            {/* Base media */}
             {p.mediaType === "image" ? (
                 <img src={p.source} alt="" style={{
                     position: "absolute", inset: 0,
@@ -618,11 +601,13 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 }} />
             )}
 
+            {/* Fragment field — rotated image content inside stable cell frames */}
             <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                 {renderData.map((d) => (
                     <div
                         key={d.c.id}
                         style={{
+                            // Outer: stable grid-aligned frame, clips rotated content
                             position: "absolute",
                             left: d.c.x,
                             top: d.c.y,
@@ -630,16 +615,28 @@ export default function FragmentField(rawProps: Partial<Props>) {
                             height: d.c.h,
                             overflow: "hidden",
                             opacity: d.op,
+                        }}
+                    >
+                        {/* Inner: expanded + rotated image content */}
+                        <div style={{
+                            position: "absolute",
+                            left: -d.expandX,
+                            top: -d.expandY,
+                            width: d.c.w + d.expandX * 2,
+                            height: d.c.h + d.expandY * 2,
                             backgroundImage: `url(${p.source})`,
                             backgroundSize: `${bgW}px ${bgH}px`,
-                            backgroundPosition: `${d.bgX}px ${d.bgY}px`,
+                            backgroundPosition: `${d.bgX - d.expandX}px ${d.bgY - d.expandY}px`,
                             backgroundRepeat: "no-repeat",
+                            transform: `rotate(${d.angleDeg}deg)`,
+                            transformOrigin: "center center",
                             filter: d.filter,
-                        }}
-                    />
+                        }} />
+                    </div>
                 ))}
             </div>
 
+            {/* Grain */}
             {p.grain && (
                 <div style={{
                     position: "absolute", inset: 0, pointerEvents: "none",
@@ -687,7 +684,7 @@ addPropertyControls(FragmentField, {
     },
     coverage: {
         type: ControlType.Number, title: "Coverage",
-        min: 5, max: 85, step: 1, unit: "%", defaultValue: 40,
+        min: 5, max: 85, step: 1, unit: "%", defaultValue: 42,
     },
     falloffWidth: {
         type: ControlType.Number, title: "Falloff Width",
@@ -699,7 +696,7 @@ addPropertyControls(FragmentField, {
     },
     randomness: {
         type: ControlType.Number, title: "Randomness",
-        min: 0, max: 1, step: 0.05, defaultValue: 0.5,
+        min: 0, max: 1, step: 0.05, defaultValue: 0.45,
     },
     cellSize: {
         type: ControlType.Number, title: "Cell Size",
@@ -711,7 +708,7 @@ addPropertyControls(FragmentField, {
     },
     distortionStrength: {
         type: ControlType.Number, title: "Distortion",
-        min: 0, max: 4, step: 0.1, defaultValue: 1.4,
+        min: 0, max: 4, step: 0.1, defaultValue: 1.3,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
@@ -719,7 +716,7 @@ addPropertyControls(FragmentField, {
     },
     islandDensity: {
         type: ControlType.Number, title: "Island Density",
-        min: 0, max: 80, step: 1, unit: "%", defaultValue: 22,
+        min: 0, max: 80, step: 1, unit: "%", defaultValue: 20,
     },
     islandScatter: {
         type: ControlType.Number, title: "Island Scatter",
@@ -734,26 +731,26 @@ addPropertyControls(FragmentField, {
     },
     motionAmount: {
         type: ControlType.Number, title: "Motion Amount",
-        min: 0, max: 2, step: 0.05, defaultValue: 0.3,
-        hidden: (p) => !p.ambientMotion,
+        min: 0, max: 2, step: 0.05, defaultValue: 0.25,
+        hidden: (pp) => !pp.ambientMotion,
     },
     drift: {
         type: ControlType.Number, title: "Drift",
-        min: 0, max: 2, step: 0.05, defaultValue: 0.15,
-        hidden: (p) => !p.ambientMotion,
+        min: 0, max: 2, step: 0.05, defaultValue: 0.12,
+        hidden: (pp) => !pp.ambientMotion,
     },
     flicker: {
         type: ControlType.Number, title: "Flicker",
-        min: 0, max: 1, step: 0.05, defaultValue: 0.04,
-        hidden: (p) => !p.ambientMotion,
+        min: 0, max: 1, step: 0.05, defaultValue: 0.03,
+        hidden: (pp) => !pp.ambientMotion,
     },
     rotationEnabled: {
         type: ControlType.Boolean, title: "Rotation", defaultValue: true,
     },
     rotationStrength: {
         type: ControlType.Number, title: "Rotation Strength",
-        min: 0, max: 30, step: 1, unit: "°", defaultValue: 10,
-        hidden: (p) => !p.rotationEnabled,
+        min: 0, max: 45, step: 1, unit: "°", defaultValue: 14,
+        hidden: (pp) => !pp.rotationEnabled,
     },
     hoverEnabled: {
         type: ControlType.Boolean, title: "Hover Reactive", defaultValue: true,
@@ -761,17 +758,17 @@ addPropertyControls(FragmentField, {
     hoverRadius: {
         type: ControlType.Number, title: "Hover Radius",
         min: 30, max: 300, step: 5, unit: "px", defaultValue: 110,
-        hidden: (p) => !p.hoverEnabled,
+        hidden: (pp) => !pp.hoverEnabled,
     },
     hoverIntensity: {
         type: ControlType.Number, title: "Hover Intensity",
         min: 0, max: 1, step: 0.05, defaultValue: 0.5,
-        hidden: (p) => !p.hoverEnabled,
+        hidden: (pp) => !pp.hoverEnabled,
     },
     hoverRecovery: {
         type: ControlType.Number, title: "Hover Recovery",
         min: 0.01, max: 0.2, step: 0.01, defaultValue: 0.05,
-        hidden: (p) => !p.hoverEnabled,
+        hidden: (pp) => !pp.hoverEnabled,
     },
     contrast: {
         type: ControlType.Number, title: "Contrast",
