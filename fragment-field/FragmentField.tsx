@@ -19,6 +19,17 @@ type Direction =
     | "bottom-left"
     | "bottom-right"
 
+interface Cluster {
+    cx: number // normalized center x (0-1)
+    cy: number // normalized center y (0-1)
+    offsetX: number // px offset this cluster "drags" the image
+    offsetY: number // px offset this cluster "drags" the image
+    rotation: number // subtle angular tilt for this cluster
+    scale: number // subtle zoom for this cluster
+    radius: number // influence radius in normalized space
+    strength: number // 0-1
+}
+
 interface CellData {
     id: number
     col: number
@@ -34,13 +45,17 @@ interface CellData {
     activity: number
     phase: number
     seed: number
-    seed2: number
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
 function seededRandom(seed: number): number {
     const x = Math.sin(seed * 127.1 + seed * 311.7) * 43758.5453
+    return x - Math.floor(x)
+}
+
+function seededRandom2(a: number, b: number): number {
+    const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453
     return x - Math.floor(x)
 }
 
@@ -72,6 +87,135 @@ function getDirectionalDistance(
         case "bottom-right":
             return Math.sqrt((1 - nx) ** 2 + (1 - ny) ** 2) / Math.SQRT2
     }
+}
+
+// Get the directional axis for a given direction (used for cluster drag alignment)
+function getDirectionVector(direction: Direction): {
+    dx: number
+    dy: number
+} {
+    switch (direction) {
+        case "left":
+            return { dx: 1, dy: 0 }
+        case "right":
+            return { dx: -1, dy: 0 }
+        case "top":
+            return { dx: 0, dy: 1 }
+        case "bottom":
+            return { dx: 0, dy: -1 }
+        case "top-left":
+            return { dx: 0.707, dy: 0.707 }
+        case "top-right":
+            return { dx: -0.707, dy: 0.707 }
+        case "bottom-left":
+            return { dx: 0.707, dy: -0.707 }
+        case "bottom-right":
+            return { dx: -0.707, dy: -0.707 }
+    }
+}
+
+// ─── Cluster Generation ──────────────────────────────────────────────────────
+
+function generateClusters(
+    direction: Direction,
+    coverage: number,
+    falloffWidth: number,
+    distortionStrength: number,
+    containerW: number,
+    containerH: number
+): Cluster[] {
+    const coverageNorm = coverage / 100
+    const falloffEnd = coverageNorm + falloffWidth / 100
+    const { dx, dy } = getDirectionVector(direction)
+
+    const clusters: Cluster[] = []
+    // Generate cluster centers distributed within the active zone
+    // More clusters near origin, fewer toward falloff
+    const clusterCount = Math.round(8 + coverageNorm * 12)
+
+    for (let i = 0; i < clusterCount; i++) {
+        const seed1 = seededRandom(i * 73 + 13)
+        const seed2 = seededRandom(i * 137 + 29)
+        const seed3 = seededRandom(i * 251 + 41)
+        const seed4 = seededRandom(i * 397 + 67)
+        const seed5 = seededRandom(i * 521 + 83)
+
+        // Position: bias toward the origin side
+        let cx: number, cy: number
+
+        switch (direction) {
+            case "left":
+                cx = seed1 * falloffEnd * 0.95
+                cy = seed2
+                break
+            case "right":
+                cx = 1 - seed1 * falloffEnd * 0.95
+                cy = seed2
+                break
+            case "top":
+                cx = seed2
+                cy = seed1 * falloffEnd * 0.95
+                break
+            case "bottom":
+                cx = seed2
+                cy = 1 - seed1 * falloffEnd * 0.95
+                break
+            case "top-left":
+                cx = seed1 * falloffEnd
+                cy = seed2 * falloffEnd
+                break
+            case "top-right":
+                cx = 1 - seed1 * falloffEnd
+                cy = seed2 * falloffEnd
+                break
+            case "bottom-left":
+                cx = seed1 * falloffEnd
+                cy = 1 - seed2 * falloffEnd
+                break
+            case "bottom-right":
+                cx = 1 - seed1 * falloffEnd
+                cy = 1 - seed2 * falloffEnd
+                break
+        }
+
+        const dist = getDirectionalDistance(cx, cy, direction)
+        const depthStrength = 1 - dist / falloffEnd
+
+        // Offset: each cluster defines a directional "drag" of the image sample
+        // Mostly aligned with the field direction, with some lateral spread
+        const dragMagnitude =
+            distortionStrength * (10 + seed3 * 25) * depthStrength
+        const lateralSpread = (seed4 - 0.5) * distortionStrength * 12
+
+        const offsetX = dx * dragMagnitude + dy * lateralSpread
+        const offsetY = dy * dragMagnitude + dx * lateralSpread
+
+        // Subtle rotation — most clusters have zero or near-zero
+        const rotation =
+            seed5 < 0.3
+                ? (seed5 - 0.15) * 8 * distortionStrength * depthStrength
+                : 0
+
+        // Scale: mostly 1, slight variation
+        const scale =
+            1 + (seed3 - 0.5) * 0.04 * distortionStrength * depthStrength
+
+        // Radius: how far this cluster influences
+        const radius = 0.06 + seed2 * 0.1
+
+        clusters.push({
+            cx,
+            cy,
+            offsetX,
+            offsetY,
+            rotation,
+            scale,
+            radius,
+            strength: depthStrength,
+        })
+    }
+
+    return clusters
 }
 
 // ─── Cell Generation ─────────────────────────────────────────────────────────
@@ -108,8 +252,7 @@ function generateCells(
         for (let col = 0; col < cols; col++) {
             const nx = (col + 0.5) / cols
             const ny = (row + 0.5) / rows
-            const seed = seededRandom(col * 1000 + row * 7 + 42)
-            const seed2 = seededRandom(col * 317 + row * 131 + 99)
+            const seed = seededRandom2(col, row)
             const phase = seededRandom(col * 571 + row * 239 + 17)
 
             const x = col * cellW
@@ -120,26 +263,23 @@ function generateCells(
             let zone: CellData["zone"] = "clean"
             let activity = 0
 
-            // Edge stepping: quantize the boundary with per-cell randomness
             const stepCount = Math.max(1, edgeStepping)
-            const stepOffset = (seed - 0.5) * randomness * 0.12
+            // Per-cell boundary jitter — but less than before
+            const stepOffset = (seed - 0.5) * randomness * 0.08
 
             if (dist < coverageNorm + stepOffset) {
-                // Core zone — dense contiguous clusters
                 zone = "core"
                 activity = 1
             } else if (dist < falloffEnd + stepOffset) {
-                // Falloff zone — stepped, sparse transition
                 zone = "falloff"
-                const rawT = (dist - coverageNorm) / Math.max(0.001, falloffNorm)
+                const rawT =
+                    (dist - coverageNorm) / Math.max(0.001, falloffNorm)
 
-                // Quantize into discrete steps
+                // Stepped quantization
                 const steppedT = Math.floor(rawT * stepCount) / stepCount
-
-                // Activity decreases through steps
                 activity = Math.max(0, 1 - steppedT)
 
-                // Per-step density culling: fewer cells in later steps
+                // Density culling per step band
                 const stepDensity = density * activity
                 if (seed > stepDensity) {
                     zone = "clean"
@@ -147,21 +287,25 @@ function generateCells(
                 }
             }
 
-            // Island logic: sparse detached cells beyond falloff
+            // Island logic — sparse, detached
             if (
                 zone === "clean" &&
                 dist >= falloffEnd &&
                 dist < falloffEnd + islandScatter / 100
             ) {
-                const islandThreshold = 1 - (islandDensity / 100) * 0.25
-                if (phase > islandThreshold) {
+                const islandThreshold = 1 - (islandDensity / 100) * 0.2
+                // Islands are small groups: check if a neighbor would also be active
+                const neighborSeed = seededRandom2(col + 1, row)
+                const isGrouped = neighborSeed > islandThreshold * 0.97
+
+                if (phase > islandThreshold && isGrouped) {
                     zone = "island"
                     const islandDist =
                         (dist - falloffEnd) / (islandScatter / 100)
                     activity =
-                        Math.max(0, (1 - islandDist)) *
+                        Math.max(0, 1 - islandDist) *
                         (1 - islandFade) *
-                        0.55
+                        0.45
                 }
             }
 
@@ -180,7 +324,6 @@ function generateCells(
                 activity,
                 phase,
                 seed,
-                seed2,
             })
         }
     }
@@ -188,59 +331,92 @@ function generateCells(
     return cells
 }
 
+// ─── Compute cluster influence on a cell ─────────────────────────────────────
+
+function getClusterInfluence(
+    nx: number,
+    ny: number,
+    clusters: Cluster[]
+): {
+    offsetX: number
+    offsetY: number
+    rotation: number
+    scale: number
+} {
+    let totalWeight = 0
+    let ox = 0
+    let oy = 0
+    let rot = 0
+    let sc = 0
+
+    for (const cluster of clusters) {
+        const dx = nx - cluster.cx
+        const dy = ny - cluster.cy
+        const d = Math.sqrt(dx * dx + dy * dy)
+        if (d > cluster.radius * 2) continue
+
+        // Smooth falloff from cluster center
+        const w =
+            smoothstep(cluster.radius * 2, 0, d) * cluster.strength
+        if (w < 0.001) continue
+
+        ox += cluster.offsetX * w
+        oy += cluster.offsetY * w
+        rot += cluster.rotation * w
+        sc += (cluster.scale - 1) * w
+        totalWeight += w
+    }
+
+    if (totalWeight > 0) {
+        // Normalize — but allow overlap accumulation up to a point
+        const norm = Math.min(totalWeight, 2)
+        return {
+            offsetX: ox / norm,
+            offsetY: oy / norm,
+            rotation: rot / norm,
+            scale: 1 + sc / norm,
+        }
+    }
+
+    return { offsetX: 0, offsetY: 0, rotation: 0, scale: 1 }
+}
+
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface FragmentFieldProps {
-    // Media
     source: string
     mediaType: "image" | "video"
     objectFit: "cover" | "contain" | "fill"
     positionX: number
     positionY: number
     borderRadius: number
-
-    // Field
     direction: Direction
     coverage: number
     falloffWidth: number
     edgeStepping: number
     randomness: number
-
-    // Cells
     cellSize: number
     density: number
     distortionStrength: number
     cellOpacity: number
-
-    // Islands
     islandDensity: number
     islandScatter: number
     islandFade: number
-
-    // Ambient motion
     ambientMotion: boolean
     motionAmount: number
     drift: number
     flicker: number
-
-    // Rotation
     rotationEnabled: boolean
     rotationStrength: number
     rotationFrequency: number
     rotationRandomness: number
-
-    // Hover
     hoverEnabled: boolean
     hoverRadius: number
     hoverIntensity: number
     hoverRecovery: number
-
-    // Style
     contrast: number
     blur: number
     grain: boolean
-
-    // Framer
     width: number
     height: number
 }
@@ -265,13 +441,13 @@ const defaultProps: Partial<FragmentFieldProps> = {
     islandScatter: 18,
     islandFade: 0.35,
     ambientMotion: true,
-    motionAmount: 0.4,
-    drift: 0.25,
-    flicker: 0.12,
+    motionAmount: 0.35,
+    drift: 0.2,
+    flicker: 0.08,
     rotationEnabled: true,
-    rotationStrength: 12,
+    rotationStrength: 4,
     rotationFrequency: 0.5,
-    rotationRandomness: 0.4,
+    rotationRandomness: 0.3,
     hoverEnabled: true,
     hoverRadius: 100,
     hoverIntensity: 0.6,
@@ -281,7 +457,7 @@ const defaultProps: Partial<FragmentFieldProps> = {
     grain: false,
 }
 
-// ─── Main Component ──────────────────────────────────────────────────────────
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
     const props = { ...defaultProps, ...rawProps } as FragmentFieldProps
@@ -315,7 +491,6 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
     const rafRef = useRef<number>(0)
     const [tick, setTick] = useState(0)
 
-    // Measure container
     useEffect(() => {
         const el = containerRef.current
         if (!el) return
@@ -327,6 +502,27 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
         obs.observe(el)
         return () => obs.disconnect()
     }, [])
+
+    // Generate clusters — these define shared sampling behavior for groups of cells
+    const clusters = useMemo(
+        () =>
+            generateClusters(
+                props.direction,
+                props.coverage,
+                props.falloffWidth,
+                props.distortionStrength,
+                containerSize.w,
+                containerSize.h
+            ),
+        [
+            props.direction,
+            props.coverage,
+            props.falloffWidth,
+            props.distortionStrength,
+            containerSize.w,
+            containerSize.h,
+        ]
+    )
 
     // Generate cells
     const cells = useMemo(
@@ -361,7 +557,6 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
         ]
     )
 
-    // Mouse tracking
     const onMouseMove = useCallback(
         (e: React.MouseEvent) => {
             if (!props.hoverEnabled) return
@@ -380,17 +575,14 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
         mouseRef.current = { ...mouseRef.current, active: false }
     }, [])
 
-    // Animation loop
     useEffect(() => {
         if (!props.ambientMotion && !props.hoverEnabled) return
-
         let lastTime = performance.now()
         const animate = (now: number) => {
             const dt = Math.min((now - lastTime) / 1000, 0.1)
             lastTime = now
             timeRef.current += dt
 
-            // Decay hover influence when mouse is gone
             if (props.hoverEnabled) {
                 const map = hoverMapRef.current
                 for (const [id, val] of map.entries()) {
@@ -409,22 +601,17 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
         return () => cancelAnimationFrame(rafRef.current)
     }, [props.ambientMotion, props.hoverEnabled, props.hoverRecovery])
 
-    // Update hover influence per cell
-    if (
-        props.hoverEnabled &&
-        mouseRef.current.active &&
-        containerSize.w > 0
-    ) {
+    // Update hover influence
+    if (props.hoverEnabled && mouseRef.current.active && containerSize.w > 0) {
         const mx = mouseRef.current.x
         const my = mouseRef.current.y
         const r = props.hoverRadius
-
         for (const cell of cells) {
             const cx = cell.x + cell.w / 2
             const cy = cell.y + cell.h / 2
             const d = Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2)
             if (d < r) {
-                const inf = smoothstep(r, r * 0.3, d) * props.hoverIntensity
+                const inf = smoothstep(r, r * 0.25, d) * props.hoverIntensity
                 const cur = hoverMapRef.current.get(cell.id) || 0
                 hoverMapRef.current.set(cell.id, Math.max(cur, inf))
             }
@@ -435,7 +622,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
     const cW = containerSize.w
     const cH = containerSize.h
 
-    // Compute per-cell rendering data
+    // Render data — cluster-driven sampling
     const renderCells = useMemo(() => {
         if (cW <= 0 || cH <= 0) return []
 
@@ -449,108 +636,94 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                 const totalActivity = Math.min(1, cell.activity + hoverInf)
                 if (totalActivity < 0.02) return null
 
-                const str = props.distortionStrength * totalActivity
+                // ── Get cluster-driven distortion ──
+                // Cells inherit offset/rotation from nearby clusters,
+                // so neighboring cells share related transforms
+                const clusterInf = getClusterInfluence(
+                    cell.nx,
+                    cell.ny,
+                    clusters
+                )
 
-                // ── Internal media distortion ──
-                // These transforms apply to the INNER content, not the cell frame
+                // Scale cluster influence by cell activity
+                let offsetX = clusterInf.offsetX * totalActivity
+                let offsetY = clusterInf.offsetY * totalActivity
+                let rotation = clusterInf.rotation * totalActivity
+                let scale = 1 + (clusterInf.scale - 1) * totalActivity
 
-                // Crop/sample offset: shift which part of the image this cell shows
-                const sampleOffsetX = (cell.seed - 0.5) * str * 8
-                const sampleOffsetY = (cell.seed2 - 0.5) * str * 8
-
-                // Internal rotation: rotate the sampled media inside the cell
-                let innerRotation = 0
-                if (props.rotationEnabled) {
-                    const rotActivity = totalActivity // diminishes through falloff
-                    const baseRot = props.rotationStrength * rotActivity
-
-                    // Per-cell rotation with phase variation
-                    innerRotation =
-                        (cell.seed - 0.5) *
-                        2 *
-                        baseRot *
-                        (1 + props.rotationRandomness * (cell.seed2 - 0.5))
+                // Only add rotation if enabled; otherwise purely offset-based
+                if (!props.rotationEnabled) {
+                    rotation = 0
+                } else {
+                    rotation *= props.rotationStrength / 10
                 }
 
-                // Internal scale: subtle zoom variation
-                const innerScale =
-                    1 + (cell.seed2 - 0.5) * 0.06 * str
-
-                // Ambient motion: subtle internal drift and oscillation
-                let motionDriftX = 0
-                let motionDriftY = 0
-                let motionRotation = 0
-
+                // Ambient motion: slow cluster-coherent drift
                 if (props.ambientMotion && totalActivity > 0.05) {
                     const amt = props.motionAmount * totalActivity
                     const spd = props.drift
 
-                    motionDriftX =
+                    // Use cluster position as phase so nearby cells drift together
+                    const clusterPhaseX =
                         Math.sin(
-                            time * spd * 0.7 +
-                                cell.phase * Math.PI * 6
-                        ) *
-                        amt *
-                        2.5
-
-                    motionDriftY =
-                        Math.cos(
                             time * spd * 0.5 +
-                                cell.phase * Math.PI * 4
+                                cell.nx * Math.PI * 2 * 0.8
                         ) *
                         amt *
-                        1.8
+                        1.5
 
+                    const clusterPhaseY =
+                        Math.cos(
+                            time * spd * 0.35 +
+                                cell.ny * Math.PI * 2 * 0.6
+                        ) *
+                        amt *
+                        1.0
+
+                    offsetX += clusterPhaseX
+                    offsetY += clusterPhaseY
+
+                    // Very subtle rotation oscillation
                     if (props.rotationEnabled) {
-                        motionRotation =
+                        rotation +=
                             Math.sin(
-                                time * spd * 0.3 +
-                                    cell.phase * Math.PI * 2
+                                time * spd * 0.2 +
+                                    cell.nx * Math.PI * 3
                             ) *
-                            props.rotationStrength *
-                            0.12 *
-                            amt
+                            0.5 *
+                            amt *
+                            (props.rotationStrength / 10)
                     }
                 }
 
-                // Hover rotation boost
-                if (hoverInf > 0 && props.rotationEnabled) {
-                    innerRotation *= 1 + hoverInf * 0.8
+                // Hover boost: intensify the cluster offset
+                if (hoverInf > 0) {
+                    offsetX *= 1 + hoverInf * 0.6
+                    offsetY *= 1 + hoverInf * 0.6
                 }
 
-                // Background position: cell shows its grid region, shifted by distortion
-                const bgX =
-                    -cell.x +
-                    sampleOffsetX +
-                    motionDriftX
-                const bgY =
-                    -cell.y +
-                    sampleOffsetY +
-                    motionDriftY
+                // Background position: base alignment + cluster offset
+                const bgX = -cell.x + offsetX
+                const bgY = -cell.y + offsetY
 
-                // Inner transform: rotation + scale applied to content inside cell
-                const totalRotation = innerRotation + motionRotation
-                // Scale up slightly to avoid showing edges when rotated
-                const rotCompensation =
-                    1 + Math.abs(totalRotation) * 0.008
-                const finalScale = innerScale * rotCompensation
+                // Rotation compensation for scale to avoid edge gaps
+                const rotComp = 1 + Math.abs(rotation) * 0.01
+                const finalScale = scale * rotComp
 
                 // Opacity
                 let opacity = props.cellOpacity * totalActivity
                 if (cell.zone === "island") {
-                    opacity *= 0.7
+                    opacity *= 0.6
                 }
 
-                // Flicker
+                // Subtle flicker
                 if (props.ambientMotion && props.flicker > 0) {
-                    const flickerVal =
-                        Math.sin(
-                            time * 2.5 + cell.phase * Math.PI * 10
-                        ) *
+                    const fl =
+                        Math.sin(time * 1.8 + cell.phase * Math.PI * 8) *
                         props.flicker *
-                        0.12 *
+                        0.08 *
                         props.motionAmount
-                    opacity = Math.max(0.1, opacity + flickerVal)
+                    opacity = Math.max(0.1, Math.min(1, opacity + fl))
                 }
 
                 // Filters
@@ -562,7 +735,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                 }
                 if (props.blur > 0) {
                     filters.push(
-                        `blur(${props.blur * totalActivity * 0.3}px)`
+                        `blur(${props.blur * totalActivity * 0.25}px)`
                     )
                 }
 
@@ -570,15 +743,15 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                     cell,
                     bgX,
                     bgY,
-                    totalRotation,
+                    rotation,
                     finalScale,
-                    opacity: Math.min(1, opacity),
+                    opacity,
                     filter: filters.length > 0 ? filters.join(" ") : "none",
                 }
             })
             .filter(Boolean)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cells, tick, props, cW, cH])
+    }, [cells, clusters, tick, props, cW, cH])
 
     const objectPosition = `${props.positionX}% ${props.positionY}%`
 
@@ -595,7 +768,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                 borderRadius: props.borderRadius,
             }}
         >
-            {/* Base media — always visible, provides the clean zone */}
+            {/* Base media */}
             {props.mediaType === "image" ? (
                 <img
                     src={props.source}
@@ -629,8 +802,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                 />
             )}
 
-            {/* Cell overlay — each cell is a stable grid-aligned frame
-                with internally distorted media content */}
+            {/* Distortion cell overlay */}
             <div
                 style={{
                     position: "absolute",
@@ -644,7 +816,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                         cell,
                         bgX,
                         bgY,
-                        totalRotation,
+                        rotation,
                         finalScale,
                         opacity,
                         filter,
@@ -654,7 +826,7 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                         <div
                             key={cell.id}
                             style={{
-                                // Outer cell: stable, grid-aligned, no rotation
+                                // Outer cell: grid-aligned, stable frame
                                 position: "absolute",
                                 left: cell.x,
                                 top: cell.y,
@@ -664,24 +836,24 @@ export default function FragmentField(rawProps: Partial<FragmentFieldProps>) {
                                 opacity,
                             }}
                         >
-                            {/* Inner content: distorted media sampling */}
+                            {/* Inner: distorted media sample */}
                             <div
                                 style={{
                                     position: "absolute",
-                                    // Extend slightly beyond cell bounds so
-                                    // rotated content doesn't show gaps
-                                    inset: -4,
+                                    inset: -6,
                                     backgroundImage: `url(${props.source})`,
                                     backgroundSize: `${cW}px ${cH}px`,
-                                    backgroundPosition: `${bgX - 4}px ${bgY - 4}px`,
+                                    backgroundPosition: `${bgX - 6}px ${bgY - 6}px`,
                                     backgroundRepeat: "no-repeat",
-                                    transform: `rotate(${totalRotation}deg) scale(${finalScale})`,
+                                    transform:
+                                        rotation !== 0 || finalScale !== 1
+                                            ? `rotate(${rotation}deg) scale(${finalScale})`
+                                            : undefined,
                                     transformOrigin: "center center",
                                     filter,
-                                    willChange:
-                                        props.ambientMotion
-                                            ? "transform"
-                                            : undefined,
+                                    willChange: props.ambientMotion
+                                        ? "transform"
+                                        : undefined,
                                 }}
                             />
                         </div>
@@ -889,7 +1061,7 @@ addPropertyControls(FragmentField, {
         min: 0,
         max: 2,
         step: 0.05,
-        defaultValue: 0.4,
+        defaultValue: 0.35,
         hidden: (p) => !p.ambientMotion,
     },
     drift: {
@@ -898,7 +1070,7 @@ addPropertyControls(FragmentField, {
         min: 0,
         max: 2,
         step: 0.05,
-        defaultValue: 0.25,
+        defaultValue: 0.2,
         hidden: (p) => !p.ambientMotion,
     },
     flicker: {
@@ -907,7 +1079,7 @@ addPropertyControls(FragmentField, {
         min: 0,
         max: 1,
         step: 0.05,
-        defaultValue: 0.12,
+        defaultValue: 0.08,
         hidden: (p) => !p.ambientMotion,
     },
 
@@ -921,10 +1093,10 @@ addPropertyControls(FragmentField, {
         type: ControlType.Number,
         title: "Strength",
         min: 0,
-        max: 30,
+        max: 20,
         step: 1,
         unit: "°",
-        defaultValue: 12,
+        defaultValue: 4,
         hidden: (p) => !p.rotationEnabled,
     },
     rotationFrequency: {
@@ -942,7 +1114,7 @@ addPropertyControls(FragmentField, {
         min: 0,
         max: 1,
         step: 0.05,
-        defaultValue: 0.4,
+        defaultValue: 0.3,
         hidden: (p) => !p.rotationEnabled,
     },
 
