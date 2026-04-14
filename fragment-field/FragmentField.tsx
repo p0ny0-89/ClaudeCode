@@ -151,8 +151,11 @@ function computeTilt(
     // directional gradient is consistent across the whole field.
     const falloff = 1 - smoothstep(0, 1, r / extendedR)
 
-    // Tilt magnitude (degrees). Max is strength * 60° at origin.
-    const maxAngle = strength * 60
+    // Tilt magnitude (degrees). Max is strength * 80° at origin — higher
+    // amplitude gives more dramatic perspective mismatch between adjacent
+    // tilt levels, so cell boundaries become visible through foreshortening
+    // without needing drawn edges.
+    const maxAngle = strength * 80
 
     // Directional tilt: proportional to vx, vy components, scaled by falloff
     // This gives a clean global gradient from the origin
@@ -310,7 +313,7 @@ const defaults: Partial<Props> = {
     density: 1.0,
     distortionStrength: 0.7,
     sphereRadius: 1.4,
-    tiltSteps: 5,
+    tiltSteps: 4,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
@@ -548,7 +551,6 @@ export default function FragmentField(rawProps: Partial<Props>) {
                             backgroundPosition: `${d.bgX}px ${d.bgY}px`,
                             backgroundRepeat: "no-repeat",
                             filter: d.filter,
-                            boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.35)",
                         }}
                     />
                 ))}
@@ -633,7 +635,7 @@ addPropertyControls(FragmentField, {
     },
     tiltSteps: {
         type: ControlType.Number, title: "Tilt Steps",
-        min: 2, max: 16, step: 1, defaultValue: 5,
+        min: 2, max: 16, step: 1, defaultValue: 4,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
