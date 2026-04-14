@@ -8,26 +8,23 @@ import React, {
 } from "react"
 
 /*
- * FragmentField — Spherical magnification cell field
+ * FragmentField — Spherical 3D cell tilt field
  *
- * A uniform square grid overlays the image. In the active zone,
- * each cell's content is locally magnified (scaled from its center).
- * The magnification factor varies across the field following a
- * spherical gradient from the origin corner.
+ * A uniform square grid overlays the image. Each active cell is
+ * tilted in 3D space as if lying on the surface of an invisible
+ * sphere pressed into the image from the origin corner.
  *
- * Because each cell magnifies independently, adjacent cells with
- * different zoom levels create stepped discontinuities at their
- * boundaries. This produces the characteristic "looking through
- * textured glass" effect — the image proportions stay correct
- * overall, but each cell facet refracts the view slightly.
+ * Each cell shows its CORRECT image region at native resolution
+ * — no magnification, no displacement. The distortion comes from
+ * the 3D perspective rotation: cells near the sphere pole face
+ * the viewer; cells further out tilt increasingly toward the
+ * sphere's horizon. This creates the faceted-glass-sphere look
+ * where the image is recognizable but each tile refracts the
+ * view slightly through its tilted angle.
  *
- * The visual effect emerges from:
- *   - The fixed square cell grid (overflow: hidden)
- *   - Each cell showing the CORRECT image region, but scaled
- *   - The scale factor varying smoothly across the sphere field
- *   - The stepped edges at cell boundaries where adjacent cells
- *     have different magnification levels
- *   - The base image showing through inactive regions
+ * The stepped boundary interference comes from adjacent cells
+ * having slightly different tilt angles — where they meet, the
+ * perspective foreshortening differs, creating visible seams.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -40,7 +37,8 @@ interface CellData {
     id: number
     col: number; row: number
     x: number; y: number; w: number; h: number
-    scale: number       // local magnification factor (1 = no change)
+    tiltX: number       // 3D rotateX in degrees
+    tiltY: number       // 3D rotateY in degrees
     activity: number
     phase: number
 }
@@ -91,16 +89,22 @@ function computeCoverSize(
     }
 }
 
-// ─── Spherical Magnification Field ─────────────────────────────────────────
-// Each cell gets a local magnification factor based on its distance
-// from the sphere origin. Cells near the origin are magnified most;
-// cells at the edge of the sphere have no magnification (scale = 1).
+// ─── Spherical 3D Tilt Field ───────────────────────────────────────────────
+// Models the image as being draped over a sphere centered at the origin
+// corner. Each cell lies on that sphere surface, tilted in 3D space so
+// its surface normal points outward from the sphere center.
 //
-// The magnification is applied as a CSS scale transform centered on
-// each cell, combined with cover-correct background sizing. This means
-// each cell still shows its own image region — just zoomed in slightly.
-// The overflow:hidden on the cell frame clips the zoomed content,
-// creating the stepped-edge interference pattern at cell boundaries.
+// For a point at normalized offset (vx, vy) from the origin with sphere
+// radius R, the height of the sphere surface above the image plane is
+// h = sqrt(R² - r²) where r = sqrt(vx² + vy²). The surface normal is
+// (vx, vy, h) / R. The tilt angles needed to orient a flat cell to
+// this normal are:
+//   tiltY (rotate around Y axis) = asin(vx / R) — tilt left/right
+//   tiltX (rotate around X axis) = -asin(vy / R) — tilt up/down
+// (negative on X because CSS Y axis is inverted)
+//
+// Near the origin: flat (facing viewer). Near the sphere edge: near-90°
+// tilt (edge-on). Beyond the sphere: no tilt at all.
 
 function getOrigin(dir: Direction): { ox: number; oy: number } {
     switch (dir) {
@@ -115,41 +119,49 @@ function getOrigin(dir: Direction): { ox: number; oy: number } {
     }
 }
 
-function computeScale(
+function computeTilt(
     nx: number, ny: number,
     activity: number,
     col: number, row: number,
     ox: number, oy: number,
-    strength: number,   // max magnification boost (e.g. 0.5 = up to 1.5x)
+    strength: number,   // scales the tilt magnitude (0..1 typical)
     sphereRadius: number, // normalized radius of the sphere
     randomness: number
-): number {
-    if (activity < 0.01) return 1
+): { tiltX: number; tiltY: number } {
+    if (activity < 0.01) return { tiltX: 0, tiltY: 0 }
+
+    const R = Math.max(0.01, sphereRadius)
 
     // Vector from sphere origin to this cell (normalized coords)
     const vx = nx - ox
     const vy = ny - oy
 
     // Distance from origin (normalized)
-    const dist = Math.sqrt(vx * vx + vy * vy)
+    const r = Math.sqrt(vx * vx + vy * vy)
 
-    // Normalized distance within sphere (0 at center, 1 at edge)
-    const rNorm = Math.min(1, dist / Math.max(0.01, sphereRadius))
+    // Outside the sphere: no tilt
+    if (r >= R) return { tiltX: 0, tiltY: 0 }
 
-    // Smooth falloff: maximum magnification at origin, tapering to 1 at edge
-    // Using smoothstep for a natural lens-like profile
-    const profile = 1 - smoothstep(0, 1, rNorm)
+    // Sphere surface orientation at this point
+    // Clamp input to asin domain to avoid NaN
+    const cx = Math.max(-1, Math.min(1, vx / R))
+    const cy = Math.max(-1, Math.min(1, vy / R))
 
-    // Scale factor: 1 + (strength * profile * activity)
-    // At origin with full activity: scale = 1 + strength
-    // At sphere edge or zero activity: scale = 1
-    let scale = 1 + strength * profile * activity
+    // Tilt angles in radians, then convert to degrees
+    // Scaled by strength so user can dial intensity
+    let tiltY = Math.asin(cx) * strength * (180 / Math.PI)
+    let tiltX = -Math.asin(cy) * strength * (180 / Math.PI)
 
-    // Small per-cell jitter for organic variation
-    const jit = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
-    scale += jit * strength * 0.06 * randomness * activity
+    tiltY *= activity
+    tiltX *= activity
 
-    return Math.max(1, scale) // never scale below 1
+    // Per-cell jitter for organic variation
+    const jitX = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
+    const jitY = (sr3(col * 0.7, row * 0.7, 77) - 0.5) * 2
+    tiltX += jitX * 6 * randomness * activity
+    tiltY += jitY * 6 * randomness * activity
+
+    return { tiltX, tiltY }
 }
 
 // ─── Grid Cell Generation ───────────────────────────────────────────────────
@@ -210,7 +222,7 @@ function makeCells(
 
             if (activity < 0.03) continue
 
-            const scale = computeScale(
+            const { tiltX, tiltY } = computeTilt(
                 nx, ny, activity, col, row,
                 ox, oy, strength, sphereRadius, randomness
             )
@@ -218,7 +230,7 @@ function makeCells(
             cells.push({
                 id: cid++,
                 col, row, x, y, w, h,
-                scale,
+                tiltX, tiltY,
                 activity,
                 phase: sr3(col * 0.7, row * 0.7, 17),
             })
@@ -279,8 +291,8 @@ const defaults: Partial<Props> = {
     randomness: 0.3,
     cellSize: 30,
     density: 1.0,
-    distortionStrength: 0.5,
-    sphereRadius: 1.2,
+    distortionStrength: 0.7,
+    sphereRadius: 1.4,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
@@ -422,42 +434,27 @@ export default function FragmentField(rawProps: Partial<Props>) {
             const hInf = hoverRef.current.get(c.id) || 0
             const act = Math.min(1, c.activity + hInf * 0.4)
 
-            let scale = c.scale
+            let tiltX = c.tiltX
+            let tiltY = c.tiltY
 
-            // Ambient: gentle scale oscillation
+            // Ambient: gentle tilt oscillation
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
                 const osc = Math.sin(time * s * 0.3 + c.phase * Math.PI * 4) * a
-                scale += osc * 0.02 * p.distortionStrength
+                tiltX += osc * 3
+                tiltY += osc * 3
             }
 
-            // Hover: boost magnification
+            // Hover: boost tilt
             if (hInf > 0) {
-                scale += (scale - 1) * hInf * 0.5
+                tiltX *= 1 + hInf * 0.5
+                tiltY *= 1 + hInf * 0.5
             }
 
-            scale = Math.max(1.001, scale) // always slightly above 1 for active cells
-
-            // Background position: cover-correct, centered on this cell
-            // The cell shows its own correct image region
-            const baseBgX = -(c.x + cropX)
-            const baseBgY = -(c.y + cropY)
-
-            // To scale from cell center, we need to adjust background-size
-            // and background-position together:
-            // - background-size is multiplied by scale
-            // - background-position adjusts to keep the cell center fixed
-            const scaledBgW = bgW * scale
-            const scaledBgH = bgH * scale
-
-            // Center of the cell in image-space
-            const cellCx = c.x + c.w / 2
-            const cellCy = c.y + c.h / 2
-
-            // Position: scale the background around the cell center point
-            const scaledBgX = -(cellCx + cropX) * scale + c.w / 2
-            const scaledBgY = -(cellCy + cropY) * scale + c.h / 2
+            // Background position: cover-correct, cell shows its own region
+            const bgX = -(c.x + cropX)
+            const bgY = -(c.y + cropY)
 
             // Opacity
             let op = p.cellOpacity
@@ -473,7 +470,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
             if (p.blur > 0) fl.push(`blur(${p.blur * act * 0.25}px)`)
             if (fl.length) filter = fl.join(" ")
 
-            return { c, scaledBgW, scaledBgH, scaledBgX, scaledBgY, op, filter }
+            return { c, bgX, bgY, tiltX, tiltY, op, filter }
         })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cells, tick, p, cW, cH, bgW, bgH, cropX, cropY])
@@ -509,7 +506,11 @@ export default function FragmentField(rawProps: Partial<Props>) {
                 }} />
             )}
 
-            <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+            <div style={{
+                position: "absolute", inset: 0, pointerEvents: "none",
+                perspective: "800px",
+                transformStyle: "preserve-3d",
+            }}>
                 {renderData.map((d) => (
                     <div
                         key={d.c.id}
@@ -519,23 +520,17 @@ export default function FragmentField(rawProps: Partial<Props>) {
                             top: d.c.y,
                             width: d.c.w,
                             height: d.c.h,
-                            overflow: "hidden",
                             opacity: d.op,
-                        }}
-                    >
-                        <div style={{
-                            position: "absolute",
-                            left: 0,
-                            top: 0,
-                            width: d.c.w,
-                            height: d.c.h,
+                            transform: `rotateX(${d.tiltX}deg) rotateY(${d.tiltY}deg)`,
+                            transformStyle: "preserve-3d",
+                            backfaceVisibility: "hidden",
                             backgroundImage: `url(${p.source})`,
-                            backgroundSize: `${d.scaledBgW}px ${d.scaledBgH}px`,
-                            backgroundPosition: `${d.scaledBgX}px ${d.scaledBgY}px`,
+                            backgroundSize: `${bgW}px ${bgH}px`,
+                            backgroundPosition: `${d.bgX}px ${d.bgY}px`,
                             backgroundRepeat: "no-repeat",
                             filter: d.filter,
-                        }} />
-                    </div>
+                        }}
+                    />
                 ))}
             </div>
 
@@ -609,12 +604,12 @@ addPropertyControls(FragmentField, {
         min: 0.2, max: 1, step: 0.05, defaultValue: 1.0,
     },
     distortionStrength: {
-        type: ControlType.Number, title: "Magnification",
-        min: 0.05, max: 1.5, step: 0.05, defaultValue: 0.5,
+        type: ControlType.Number, title: "Tilt Strength",
+        min: 0.1, max: 1.5, step: 0.05, defaultValue: 0.7,
     },
     sphereRadius: {
         type: ControlType.Number, title: "Sphere Radius",
-        min: 0.3, max: 2.5, step: 0.05, defaultValue: 1.2,
+        min: 0.3, max: 2.5, step: 0.05, defaultValue: 1.4,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
