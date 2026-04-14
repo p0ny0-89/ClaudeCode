@@ -126,7 +126,8 @@ function computeTilt(
     ox: number, oy: number,
     strength: number,   // scales the tilt magnitude (0..1 typical)
     sphereRadius: number, // normalized radius of the sphere
-    randomness: number
+    randomness: number,
+    quantize: number      // number of discrete tilt steps (higher = smoother)
 ): { tiltX: number; tiltY: number } {
     if (activity < 0.01) return { tiltX: 0, tiltY: 0 }
 
@@ -139,27 +140,42 @@ function computeTilt(
     // Distance from origin (normalized)
     const r = Math.sqrt(vx * vx + vy * vy)
 
-    // Outside the sphere: no tilt
-    if (r >= R) return { tiltX: 0, tiltY: 0 }
+    // Compute tilt magnitude with spherical profile, but extend beyond
+    // the sphere radius with a gentle falloff so the directional gradient
+    // reads across the whole active zone, not just within the sphere.
+    // Using a smooth curve: strong near origin, fading to zero at ~2R.
+    const extendedR = R * 2
+    if (r >= extendedR) return { tiltX: 0, tiltY: 0 }
 
-    // Sphere surface orientation at this point
-    // Clamp input to asin domain to avoid NaN
-    const cx = Math.max(-1, Math.min(1, vx / R))
-    const cy = Math.max(-1, Math.min(1, vy / R))
+    // Use full radial vector for direction (not clamped asin) so the
+    // directional gradient is consistent across the whole field.
+    const falloff = 1 - smoothstep(0, 1, r / extendedR)
 
-    // Tilt angles in radians, then convert to degrees
-    // Scaled by strength so user can dial intensity
-    let tiltY = Math.asin(cx) * strength * (180 / Math.PI)
-    let tiltX = -Math.asin(cy) * strength * (180 / Math.PI)
+    // Tilt magnitude (degrees). Max is strength * 60° at origin.
+    const maxAngle = strength * 60
+
+    // Directional tilt: proportional to vx, vy components, scaled by falloff
+    // This gives a clean global gradient from the origin
+    let tiltY = (vx / extendedR) * maxAngle * falloff * 2
+    let tiltX = -(vy / extendedR) * maxAngle * falloff * 2
 
     tiltY *= activity
     tiltX *= activity
 
-    // Per-cell jitter for organic variation
-    const jitX = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
-    const jitY = (sr3(col * 0.7, row * 0.7, 77) - 0.5) * 2
-    tiltX += jitX * 6 * randomness * activity
-    tiltY += jitY * 6 * randomness * activity
+    // QUANTIZE: snap to discrete steps to create visible cell-to-cell
+    // bands. This produces the "stepped grid" look across the field.
+    const step = Math.max(1, 90 / Math.max(2, quantize))
+    tiltX = Math.round(tiltX / step) * step
+    tiltY = Math.round(tiltY / step) * step
+
+    // Minimal per-cell jitter — just enough to break perfect bands,
+    // not so much that it feels noisy/random.
+    if (randomness > 0) {
+        const jitX = (sr3(col * 0.7, row * 0.7, 33) - 0.5) * 2
+        const jitY = (sr3(col * 0.7, row * 0.7, 77) - 0.5) * 2
+        tiltX += jitX * step * randomness * 0.4
+        tiltY += jitY * step * randomness * 0.4
+    }
 
     return { tiltX, tiltY }
 }
@@ -173,7 +189,7 @@ function makeCells(
     edgeStepping: number, randomness: number,
     cellSize: number, density: number,
     islandDensity: number, islandScatter: number, islandFade: number,
-    strength: number, sphereRadius: number
+    strength: number, sphereRadius: number, tiltSteps: number
 ): CellData[] {
     if (contW <= 0 || contH <= 0 || cellSize < 4) return []
 
@@ -224,7 +240,7 @@ function makeCells(
 
             const { tiltX, tiltY } = computeTilt(
                 nx, ny, activity, col, row,
-                ox, oy, strength, sphereRadius, randomness
+                ox, oy, strength, sphereRadius, randomness, tiltSteps
             )
 
             cells.push({
@@ -258,6 +274,7 @@ interface Props {
     density: number
     distortionStrength: number
     sphereRadius: number
+    tiltSteps: number
     cellOpacity: number
     islandDensity: number
     islandScatter: number
@@ -288,11 +305,12 @@ const defaults: Partial<Props> = {
     coverage: 78,
     falloffWidth: 16,
     edgeStepping: 8,
-    randomness: 0.3,
+    randomness: 0.15,
     cellSize: 30,
     density: 1.0,
     distortionStrength: 0.7,
     sphereRadius: 1.4,
+    tiltSteps: 5,
     cellOpacity: 1,
     islandDensity: 20,
     islandScatter: 14,
@@ -368,12 +386,12 @@ export default function FragmentField(rawProps: Partial<Props>) {
             p.coverage, p.falloffWidth, p.edgeStepping, p.randomness,
             p.cellSize, p.density,
             p.islandDensity, p.islandScatter, p.islandFade,
-            p.distortionStrength, p.sphereRadius
+            p.distortionStrength, p.sphereRadius, p.tiltSteps
         ),
         [size.w, size.h, p.direction, p.coverage, p.falloffWidth,
          p.edgeStepping, p.randomness, p.cellSize, p.density,
          p.islandDensity, p.islandScatter, p.islandFade,
-         p.distortionStrength, p.sphereRadius]
+         p.distortionStrength, p.sphereRadius, p.tiltSteps]
     )
 
     const onMM = useCallback((e: React.MouseEvent) => {
@@ -437,13 +455,14 @@ export default function FragmentField(rawProps: Partial<Props>) {
             let tiltX = c.tiltX
             let tiltY = c.tiltY
 
-            // Ambient: gentle tilt oscillation
+            // Ambient: gentle global tilt oscillation (same phase across
+            // the field so it reads as the sphere breathing, not per-cell)
             if (p.ambientMotion && act > 0.05) {
                 const a = p.motionAmount * act
                 const s = p.drift
-                const osc = Math.sin(time * s * 0.3 + c.phase * Math.PI * 4) * a
-                tiltX += osc * 3
-                tiltY += osc * 3
+                const osc = Math.sin(time * s * 0.3) * a
+                tiltX += osc * 1.5
+                tiltY += osc * 1.5
             }
 
             // Hover: boost tilt
@@ -529,6 +548,7 @@ export default function FragmentField(rawProps: Partial<Props>) {
                             backgroundPosition: `${d.bgX}px ${d.bgY}px`,
                             backgroundRepeat: "no-repeat",
                             filter: d.filter,
+                            boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.35)",
                         }}
                     />
                 ))}
@@ -593,7 +613,7 @@ addPropertyControls(FragmentField, {
     },
     randomness: {
         type: ControlType.Number, title: "Randomness",
-        min: 0, max: 1, step: 0.05, defaultValue: 0.3,
+        min: 0, max: 1, step: 0.05, defaultValue: 0.15,
     },
     cellSize: {
         type: ControlType.Number, title: "Cell Size",
@@ -610,6 +630,10 @@ addPropertyControls(FragmentField, {
     sphereRadius: {
         type: ControlType.Number, title: "Sphere Radius",
         min: 0.3, max: 2.5, step: 0.05, defaultValue: 1.4,
+    },
+    tiltSteps: {
+        type: ControlType.Number, title: "Tilt Steps",
+        min: 2, max: 16, step: 1, defaultValue: 5,
     },
     cellOpacity: {
         type: ControlType.Number, title: "Opacity",
