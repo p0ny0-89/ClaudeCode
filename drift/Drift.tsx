@@ -2,7 +2,7 @@
 // Drop into a parent container to activate interactive motion on its direct child layers.
 // Uses Matter.js for stable collision, resting, stacking, and rotation.
 
-import { addPropertyControls, ControlType } from "framer"
+import { addPropertyControls, ControlType, useIsStaticRenderer } from "framer"
 import Matter from "matter-js"
 import * as React from "react"
 import { useCallback, useEffect, useRef } from "react"
@@ -25,29 +25,6 @@ interface ManagedBody {
     originalTransform: string
     attractImmuneUntil: number // timestamp — skip attract force until this time
     debugLabel?: HTMLElement // debug overlay label element
-}
-
-// ─── Canvas detection ───────────────────────────────────────────────────────
-
-function isFramerCanvas(): boolean {
-    if (typeof window === "undefined") return true
-    try {
-        if (window.name === "FramerCanvas" || window.name === "canvas")
-            return true
-        if (window.location.href.includes("/canvas")) return true
-        if (
-            (window as any).__FRAMER_RENDER_ENVIRONMENT__ === "CANVAS"
-        )
-            return true
-        if (
-            window.parent !== window &&
-            window.parent.location.href.includes("framer.com")
-        )
-            return true
-    } catch {
-        // cross-origin → likely preview/published
-    }
-    return false
 }
 
 // ─── Transform parsing ─────────────────────────────────────────────────────
@@ -239,7 +216,6 @@ interface DriftProps {
     staticColliders: string
     dynamicLayers: string
     ignoredLayers: string
-    collisionEnabled: boolean
     selfCollide: boolean
     colliderPadding: number
 
@@ -287,7 +263,6 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
     staticColliders: "",
     dynamicLayers: "",
     ignoredLayers: "",
-    collisionEnabled: true,
     selfCollide: true,
     colliderPadding: 0,
     swarmRadius: 150,
@@ -306,6 +281,7 @@ const defaultProps: Required<Omit<DriftProps, "style">> = {
 // ─── Main component ─────────────────────────────────────────────────────────
 
 export default function Drift(props: DriftProps) {
+    const isStatic = useIsStaticRenderer()
     const p = { ...defaultProps, ...props } as Required<DriftProps>
 
     const selfRef = useRef<HTMLDivElement>(null)
@@ -796,6 +772,7 @@ export default function Drift(props: DriftProps) {
         const engine = engineRef.current
         if (!engine) return
         if (pausedRef.current) return
+        if (viewportPausedRef.current) return
 
         const pp = propsRef.current
         const managed = managedRef.current
@@ -1652,6 +1629,9 @@ export default function Drift(props: DriftProps) {
 
     const initedRef = useRef(false)
     const pausedRef = useRef(false)
+    const viewportPausedRef = useRef(false)
+    const resizeObserverRef = useRef<ResizeObserver | null>(null)
+    const viewportObserverRef = useRef<IntersectionObserver | null>(null)
 
     // Refs for event handlers so listeners always call the latest version
     const startSimRef = useRef<() => void>(() => {})
@@ -1711,6 +1691,12 @@ export default function Drift(props: DriftProps) {
         managedRef.current = []
         wallsRef.current = []
         ignoredElsRef.current = new Set()
+
+        resizeObserverRef.current?.disconnect()
+        resizeObserverRef.current = null
+        viewportObserverRef.current?.disconnect()
+        viewportObserverRef.current = null
+        viewportPausedRef.current = false
     }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave, handleTouchStart, handleTouchMove, handleTouchEnd])
 
     // Track retry timers so they can be cancelled on unmount
@@ -1748,6 +1734,51 @@ export default function Drift(props: DriftProps) {
             parent.addEventListener("touchmove", handleTouchMove, { capture: true, passive: false })
             parent.addEventListener("touchend", handleTouchEnd, { capture: true })
             parent.addEventListener("touchcancel", handleTouchEnd, { capture: true })
+
+            // Attach ResizeObserver now that parent is confirmed.
+            // (Previously attached in a separate effect where parentRef.current
+            // could still be null at mount time.)
+            resizeObserverRef.current?.disconnect()
+            const ro = new ResizeObserver(() => {
+                const p2 = parentRef.current
+                if (!p2) return
+                const rect = p2.getBoundingClientRect()
+                const W = rect.width
+                const H = rect.height
+                const sp = propsRef.current.simulationPadding
+                boundsRef.current = { minX: -sp, minY: -sp, maxX: W + sp, maxY: H + sp, visW: W, visH: H }
+                const walls = wallsRef.current
+                if (walls.length === 4) {
+                    const t = 60
+                    Body.setPosition(walls[0], { x: W / 2, y: -sp - t / 2 })
+                    Body.setPosition(walls[1], { x: W / 2, y: H + sp + t / 2 })
+                    Body.setPosition(walls[2], { x: -sp - t / 2, y: H / 2 })
+                    Body.setPosition(walls[3], { x: W + sp + t / 2, y: H / 2 })
+                }
+            })
+            ro.observe(parent)
+            resizeObserverRef.current = ro
+
+            // Attach IntersectionObserver to pause the simulation when the
+            // container leaves the viewport (saves CPU on long pages).
+            viewportObserverRef.current?.disconnect()
+            viewportPausedRef.current = false
+            const io = new IntersectionObserver(
+                ([entry]) => {
+                    if (!entry) return
+                    const wasPaused = viewportPausedRef.current
+                    const nowPaused = !entry.isIntersecting
+                    viewportPausedRef.current = nowPaused
+                    // Resuming: restart RAF loop if the user hasn't also paused.
+                    if (wasPaused && !nowPaused && !pausedRef.current && initedRef.current) {
+                        lastTimeRef.current = 0
+                        rafRef.current = requestAnimationFrame(animate)
+                    }
+                },
+                { threshold: 0 }
+            )
+            io.observe(parent)
+            viewportObserverRef.current = io
         }
 
         lastTimeRef.current = 0
@@ -1833,7 +1864,7 @@ export default function Drift(props: DriftProps) {
     replaySimRef.current = replaySimulation
 
     useEffect(() => {
-        if (isFramerCanvas()) return
+        if (isStatic) return
 
         const pp = propsRef.current
         let cleanup: (() => void) | undefined
@@ -1940,35 +1971,6 @@ export default function Drift(props: DriftProps) {
             window.removeEventListener(`${base}-start`, startHandler)
             stopSimulation()
         }
-    }, [])
-
-    // ── ResizeObserver ──────────────────────────────────────────────────
-
-    useEffect(() => {
-        const parent = parentRef.current
-        const engine = engineRef.current
-        if (!parent || !engine) return
-
-        const ro = new ResizeObserver(() => {
-            const rect = parent.getBoundingClientRect()
-            const W = rect.width
-            const H = rect.height
-            const sp = propsRef.current.simulationPadding
-            boundsRef.current = { minX: -sp, minY: -sp, maxX: W + sp, maxY: H + sp, visW: W, visH: H }
-
-            // Update wall positions (expanded by simulation padding)
-            const walls = wallsRef.current
-            if (walls.length === 4) {
-                const t = 60
-                Body.setPosition(walls[0], { x: W / 2, y: -sp - t / 2 })
-                Body.setPosition(walls[1], { x: W / 2, y: H + sp + t / 2 })
-                Body.setPosition(walls[2], { x: -sp - t / 2, y: H / 2 })
-                Body.setPosition(walls[3], { x: W + sp + t / 2, y: H / 2 })
-            }
-        })
-
-        ro.observe(parent)
-        return () => ro.disconnect()
     }, [])
 
     // ── Render ───────────────────────────────────────────────────────────
@@ -2259,11 +2261,6 @@ addPropertyControls(Drift, {
     },
 
     // ── Collisions ──────────────────────────────────────────────────────
-    collisionEnabled: {
-        type: ControlType.Boolean,
-        title: "Collisions",
-        defaultValue: true,
-    },
     selfCollide: {
         type: ControlType.Boolean,
         title: "Self Collide",
