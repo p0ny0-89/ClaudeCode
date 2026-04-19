@@ -1484,12 +1484,17 @@ export default function DepthMotionStack(props: Props) {
     // ── Empty State ─────────────────────────────────────
 
     if (!resolvedContent) {
+        // Determine if Framer passed valid dimensions. If not (e.g., on first
+        // insert with no content), fall back to 400x400. This prevents the
+        // component from collapsing to 0x0 before a foreground is connected.
+        const hasValidWidth = style?.width != null && style.width !== 0 && style.width !== "0px"
+        const hasValidHeight = style?.height != null && style.height !== 0 && style.height !== "0px"
         return (
             <div
                 style={{
-                    width: 400,
-                    height: 400,
                     ...style,
+                    width: hasValidWidth ? style!.width : 400,
+                    height: hasValidHeight ? style!.height : 400,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -1500,8 +1505,9 @@ export default function DepthMotionStack(props: Props) {
                     fontFamily:
                         '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                     border: "1px dashed rgba(0, 0, 0, 0.1)",
-                    minWidth: 150,
-                    minHeight: 150,
+                    minWidth: 100,
+                    minHeight: 100,
+                    boxSizing: "border-box",
                 }}
             >
                 Connect a foreground layer →
