@@ -1484,10 +1484,10 @@ export default function DepthMotionStack(props: Props) {
     // ── Empty State ─────────────────────────────────────
 
     if (!resolvedContent) {
-        // Force explicit 400x400 size when no content is connected, ignoring
-        // Framer's passed style (which may be 0x0 in Fit mode). Once a
-        // foreground is connected, the component respects Framer's layout.
-        // Only keep non-sizing style properties like position/transform.
+        // Placeholder with an inline SVG that has explicit intrinsic dimensions.
+        // Gives Framer's Fit mode something concrete to measure so the component
+        // doesn't collapse to 0x0 before a foreground is connected. The SVG
+        // visually represents the parallax stack with offset layers.
         const { width: _w, height: _h, ...passthroughStyle } = (style ?? {}) as Record<string, any>
         return (
             <div
@@ -1500,17 +1500,68 @@ export default function DepthMotionStack(props: Props) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
+                    position: "relative",
                     background: "rgba(0, 0, 0, 0.03)",
                     borderRadius: 8,
-                    color: "#999",
-                    fontSize: 13,
-                    fontFamily:
-                        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                    border: "1px dashed rgba(0, 0, 0, 0.1)",
+                    border: "1px dashed rgba(0, 0, 0, 0.15)",
                     boxSizing: "border-box",
+                    overflow: "hidden",
                 }}
             >
-                Connect a foreground layer →
+                <svg
+                    width="400"
+                    height="400"
+                    viewBox="0 0 400 400"
+                    xmlns="http://www.w3.org/2000/svg"
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        width: "100%",
+                        height: "100%",
+                    }}
+                    preserveAspectRatio="xMidYMid meet"
+                >
+                    {/* Back layer */}
+                    <rect
+                        x="90" y="110" width="220" height="280"
+                        rx="12"
+                        fill="rgba(0, 0, 0, 0.06)"
+                        stroke="rgba(0, 0, 0, 0.12)"
+                        strokeWidth="1"
+                    />
+                    {/* Middle layer */}
+                    <rect
+                        x="110" y="90" width="220" height="280"
+                        rx="12"
+                        fill="rgba(0, 0, 0, 0.05)"
+                        stroke="rgba(0, 0, 0, 0.15)"
+                        strokeWidth="1"
+                    />
+                    {/* Front layer */}
+                    <rect
+                        x="130" y="70" width="220" height="280"
+                        rx="12"
+                        fill="rgba(255, 255, 255, 0.8)"
+                        stroke="rgba(0, 0, 0, 0.2)"
+                        strokeWidth="1"
+                    />
+                </svg>
+                <div
+                    style={{
+                        position: "relative",
+                        zIndex: 1,
+                        color: "#666",
+                        fontSize: 13,
+                        fontFamily:
+                            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                        background: "rgba(255, 255, 255, 0.9)",
+                        padding: "6px 12px",
+                        borderRadius: 6,
+                        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
+                    }}
+                >
+                    Connect a foreground layer →
+                </div>
             </div>
         )
     }
