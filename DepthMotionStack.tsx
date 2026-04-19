@@ -277,8 +277,8 @@ function applyLayerTransforms(
 
 // ─── Component ────────────────────────────────────────────
 
-// @framerSupportedLayoutWidth any-prefer-fixed
-// @framerSupportedLayoutHeight any-prefer-fixed
+// @framerSupportedLayoutWidth any
+// @framerSupportedLayoutHeight any
 // @framerIntrinsicWidth 400
 // @framerIntrinsicHeight 400
 // @framerDisableUnlink
@@ -1484,85 +1484,32 @@ export default function DepthMotionStack(props: Props) {
     // ── Empty State ─────────────────────────────────────
 
     if (!resolvedContent) {
-        // Placeholder with an inline SVG that has explicit intrinsic dimensions.
-        // Gives Framer's Fit mode something concrete to measure so the component
-        // doesn't collapse to 0x0 before a foreground is connected. The SVG
-        // visually represents the parallax stack with offset layers.
-        const { width: _w, height: _h, ...passthroughStyle } = (style ?? {}) as Record<string, any>
+        // Placeholder uses an <img> element with an inline SVG data URL.
+        // Images have universally-respected intrinsic dimensions (400x400)
+        // that Framer's Fit layout measures reliably, preventing the
+        // component from collapsing to 0x0 before a foreground is connected.
+        const placeholderSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'>
+            <rect width='400' height='400' fill='%23f5f5f5'/>
+            <rect x='90' y='110' width='220' height='280' rx='12' fill='%23e8e8e8' stroke='%23d0d0d0' stroke-width='1'/>
+            <rect x='110' y='90' width='220' height='280' rx='12' fill='%23efefef' stroke='%23c8c8c8' stroke-width='1'/>
+            <rect x='130' y='70' width='220' height='280' rx='12' fill='%23ffffff' stroke='%23b8b8b8' stroke-width='1'/>
+            <text x='200' y='220' text-anchor='middle' font-family='-apple-system, BlinkMacSystemFont, sans-serif' font-size='14' fill='%23888'>Connect a foreground</text>
+            <text x='200' y='240' text-anchor='middle' font-family='-apple-system, BlinkMacSystemFont, sans-serif' font-size='14' fill='%23888'>layer to begin</text>
+        </svg>`
+        const dataUrl = `data:image/svg+xml;utf8,${placeholderSvg.replace(/\n\s+/g, " ")}`
         return (
-            <div
+            <img
+                src={dataUrl}
+                width={400}
+                height={400}
+                alt="Depth Motion Stack placeholder"
                 style={{
-                    ...passthroughStyle,
-                    width: 400,
-                    height: 400,
-                    minWidth: 100,
-                    minHeight: 100,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    position: "relative",
-                    background: "rgba(0, 0, 0, 0.03)",
-                    borderRadius: 8,
-                    border: "1px dashed rgba(0, 0, 0, 0.15)",
-                    boxSizing: "border-box",
-                    overflow: "hidden",
+                    display: "block",
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                    objectFit: "contain",
                 }}
-            >
-                <svg
-                    width="400"
-                    height="400"
-                    viewBox="0 0 400 400"
-                    xmlns="http://www.w3.org/2000/svg"
-                    style={{
-                        position: "absolute",
-                        inset: 0,
-                        width: "100%",
-                        height: "100%",
-                    }}
-                    preserveAspectRatio="xMidYMid meet"
-                >
-                    {/* Back layer */}
-                    <rect
-                        x="90" y="110" width="220" height="280"
-                        rx="12"
-                        fill="rgba(0, 0, 0, 0.06)"
-                        stroke="rgba(0, 0, 0, 0.12)"
-                        strokeWidth="1"
-                    />
-                    {/* Middle layer */}
-                    <rect
-                        x="110" y="90" width="220" height="280"
-                        rx="12"
-                        fill="rgba(0, 0, 0, 0.05)"
-                        stroke="rgba(0, 0, 0, 0.15)"
-                        strokeWidth="1"
-                    />
-                    {/* Front layer */}
-                    <rect
-                        x="130" y="70" width="220" height="280"
-                        rx="12"
-                        fill="rgba(255, 255, 255, 0.8)"
-                        stroke="rgba(0, 0, 0, 0.2)"
-                        strokeWidth="1"
-                    />
-                </svg>
-                <div
-                    style={{
-                        position: "relative",
-                        zIndex: 1,
-                        color: "#666",
-                        fontSize: 13,
-                        fontFamily:
-                            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                        background: "rgba(255, 255, 255, 0.9)",
-                        padding: "6px 12px",
-                        borderRadius: 6,
-                        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
-                    }}
-                >
-                    Connect a foreground layer →
-                </div>
-            </div>
+            />
         )
     }
 
