@@ -884,10 +884,15 @@ export default function OverlapSlideshow(props: Props) {
 
     const getOffset = (i: number) => {
         let offset = i - activeIndex
-        if (infinite && hasWrapped && count > 1) {
+        if (infinite && count > 1) {
             const half = count / 2
-            if (offset > half) offset -= count
-            else if (offset < -half) offset += count
+            // Forward-wrap is always on: when active is near the end,
+            // card 0 appears ahead so the loop is previewed in the
+            // user's direction of travel.
+            if (offset < -half) offset += count
+            // Backward-wrap only activates after a real loop has
+            // happened — no "last card before first" on first load.
+            else if (hasWrapped && offset > half) offset -= count
         }
         return offset
     }
