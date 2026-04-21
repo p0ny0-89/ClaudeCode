@@ -1,4 +1,5 @@
 import * as React from "react"
+import * as ReactDOM from "react-dom"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import {
@@ -163,6 +164,16 @@ interface Props {
     // panel to drive a cursor variant, a hover text, etc.
     onActiveCardHoverStart?: () => void
     onActiveCardHoverEnd?: () => void
+    // Built-in "Set Variant"-style cursor, scoped to the active card.
+    // Drop in two Cursor component instances (same master, different
+    // variants). The slideshow renders them at the mouse position via
+    // a portal, crossfading when the mouse enters/leaves the focused
+    // card. No Framer Variables or Interactions setup required.
+    enableActiveCardCursor?: boolean
+    cursorDefault?: React.ReactNode
+    cursorHover?: React.ReactNode
+    cursorTransitionDuration?: number
+    hideBrowserCursor?: boolean
     style?: React.CSSProperties
 }
 
@@ -537,6 +548,11 @@ export default function OverlapSlideshow(props: Props) {
         onActivateCard12,
         onActiveCardHoverStart,
         onActiveCardHoverEnd,
+        enableActiveCardCursor = false,
+        cursorDefault,
+        cursorHover,
+        cursorTransitionDuration = 0.25,
+        hideBrowserCursor = true,
         style,
     } = props
 
@@ -550,12 +566,42 @@ export default function OverlapSlideshow(props: Props) {
         start: onActiveCardHoverStart,
         end: onActiveCardHoverEnd,
     }
+    // Hover state for driving the built-in active-card cursor crossfade.
+    const [activeCardHovered, setActiveCardHovered] = useState(false)
     const handleActiveHoverStart = useCallback(() => {
+        setActiveCardHovered(true)
         hoverHandlersRef.current.start?.()
     }, [])
     const handleActiveHoverEnd = useCallback(() => {
+        setActiveCardHovered(false)
         hoverHandlersRef.current.end?.()
     }, [])
+
+    // Mouse position for the built-in cursor. Stored as motion values so
+    // updates bypass React renders — the cursor tracks the mouse at 60fps.
+    const cursorX = useMotionValue(0)
+    const cursorY = useMotionValue(0)
+    useEffect(() => {
+        if (!enableActiveCardCursor) return
+        if (typeof window === "undefined") return
+        const handleMove = (e: MouseEvent) => {
+            cursorX.set(e.clientX)
+            cursorY.set(e.clientY)
+        }
+        window.addEventListener("mousemove", handleMove)
+        return () => window.removeEventListener("mousemove", handleMove)
+    }, [enableActiveCardCursor, cursorX, cursorY])
+
+    // Optionally hide the native browser cursor while ours is active.
+    useEffect(() => {
+        if (!enableActiveCardCursor || !hideBrowserCursor) return
+        if (typeof document === "undefined") return
+        const previous = document.body.style.cursor
+        document.body.style.cursor = "none"
+        return () => {
+            document.body.style.cursor = previous
+        }
+    }, [enableActiveCardCursor, hideBrowserCursor])
 
     const activateHandlers = [
         onActivateCard1,
@@ -1086,6 +1132,51 @@ export default function OverlapSlideshow(props: Props) {
                 })}
                 </div>
             </motion.div>
+            {enableActiveCardCursor &&
+                typeof document !== "undefined" &&
+                ReactDOM.createPortal(
+                    <motion.div
+                        style={{
+                            position: "fixed",
+                            top: 0,
+                            left: 0,
+                            pointerEvents: "none",
+                            zIndex: 999999,
+                            x: cursorX,
+                            y: cursorY,
+                            translateX: "-50%",
+                            translateY: "-50%",
+                        }}
+                    >
+                        {cursorDefault ? (
+                            <motion.div
+                                animate={{
+                                    opacity: activeCardHovered ? 0 : 1,
+                                }}
+                                transition={{
+                                    duration: cursorTransitionDuration,
+                                }}
+                                style={{ position: "absolute", inset: 0 }}
+                            >
+                                {cursorDefault}
+                            </motion.div>
+                        ) : null}
+                        {cursorHover ? (
+                            <motion.div
+                                animate={{
+                                    opacity: activeCardHovered ? 1 : 0,
+                                }}
+                                transition={{
+                                    duration: cursorTransitionDuration,
+                                }}
+                                style={{ position: "absolute", inset: 0 }}
+                            >
+                                {cursorHover}
+                            </motion.div>
+                        ) : null}
+                    </motion.div>,
+                    document.body
+                )}
         </div>
     )
 }
@@ -1429,5 +1520,44 @@ addPropertyControls(OverlapSlideshow, {
     },
     onActiveCardHoverEnd: {
         type: ControlType.EventHandler,
+    },
+    enableActiveCardCursor: {
+        type: ControlType.Boolean,
+        title: "Active Card Cursor",
+        description:
+            "Render a custom cursor that crossfades between two component variants when the mouse enters / leaves the focused card. No Variables or Interactions needed — just drop in the two Cursor instances.",
+        defaultValue: false,
+    },
+    cursorDefault: {
+        type: ControlType.ComponentInstance,
+        title: "Default Cursor",
+        description:
+            "Shown while the mouse is anywhere but the focused card. Use your cursor component set to its default variant.",
+        hidden: (p: Props) => !p.enableActiveCardCursor,
+    },
+    cursorHover: {
+        type: ControlType.ComponentInstance,
+        title: "Hover Cursor",
+        description:
+            "Shown while the mouse is over the focused card. Use your cursor component set to its hover / active variant.",
+        hidden: (p: Props) => !p.enableActiveCardCursor,
+    },
+    cursorTransitionDuration: {
+        type: ControlType.Number,
+        title: "Cursor Crossfade",
+        defaultValue: 0.25,
+        min: 0,
+        max: 1.5,
+        step: 0.05,
+        unit: "s",
+        hidden: (p: Props) => !p.enableActiveCardCursor,
+    },
+    hideBrowserCursor: {
+        type: ControlType.Boolean,
+        title: "Hide System Cursor",
+        description:
+            "Hide the OS cursor while this custom cursor is active.",
+        defaultValue: true,
+        hidden: (p: Props) => !p.enableActiveCardCursor,
     },
 })
