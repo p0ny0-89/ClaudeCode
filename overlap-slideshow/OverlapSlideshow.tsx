@@ -931,8 +931,25 @@ export default function OverlapSlideshow(props: Props) {
                 }}
                 dragElastic={dragElastic}
                 dragMomentum={false}
+                onDrag={(_e, info) => {
+                    if (!enableDrag) return
+                    // Mirror the live drag offset into our own motion
+                    // values so CardItems can read them for parallax.
+                    if (isHorizontal) stageDragX.set(info.offset.x)
+                    else stageDragY.set(info.offset.y)
+                }}
                 onDragEnd={(_e, info) => {
                     if (!enableDrag) return
+                    // Ease the parallax signal back to 0 so the inner
+                    // content settles in sync with the stage.
+                    animate(stageDragX, 0, {
+                        duration: 0.3,
+                        ease: [0.32, 0.72, 0, 1],
+                    })
+                    animate(stageDragY, 0, {
+                        duration: 0.3,
+                        ease: [0.32, 0.72, 0, 1],
+                    })
                     const offset = isHorizontal
                         ? info.offset.x
                         : info.offset.y
@@ -954,8 +971,6 @@ export default function OverlapSlideshow(props: Props) {
                     inset: 0,
                     width: "100%",
                     height: "100%",
-                    x: stageDragX,
-                    y: stageDragY,
                     cursor: enableDrag ? "grab" : undefined,
                     touchAction: enableDrag
                         ? isHorizontal
