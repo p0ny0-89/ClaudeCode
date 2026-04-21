@@ -97,6 +97,22 @@ interface Props {
     scrollDriven?: boolean
     scrollThreshold?: number
     channel?: string
+    // Native-Framer event triggers. Each fires when that card becomes
+    // the active one. Wire them to Set Variable actions in Framer's
+    // Interactions panel to drive a variable that your native text
+    // component binds its variant to.
+    onActivateCard1?: () => void
+    onActivateCard2?: () => void
+    onActivateCard3?: () => void
+    onActivateCard4?: () => void
+    onActivateCard5?: () => void
+    onActivateCard6?: () => void
+    onActivateCard7?: () => void
+    onActivateCard8?: () => void
+    onActivateCard9?: () => void
+    onActivateCard10?: () => void
+    onActivateCard11?: () => void
+    onActivateCard12?: () => void
     style?: React.CSSProperties
 }
 
@@ -119,8 +135,37 @@ export default function OverlapSlideshow(props: Props) {
         scrollDriven = false,
         scrollThreshold = 120,
         channel = "default",
+        onActivateCard1,
+        onActivateCard2,
+        onActivateCard3,
+        onActivateCard4,
+        onActivateCard5,
+        onActivateCard6,
+        onActivateCard7,
+        onActivateCard8,
+        onActivateCard9,
+        onActivateCard10,
+        onActivateCard11,
+        onActivateCard12,
         style,
     } = props
+
+    const activateHandlers = [
+        onActivateCard1,
+        onActivateCard2,
+        onActivateCard3,
+        onActivateCard4,
+        onActivateCard5,
+        onActivateCard6,
+        onActivateCard7,
+        onActivateCard8,
+        onActivateCard9,
+        onActivateCard10,
+        onActivateCard11,
+        onActivateCard12,
+    ]
+    const activateHandlersRef = useRef(activateHandlers)
+    activateHandlersRef.current = activateHandlers
 
     const count = cards.length
     const isHorizontal = direction === "horizontal"
@@ -136,9 +181,14 @@ export default function OverlapSlideshow(props: Props) {
     const wheelCooldownRef = useRef(0)
 
     // Broadcast the active index to any subscribers on this channel
-    // (e.g. a SlideshowFollower component elsewhere on the page).
+    // (e.g. a SlideshowFollower component elsewhere on the page) and
+    // fire the matching "Activate Card N" event so Framer's native
+    // Interactions panel can respond (e.g. Set Variable → switch a
+    // native text component's variant).
     useEffect(() => {
         publishChannelIndex(channel, activeIndex)
+        const handler = activateHandlersRef.current[activeIndex]
+        if (handler) handler()
     }, [channel, activeIndex])
 
     // Keep active index valid when count or initial index changes
@@ -536,6 +586,54 @@ addPropertyControls(OverlapSlideshow, {
         description:
             "Name this slideshow publishes on. Give a SlideshowFollower the same Channel to link them.",
         defaultValue: "default",
+    },
+    onActivateCard1: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 1,
+    },
+    onActivateCard2: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 2,
+    },
+    onActivateCard3: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 3,
+    },
+    onActivateCard4: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 4,
+    },
+    onActivateCard5: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 5,
+    },
+    onActivateCard6: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 6,
+    },
+    onActivateCard7: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 7,
+    },
+    onActivateCard8: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 8,
+    },
+    onActivateCard9: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 9,
+    },
+    onActivateCard10: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 10,
+    },
+    onActivateCard11: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 11,
+    },
+    onActivateCard12: {
+        type: ControlType.EventHandler,
+        hidden: (p: Props) => (p.cards?.length ?? 0) < 12,
     },
 })
 
