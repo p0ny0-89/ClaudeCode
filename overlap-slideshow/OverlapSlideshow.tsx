@@ -175,6 +175,12 @@ interface Props {
     cursorHoverVariant?: string
     cursorDefaultVariant?: string
     hideBrowserCursor?: boolean
+    // Let adjacent cards render outside the slideshow's own frame.
+    // Useful when the frame is sized to a single card so Framer's
+    // native per-layer hover (and Set Variant cursor) fires only
+    // over the focused card, while the scaled-down peek cards still
+    // visibly spill past the frame edges.
+    overflowVisible?: boolean
     style?: React.CSSProperties
 }
 
@@ -554,6 +560,7 @@ export default function OverlapSlideshow(props: Props) {
         cursorHoverVariant,
         cursorDefaultVariant,
         hideBrowserCursor = true,
+        overflowVisible = false,
         style,
     } = props
 
@@ -954,7 +961,7 @@ export default function OverlapSlideshow(props: Props) {
                 position: "relative",
                 width: "100%",
                 height: "100%",
-                overflow: "hidden",
+                overflow: overflowVisible ? "visible" : "hidden",
                 // Contain the cards' stacking contexts so high z-index
                 // values inside (up to 1000) don't compete with
                 // page-level elements like custom cursors.
@@ -1561,5 +1568,12 @@ addPropertyControls(OverlapSlideshow, {
             "Hide the OS cursor while this custom cursor is active.",
         defaultValue: true,
         hidden: (p: Props) => !p.enableActiveCardCursor,
+    },
+    overflowVisible: {
+        type: ControlType.Boolean,
+        title: "Overflow Visible",
+        description:
+            "Let adjacent cards spill outside the slideshow's frame. Pair with a frame sized to one card so Framer's native Set Variant cursor fires only over the focused card.",
+        defaultValue: false,
     },
 })
