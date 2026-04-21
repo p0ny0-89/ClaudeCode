@@ -180,6 +180,27 @@ export default function OverlapSlideshow(props: Props) {
     const scrollAccumRef = useRef(0)
     const wheelCooldownRef = useRef(0)
 
+    // Inject (once per document) a CSS rule that forces the linked
+    // component inside each card slot to fill its frame. Without this
+    // the component keeps its intrinsic design size, so Card Width /
+    // Card Height would only move cards around, not resize them.
+    useEffect(() => {
+        if (typeof document === "undefined") return
+        const styleId = "overlap-slideshow-card-fill-v1"
+        if (document.getElementById(styleId)) return
+        const styleEl = document.createElement("style")
+        styleEl.id = styleId
+        styleEl.textContent = `
+            .overlap-slideshow-card-fill > * {
+                width: 100% !important;
+                height: 100% !important;
+                max-width: 100% !important;
+                max-height: 100% !important;
+            }
+        `
+        document.head.appendChild(styleEl)
+    }, [])
+
     // Broadcast the active index to any subscribers on this channel
     // (e.g. a SlideshowFollower component elsewhere on the page) and
     // fire the matching "Activate Card N" event so Framer's native
@@ -402,6 +423,7 @@ export default function OverlapSlideshow(props: Props) {
                         >
                             {/* Idle layer */}
                             <motion.div
+                                className="overlap-slideshow-card-fill"
                                 animate={{ opacity: isActive ? 0 : 1 }}
                                 transition={{
                                     duration: transitionDuration,
@@ -422,6 +444,7 @@ export default function OverlapSlideshow(props: Props) {
                             {/* Active layer (crossfades in when focused) */}
                             {activeCard ? (
                                 <motion.div
+                                    className="overlap-slideshow-card-fill"
                                     animate={{ opacity: isActive ? 1 : 0 }}
                                     transition={{
                                         duration: transitionDuration,
