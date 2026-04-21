@@ -112,6 +112,59 @@ function computeCardCenter(
     return pos
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Shared state for external Code Overrides (prev / next buttons)
+//
+// The slideshow publishes its navigation state to a module-scoped
+// store. Any Code Override on the page can import `useSlideshowState`
+// from this file and read activeIndex / count / canGoPrev / canGoNext,
+// or call next() / prev() / goTo() to drive it. Assumes one slideshow
+// per page (good enough for 99% of cases).
+// ────────────────────────────────────────────────────────────────────
+
+export interface SlideshowApi {
+    activeIndex: number
+    count: number
+    hasWrapped: boolean
+    canGoPrev: boolean
+    canGoNext: boolean
+    next: () => void
+    prev: () => void
+    goTo: (index: number) => void
+}
+
+const noopSlideshow: SlideshowApi = {
+    activeIndex: 0,
+    count: 0,
+    hasWrapped: false,
+    canGoPrev: false,
+    canGoNext: false,
+    next: () => {},
+    prev: () => {},
+    goTo: () => {},
+}
+
+let currentSlideshowApi: SlideshowApi = noopSlideshow
+const slideshowListeners = new Set<(api: SlideshowApi) => void>()
+
+function publishSlideshowApi(next: SlideshowApi) {
+    currentSlideshowApi = next
+    slideshowListeners.forEach((l) => l(next))
+}
+
+export function useSlideshowState(): SlideshowApi {
+    const [state, setState] = useState(currentSlideshowApi)
+    useEffect(() => {
+        const listener = (s: SlideshowApi) => setState(s)
+        slideshowListeners.add(listener)
+        setState(currentSlideshowApi)
+        return () => {
+            slideshowListeners.delete(listener)
+        }
+    }, [])
+    return state
+}
+
 interface Props {
     cards?: React.ReactNode[]
     activeCards?: React.ReactNode[]
@@ -805,6 +858,33 @@ export default function OverlapSlideshow(props: Props) {
         },
         [count, infinite]
     )
+
+    // Publish navigation state so external Code Overrides (prev / next
+    // arrow buttons, etc.) can read it and drive the slideshow.
+    useEffect(() => {
+        const canGoPrev =
+            count > 1 &&
+            (activeIndex > 0 || (infinite && hasWrapped))
+        const canGoNext =
+            count > 1 && (activeIndex < count - 1 || infinite)
+        publishSlideshowApi({
+            activeIndex,
+            count,
+            hasWrapped,
+            canGoPrev,
+            canGoNext,
+            next: () => stepActiveIndex(1),
+            prev: () => stepActiveIndex(-1),
+            goTo,
+        })
+    }, [
+        activeIndex,
+        count,
+        hasWrapped,
+        infinite,
+        stepActiveIndex,
+        goTo,
+    ])
 
     // Auto-play
     useEffect(() => {
