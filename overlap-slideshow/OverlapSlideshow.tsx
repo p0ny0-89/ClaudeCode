@@ -193,6 +193,7 @@ interface Props {
     stagger?: boolean
     staggerDelay?: number
     parallaxStrength?: number
+    clipCards?: boolean
     channel?: string
     // Native-Framer event triggers. Each fires when that card becomes
     // the active one. Wire them to Set Variable actions in Framer's
@@ -231,6 +232,7 @@ interface CardItemProps {
     cardHeight: number
     transitionDuration: number
     parallaxStrength: number
+    clipCards: boolean
     stageDragX: MotionValue<number>
     stageDragY: MotionValue<number>
     onSelect: () => void
@@ -256,6 +258,7 @@ function CardItem(props: CardItemProps) {
         cardHeight,
         transitionDuration,
         parallaxStrength,
+        clipCards,
         stageDragX,
         stageDragY,
         onSelect,
@@ -445,9 +448,11 @@ function CardItem(props: CardItemProps) {
         [smoothYVel, parallaxGate],
         ([v, g]) => -v * g * 0.0004
     )
-    // Small fixed overscale so the parallax lag never exposes a
-    // background strip at the card edges.
-    const parallaxOverscale = parallaxStrength > 0 ? 1.05 : 1
+    // Only overscale when we're also clipping — otherwise the
+    // overscaled content would just visibly bleed past the card edge
+    // even at rest.
+    const shouldClip = parallaxStrength > 0 && clipCards
+    const parallaxOverscale = shouldClip ? 1.05 : 1
 
     return (
         <motion.div
@@ -467,7 +472,7 @@ function CardItem(props: CardItemProps) {
                 scale: scaleMV,
                 opacity: outerOpacityMV,
                 zIndex,
-                overflow: parallaxStrength > 0 ? "hidden" : undefined,
+                overflow: shouldClip ? "hidden" : undefined,
             }}
         >
             {/* Idle layer */}
@@ -539,6 +544,7 @@ export default function OverlapSlideshow(props: Props) {
         stagger = true,
         staggerDelay = 0.08,
         parallaxStrength = 0,
+        clipCards = false,
         channel = "default",
         onActivateCard1,
         onActivateCard2,
@@ -1024,6 +1030,7 @@ export default function OverlapSlideshow(props: Props) {
                             cardHeight={cardHeight}
                             transitionDuration={transitionDuration}
                             parallaxStrength={parallaxStrength}
+                            clipCards={clipCards}
                             stageDragX={stageDragX}
                             stageDragY={stageDragY}
                             onSelect={() => goTo(i)}
@@ -1323,6 +1330,14 @@ addPropertyControls(OverlapSlideshow, {
         min: 0,
         max: 100,
         step: 1,
+    },
+    clipCards: {
+        type: ControlType.Boolean,
+        title: "Clip Cards",
+        description:
+            "Clip content to the card frame. Turn OFF if your cards have hover / scale effects that need to bleed past the edge. With clipping off, you may see a few pixels of background at the card edges during fast parallax motion.",
+        defaultValue: false,
+        hidden: (p: Props) => (p.parallaxStrength ?? 0) === 0,
     },
     channel: {
         type: ControlType.String,
