@@ -96,6 +96,9 @@ interface Props {
     pauseOnHover?: boolean
     scrollDriven?: boolean
     scrollThreshold?: number
+    enableDrag?: boolean
+    dragThreshold?: number
+    dragElastic?: number
     channel?: string
     // Native-Framer event triggers. Each fires when that card becomes
     // the active one. Wire them to Set Variable actions in Framer's
@@ -134,6 +137,9 @@ export default function OverlapSlideshow(props: Props) {
         pauseOnHover = true,
         scrollDriven = false,
         scrollThreshold = 120,
+        enableDrag = true,
+        dragThreshold = 80,
+        dragElastic = 0.3,
         channel = "default",
         onActivateCard1,
         onActivateCard2,
@@ -373,16 +379,76 @@ export default function OverlapSlideshow(props: Props) {
                 ...style,
             }}
         >
-            <div
+            <motion.div
+                drag={
+                    enableDrag
+                        ? isHorizontal
+                            ? "x"
+                            : "y"
+                        : false
+                }
+                dragDirectionLock
+                dragConstraints={{
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                }}
+                dragElastic={dragElastic}
+                dragMomentum={false}
+                onDragEnd={(_e, info) => {
+                    if (!enableDrag) return
+                    const offset = isHorizontal
+                        ? info.offset.x
+                        : info.offset.y
+                    const velocity = isHorizontal
+                        ? info.velocity.x
+                        : info.velocity.y
+                    const crossedDistance =
+                        Math.abs(offset) > dragThreshold
+                    const crossedVelocity = Math.abs(velocity) > 500
+                    if (!crossedDistance && !crossedVelocity) return
+                    // Dragging left/up reveals the NEXT card (content
+                    // shifts toward the start), so negative offset
+                    // means advance.
+                    const step = offset < 0 ? 1 : -1
+                    setActiveIndex((prev) => {
+                        const nextIdx = prev + step
+                        if (infinite) {
+                            setHasAdvanced(true)
+                            return (
+                                ((nextIdx % count) + count) % count
+                            )
+                        }
+                        if (nextIdx < 0 || nextIdx >= count) return prev
+                        setHasAdvanced(true)
+                        return nextIdx
+                    })
+                }}
                 style={{
                     position: "absolute",
-                    left: "50%",
-                    top: "50%",
-                    width: 0,
-                    height: 0,
+                    inset: 0,
+                    width: "100%",
+                    height: "100%",
+                    cursor: enableDrag ? "grab" : undefined,
+                    touchAction: enableDrag
+                        ? isHorizontal
+                            ? "pan-y"
+                            : "pan-x"
+                        : undefined,
                 }}
+                whileDrag={{ cursor: "grabbing" }}
             >
-                {cards.map((card, i) => {
+                <div
+                    style={{
+                        position: "absolute",
+                        left: "50%",
+                        top: "50%",
+                        width: 0,
+                        height: 0,
+                    }}
+                >
+                    {cards.map((card, i) => {
                     const offset = getOffset(i)
                     const absOffset = Math.abs(offset)
 
@@ -465,7 +531,8 @@ export default function OverlapSlideshow(props: Props) {
                         </motion.div>
                     )
                 })}
-            </div>
+                </div>
+            </motion.div>
         </div>
     )
 }
@@ -602,6 +669,36 @@ addPropertyControls(OverlapSlideshow, {
         step: 10,
         unit: "px",
         hidden: (p: Props) => !p.scrollDriven,
+    },
+    enableDrag: {
+        type: ControlType.Boolean,
+        title: "Drag / Swipe",
+        description:
+            "Pointer / touch drag to advance cards. Works on mobile.",
+        defaultValue: true,
+    },
+    dragThreshold: {
+        type: ControlType.Number,
+        title: "Drag Distance",
+        description:
+            "Pixels to drag before advancing one card (velocity can also trigger it).",
+        defaultValue: 80,
+        min: 10,
+        max: 1000,
+        step: 5,
+        unit: "px",
+        hidden: (p: Props) => !p.enableDrag,
+    },
+    dragElastic: {
+        type: ControlType.Number,
+        title: "Drag Resistance",
+        description:
+            "0 = no pull past constraints, 1 = fully follows finger. 0.3 is a moderate rubber-band.",
+        defaultValue: 0.3,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        hidden: (p: Props) => !p.enableDrag,
     },
     channel: {
         type: ControlType.String,
