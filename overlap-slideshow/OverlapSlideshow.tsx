@@ -157,6 +157,8 @@ interface Props {
     entranceTrigger?: EntranceTrigger
     entranceDuration?: number
     entranceDelay?: number
+    preEntranceMode?: EntranceMode
+    preEntranceDuration?: number
     stagger?: boolean
     staggerDelay?: number
     channel?: string
@@ -204,6 +206,8 @@ export default function OverlapSlideshow(props: Props) {
         entranceTrigger = "onMount",
         entranceDuration = 0.7,
         entranceDelay = 0.1,
+        preEntranceMode = "none",
+        preEntranceDuration = 0.5,
         stagger = true,
         staggerDelay = 0.08,
         channel = "default",
@@ -355,15 +359,23 @@ export default function OverlapSlideshow(props: Props) {
     // transitionDuration (not entranceDuration + stagger).
     useEffect(() => {
         if (!hasEntered || !isEntering) return
+        const isMultiStage =
+            entranceMode !== "none" && preEntranceMode !== "none"
+        const sequenceDuration = isMultiStage
+            ? preEntranceDuration + entranceDuration
+            : entranceDuration
         const maxStagger = stagger ? staggerDelay * visibleNeighbors : 0
         const totalMs =
-            (entranceDuration + maxStagger + 0.1) * 1000
+            (sequenceDuration + maxStagger + 0.1) * 1000
         const t = window.setTimeout(() => setIsEntering(false), totalMs)
         return () => window.clearTimeout(t)
     }, [
         hasEntered,
         isEntering,
+        entranceMode,
+        preEntranceMode,
         entranceDuration,
+        preEntranceDuration,
         stagger,
         staggerDelay,
         visibleNeighbors,
@@ -622,22 +634,120 @@ export default function OverlapSlideshow(props: Props) {
                     const isActive = offset === 0
                     const activeCard = activeCards[i]
 
-                    const entrancePose = getEntrancePose(
-                        entranceMode,
-                        offset,
-                        cardWidth,
-                        cardHeight,
-                        isHorizontal,
-                        { x, y, scale }
-                    )
-                    const animateTarget = hasEntered
-                        ? { x, y, scale, opacity: 1 }
-                        : entrancePose
+                    const finalPose: CardPose = {
+                        x,
+                        y,
+                        scale,
+                        opacity: 1,
+                    }
+                    const mainEntrancePose =
+                        entranceMode === "none"
+                            ? finalPose
+                            : getEntrancePose(
+                                  entranceMode,
+                                  offset,
+                                  cardWidth,
+                                  cardHeight,
+                                  isHorizontal,
+                                  { x, y, scale }
+                              )
+                    const preEntrancePose =
+                        preEntranceMode === "none"
+                            ? mainEntrancePose
+                            : getEntrancePose(
+                                  preEntranceMode,
+                                  offset,
+                                  cardWidth,
+                                  cardHeight,
+                                  isHorizontal,
+                                  { x, y, scale }
+                              )
+
+                    const isMultiStage =
+                        entranceMode !== "none" &&
+                        preEntranceMode !== "none"
 
                     const cardStaggerDelay =
                         isEntering && stagger
                             ? absOffset * staggerDelay
                             : 0
+
+                    let animateTarget: Record<
+                        string,
+                        number | number[]
+                    >
+                    if (!hasEntered) {
+                        animateTarget = {
+                            x: preEntrancePose.x,
+                            y: preEntrancePose.y,
+                            scale: preEntrancePose.scale,
+                            opacity: preEntrancePose.opacity,
+                        }
+                    } else if (isEntering && isMultiStage) {
+                        animateTarget = {
+                            x: [
+                                preEntrancePose.x,
+                                mainEntrancePose.x,
+                                finalPose.x,
+                            ],
+                            y: [
+                                preEntrancePose.y,
+                                mainEntrancePose.y,
+                                finalPose.y,
+                            ],
+                            scale: [
+                                preEntrancePose.scale,
+                                mainEntrancePose.scale,
+                                finalPose.scale,
+                            ],
+                            opacity: [
+                                preEntrancePose.opacity,
+                                mainEntrancePose.opacity,
+                                finalPose.opacity,
+                            ],
+                        }
+                    } else {
+                        animateTarget = {
+                            x: finalPose.x,
+                            y: finalPose.y,
+                            scale: finalPose.scale,
+                            opacity: 1,
+                        }
+                    }
+
+                    const sequenceDuration = isMultiStage
+                        ? preEntranceDuration + entranceDuration
+                        : entranceDuration
+                    const transitionObj =
+                        isEntering && isMultiStage
+                            ? {
+                                  duration: sequenceDuration,
+                                  times: [
+                                      0,
+                                      preEntranceDuration /
+                                          sequenceDuration,
+                                      1,
+                                  ],
+                                  delay: cardStaggerDelay,
+                                  ease: [0.32, 0.72, 0, 1] as [
+                                      number,
+                                      number,
+                                      number,
+                                      number
+                                  ],
+                              }
+                            : {
+                                  duration: isEntering
+                                      ? entranceDuration
+                                      : transitionDuration,
+                                  delay: cardStaggerDelay,
+                                  ease: [0.32, 0.72, 0, 1] as [
+                                      number,
+                                      number,
+                                      number,
+                                      number
+                                  ],
+                              }
 
                     return (
                         <motion.div
@@ -648,19 +758,18 @@ export default function OverlapSlideshow(props: Props) {
                             initial={
                                 entranceMode === "none"
                                     ? false
-                                    : entrancePose
+                                    : {
+                                          x: preEntrancePose.x,
+                                          y: preEntrancePose.y,
+                                          scale: preEntrancePose.scale,
+                                          opacity: preEntrancePose.opacity,
+                                      }
                             }
                             animate={{
                                 ...animateTarget,
                                 zIndex: 1000 - absOffset,
                             }}
-                            transition={{
-                                duration: isEntering
-                                    ? entranceDuration
-                                    : transitionDuration,
-                                delay: cardStaggerDelay,
-                                ease: [0.32, 0.72, 0, 1],
-                            }}
+                            transition={transitionObj}
                             style={{
                                 position: "absolute",
                                 width: cardWidth,
@@ -933,6 +1042,42 @@ addPropertyControls(OverlapSlideshow, {
         step: 0.05,
         unit: "s",
         hidden: (p: Props) => p.entranceMode === "none",
+    },
+    preEntranceMode: {
+        type: ControlType.Enum,
+        title: "Pre-Entrance",
+        description:
+            "Optional first stage. Cards go Pre-Entrance pose → Entrance pose → final slideshow.",
+        options: [
+            "none",
+            "stackCenter",
+            "thumbnailRow",
+            "fadeInPlace",
+            "dealFromEdge",
+        ],
+        optionTitles: [
+            "None",
+            "Stack from Center",
+            "Thumbnail Row",
+            "Fade in Place",
+            "Deal from Edge",
+        ],
+        defaultValue: "none",
+        hidden: (p: Props) => p.entranceMode === "none",
+    },
+    preEntranceDuration: {
+        type: ControlType.Number,
+        title: "Pre-Enter Duration",
+        description:
+            "Time spent animating from Pre-Entrance pose to Entrance pose.",
+        defaultValue: 0.5,
+        min: 0.1,
+        max: 3,
+        step: 0.05,
+        unit: "s",
+        hidden: (p: Props) =>
+            p.entranceMode === "none" ||
+            p.preEntranceMode === "none",
     },
     stagger: {
         type: ControlType.Boolean,
