@@ -8,40 +8,29 @@
 //      pick this file → `prevButton`.
 //   3. Select your right arrow layer → Code Overrides → `nextButton`.
 //
-// What you get automatically:
+// Behaviour:
 //   • Clicking advances to the previous / next card.
 //   • Buttons fade out + stop receiving clicks when their direction
-//     isn't available — e.g. the left arrow is hidden on first load
-//     (nothing to the left of card 1) and appears once you've moved
-//     forward at least once OR wrapped around.
-//   • With Infinite off: left hides at card 1, right hides at the last
-//     card. With Infinite on: right always visible, left hides until
-//     there's something to its left.
+//     isn't available — e.g. left is hidden on first load and appears
+//     once you've moved forward or wrapped.
 //
-// NOTE: the import path assumes your slideshow's Code File is named
-// "OverlapSlideshow". If you renamed it, update the path below.
+// NOTE: the import path below assumes your slideshow's Code File is
+// named "OverlapSlideshow". If you renamed it, update the path.
 // ────────────────────────────────────────────────────────────────────
 
 import type { ComponentType } from "react"
 import * as React from "react"
 import { useSlideshowState } from "./OverlapSlideshow"
 
-type OverrideProps = {
-    onClick?: (e: React.MouseEvent) => void
-    style?: React.CSSProperties
-}
-
-export function prevButton(
-    Component: ComponentType<OverrideProps>
-): ComponentType<OverrideProps> {
-    return (props: OverrideProps) => {
+export function prevButton(Component): ComponentType {
+    return (props: any) => {
         const { prev, canGoPrev } = useSlideshowState()
         return (
             <Component
                 {...props}
                 onClick={(e: React.MouseEvent) => {
                     if (canGoPrev) prev()
-                    props.onClick?.(e)
+                    if (props.onClick) props.onClick(e)
                 }}
                 style={{
                     ...props.style,
@@ -54,17 +43,15 @@ export function prevButton(
     }
 }
 
-export function nextButton(
-    Component: ComponentType<OverrideProps>
-): ComponentType<OverrideProps> {
-    return (props: OverrideProps) => {
+export function nextButton(Component): ComponentType {
+    return (props: any) => {
         const { next, canGoNext } = useSlideshowState()
         return (
             <Component
                 {...props}
                 onClick={(e: React.MouseEvent) => {
                     if (canGoNext) next()
-                    props.onClick?.(e)
+                    if (props.onClick) props.onClick(e)
                 }}
                 style={{
                     ...props.style,
