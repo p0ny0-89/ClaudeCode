@@ -919,6 +919,10 @@ export default function OverlapSlideshow(props: Props) {
                 width: "100%",
                 height: "100%",
                 overflow: "hidden",
+                // Contain the cards' stacking contexts so high z-index
+                // values inside (up to 1000) don't compete with
+                // page-level elements like custom cursors.
+                isolation: "isolate",
                 ...style,
             }}
         >
