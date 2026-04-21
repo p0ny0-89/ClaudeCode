@@ -476,7 +476,10 @@ function CardItem(props: CardItemProps) {
                 overflow: shouldClip ? "hidden" : undefined,
             }}
         >
-            {/* Idle layer */}
+            {/* Idle layer. Non-active cards deliberately block pointer
+                events so inner links/buttons don't fire on the click
+                that's meant to bring the card into focus. The outer
+                motion.div's onClick handles the focus. */}
             <motion.div
                 className="overlap-slideshow-card-fill"
                 animate={{ opacity: isActive ? 0 : 1 }}
@@ -487,7 +490,7 @@ function CardItem(props: CardItemProps) {
                     x: innerX,
                     y: innerY,
                     scale: parallaxOverscale,
-                    pointerEvents: isActive ? "none" : "auto",
+                    pointerEvents: isActive ? "auto" : "none",
                 }}
             >
                 {idleContent}
