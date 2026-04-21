@@ -922,7 +922,7 @@ export default function OverlapSlideshow(props: Props) {
                             : "y"
                         : false
                 }
-                dragDirectionLock
+                dragListener={enableDrag}
                 dragConstraints={{
                     left: 0,
                     right: 0,
