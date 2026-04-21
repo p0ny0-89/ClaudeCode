@@ -584,7 +584,10 @@ export default function OverlapSlideshow(props: Props) {
     const [activeIndex, setActiveIndex] = useState(
         Math.min(Math.max(0, initialIndex), Math.max(0, count - 1))
     )
-    const [hasAdvanced, setHasAdvanced] = useState(false)
+    // Becomes true the first time the active index actually wraps
+    // around (from count-1 to 0, or 0 to count-1). Before that, offset
+    // math is literal — no last-card-shows-before-first illusion.
+    const [hasWrapped, setHasWrapped] = useState(false)
     const [isHovered, setIsHovered] = useState(false)
 
     const [hasEntered, setHasEntered] = useState(
@@ -741,22 +744,46 @@ export default function OverlapSlideshow(props: Props) {
     useEffect(() => {
         if (count === 0) return
         setActiveIndex(Math.min(Math.max(0, initialIndex), count - 1))
-        setHasAdvanced(false)
+        setHasWrapped(false)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialIndex])
+
+    // Step the index by ±1 (or more) and flag a wrap when the unclamped
+    // value actually crossed the bounds. Clicks via goTo are absolute
+    // jumps and never count as wraps.
+    const stepActiveIndex = useCallback(
+        (step: number) => {
+            if (count === 0) return
+            setActiveIndex((prev) => {
+                const unclamped = prev + step
+                if (infinite) {
+                    const wrapped =
+                        unclamped < 0 || unclamped >= count
+                    if (wrapped) setHasWrapped(true)
+                    return ((unclamped % count) + count) % count
+                }
+                return Math.min(
+                    Math.max(0, unclamped),
+                    count - 1
+                )
+            })
+        },
+        [count, infinite]
+    )
 
     const goTo = useCallback(
         (nextIndex: number) => {
             if (count === 0) return
             setActiveIndex((prev) => {
-                let clamped: number
                 if (infinite) {
-                    clamped = ((nextIndex % count) + count) % count
-                } else {
-                    clamped = Math.min(Math.max(0, nextIndex), count - 1)
+                    return (
+                        ((nextIndex % count) + count) % count
+                    )
                 }
-                if (clamped !== prev) setHasAdvanced(true)
-                return clamped
+                return Math.min(
+                    Math.max(0, nextIndex),
+                    count - 1
+                )
             })
         },
         [count, infinite]
@@ -770,20 +797,19 @@ export default function OverlapSlideshow(props: Props) {
         if (RenderTarget.current() === RenderTarget.canvas) return
 
         const id = window.setInterval(() => {
-            setActiveIndex((prev) => {
-                const nextIdx = prev + 1
-                if (infinite) {
-                    setHasAdvanced(true)
-                    return ((nextIdx % count) + count) % count
-                }
-                if (nextIdx >= count) return prev
-                setHasAdvanced(true)
-                return nextIdx
-            })
+            stepActiveIndex(1)
         }, Math.max(200, autoPlayDelay * 1000))
 
         return () => window.clearInterval(id)
-    }, [autoPlay, autoPlayDelay, count, infinite, isHovered, pauseOnHover])
+    }, [
+        autoPlay,
+        autoPlayDelay,
+        count,
+        infinite,
+        isHovered,
+        pauseOnHover,
+        stepActiveIndex,
+    ])
 
     // Scroll-driven navigation
     useEffect(() => {
@@ -811,16 +837,7 @@ export default function OverlapSlideshow(props: Props) {
                 const step = scrollAccumRef.current > 0 ? 1 : -1
                 scrollAccumRef.current = 0
                 wheelCooldownRef.current = now
-                setActiveIndex((prev) => {
-                    const nextIdx = prev + step
-                    if (infinite) {
-                        setHasAdvanced(true)
-                        return ((nextIdx % count) + count) % count
-                    }
-                    if (nextIdx < 0 || nextIdx >= count) return prev
-                    setHasAdvanced(true)
-                    return nextIdx
-                })
+                stepActiveIndex(step)
             }
         }
 
@@ -833,6 +850,7 @@ export default function OverlapSlideshow(props: Props) {
         count,
         infinite,
         transitionDuration,
+        stepActiveIndex,
     ])
 
     // Empty state
@@ -866,7 +884,7 @@ export default function OverlapSlideshow(props: Props) {
 
     const getOffset = (i: number) => {
         let offset = i - activeIndex
-        if (infinite && hasAdvanced && count > 1) {
+        if (infinite && hasWrapped && count > 1) {
             const half = count / 2
             if (offset > half) offset -= count
             else if (offset < -half) offset += count
@@ -924,18 +942,7 @@ export default function OverlapSlideshow(props: Props) {
                     // shifts toward the start), so negative offset
                     // means advance.
                     const step = offset < 0 ? 1 : -1
-                    setActiveIndex((prev) => {
-                        const nextIdx = prev + step
-                        if (infinite) {
-                            setHasAdvanced(true)
-                            return (
-                                ((nextIdx % count) + count) % count
-                            )
-                        }
-                        if (nextIdx < 0 || nextIdx >= count) return prev
-                        setHasAdvanced(true)
-                        return nextIdx
-                    })
+                    stepActiveIndex(step)
                 }}
                 style={{
                     position: "absolute",
