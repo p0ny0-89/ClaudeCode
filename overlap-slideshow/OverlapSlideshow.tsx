@@ -8,6 +8,7 @@ import {
     useTransform,
     useVelocity,
     useSpring,
+    useDragControls,
     type MotionValue,
 } from "framer-motion"
 
@@ -605,6 +606,10 @@ export default function OverlapSlideshow(props: Props) {
     // so its inner content layer can parallax-lag against the drag.
     const stageDragX = useMotionValue(0)
     const stageDragY = useMotionValue(0)
+    // Imperative drag controls so we can start drag from a bubbled
+    // pointerdown on any child (instead of relying on framer-motion's
+    // auto-listener, which some setups don't fire for mouse input).
+    const dragControls = useDragControls()
 
     // Inject (once per document) a CSS rule that forces the linked
     // component inside each card slot to fill its frame. Without this
@@ -922,7 +927,14 @@ export default function OverlapSlideshow(props: Props) {
                             : "y"
                         : false
                 }
-                dragListener={enableDrag}
+                dragListener={false}
+                dragControls={dragControls}
+                onPointerDown={(e) => {
+                    if (!enableDrag) return
+                    dragControls.start(e, {
+                        snapToCursor: false,
+                    })
+                }}
                 dragConstraints={{
                     left: 0,
                     right: 0,
