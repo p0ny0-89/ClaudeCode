@@ -26,6 +26,60 @@ import { motion } from "framer-motion"
 
 type Direction = "horizontal" | "vertical"
 
+type EntranceMode =
+    | "none"
+    | "stackCenter"
+    | "thumbnailRow"
+    | "fadeInPlace"
+    | "dealFromEdge"
+
+type EntranceTrigger = "onMount" | "layerInView" | "sectionInView"
+
+interface CardPose {
+    x: number
+    y: number
+    scale: number
+    opacity: number
+}
+
+function getEntrancePose(
+    mode: EntranceMode,
+    offset: number,
+    cardWidth: number,
+    cardHeight: number,
+    isHorizontal: boolean,
+    finalPose: { x: number; y: number; scale: number }
+): CardPose {
+    switch (mode) {
+        case "stackCenter":
+            return { x: 0, y: 0, scale: 0.6, opacity: 0 }
+        case "thumbnailRow": {
+            const thumbScale = 0.35
+            const thumbStride = isHorizontal
+                ? cardWidth * thumbScale + 16
+                : cardHeight * thumbScale + 16
+            return {
+                x: isHorizontal ? offset * thumbStride : 0,
+                y: isHorizontal ? 0 : offset * thumbStride,
+                scale: thumbScale,
+                opacity: 1,
+            }
+        }
+        case "fadeInPlace":
+            return { ...finalPose, opacity: 0 }
+        case "dealFromEdge":
+            return {
+                x: isHorizontal ? -2000 : finalPose.x,
+                y: isHorizontal ? finalPose.y : -2000,
+                scale: finalPose.scale * 0.9,
+                opacity: 0,
+            }
+        case "none":
+        default:
+            return { ...finalPose, opacity: 1 }
+    }
+}
+
 // ────────────────────────────────────────────────────────────────────
 // Cross-component channel (pub-sub)
 //
@@ -99,6 +153,12 @@ interface Props {
     enableDrag?: boolean
     dragThreshold?: number
     dragElastic?: number
+    entranceMode?: EntranceMode
+    entranceTrigger?: EntranceTrigger
+    entranceDuration?: number
+    entranceDelay?: number
+    stagger?: boolean
+    staggerDelay?: number
     channel?: string
     // Native-Framer event triggers. Each fires when that card becomes
     // the active one. Wire them to Set Variable actions in Framer's
@@ -140,6 +200,12 @@ export default function OverlapSlideshow(props: Props) {
         enableDrag = true,
         dragThreshold = 80,
         dragElastic = 0.3,
+        entranceMode = "none",
+        entranceTrigger = "onMount",
+        entranceDuration = 0.7,
+        entranceDelay = 0.1,
+        stagger = true,
+        staggerDelay = 0.08,
         channel = "default",
         onActivateCard1,
         onActivateCard2,
@@ -182,6 +248,13 @@ export default function OverlapSlideshow(props: Props) {
     const [hasAdvanced, setHasAdvanced] = useState(false)
     const [isHovered, setIsHovered] = useState(false)
 
+    const [hasEntered, setHasEntered] = useState(
+        entranceMode === "none"
+    )
+    const [isEntering, setIsEntering] = useState(
+        entranceMode !== "none"
+    )
+
     const containerRef = useRef<HTMLDivElement | null>(null)
     const scrollAccumRef = useRef(0)
     const wheelCooldownRef = useRef(0)
@@ -206,6 +279,95 @@ export default function OverlapSlideshow(props: Props) {
         `
         document.head.appendChild(styleEl)
     }, [])
+
+    // Entrance animation — fire based on entranceTrigger, then set
+    // hasEntered so cards animate from entrancePose → finalPose.
+    useEffect(() => {
+        if (entranceMode === "none") {
+            setHasEntered(true)
+            setIsEntering(false)
+            return
+        }
+        setHasEntered(false)
+        setIsEntering(true)
+
+        let cancelled = false
+        let timer: number | undefined
+        const fire = () => {
+            if (cancelled) return
+            timer = window.setTimeout(() => {
+                if (!cancelled) setHasEntered(true)
+            }, Math.max(0, entranceDelay * 1000))
+        }
+
+        if (entranceTrigger === "onMount") {
+            fire()
+            return () => {
+                cancelled = true
+                if (timer) window.clearTimeout(timer)
+            }
+        }
+
+        let targetEl: Element | null = containerRef.current
+        if (entranceTrigger === "sectionInView" && containerRef.current) {
+            let walk: HTMLElement | null = containerRef.current.parentElement
+            while (walk && walk !== document.body) {
+                if (
+                    walk.tagName === "SECTION" ||
+                    walk.classList.contains("framer-section") ||
+                    walk.dataset?.framerName
+                ) {
+                    targetEl = walk
+                    break
+                }
+                walk = walk.parentElement
+            }
+        }
+
+        if (!targetEl || typeof IntersectionObserver === "undefined") {
+            fire()
+            return () => {
+                cancelled = true
+                if (timer) window.clearTimeout(timer)
+            }
+        }
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((e) => e.isIntersecting)) {
+                    fire()
+                    observer.disconnect()
+                }
+            },
+            { threshold: 0.15 }
+        )
+        observer.observe(targetEl)
+
+        return () => {
+            cancelled = true
+            if (timer) window.clearTimeout(timer)
+            observer.disconnect()
+        }
+    }, [entranceMode, entranceTrigger, entranceDelay])
+
+    // Once the entrance has started, clear the "isEntering" flag after
+    // the entrance finishes so future index changes use the normal
+    // transitionDuration (not entranceDuration + stagger).
+    useEffect(() => {
+        if (!hasEntered || !isEntering) return
+        const maxStagger = stagger ? staggerDelay * visibleNeighbors : 0
+        const totalMs =
+            (entranceDuration + maxStagger + 0.1) * 1000
+        const t = window.setTimeout(() => setIsEntering(false), totalMs)
+        return () => window.clearTimeout(t)
+    }, [
+        hasEntered,
+        isEntering,
+        entranceDuration,
+        stagger,
+        staggerDelay,
+        visibleNeighbors,
+    ])
 
     // Broadcast the active index to any subscribers on this channel
     // (e.g. a SlideshowFollower component elsewhere on the page) and
@@ -460,21 +622,43 @@ export default function OverlapSlideshow(props: Props) {
                     const isActive = offset === 0
                     const activeCard = activeCards[i]
 
+                    const entrancePose = getEntrancePose(
+                        entranceMode,
+                        offset,
+                        cardWidth,
+                        cardHeight,
+                        isHorizontal,
+                        { x, y, scale }
+                    )
+                    const animateTarget = hasEntered
+                        ? { x, y, scale, opacity: 1 }
+                        : entrancePose
+
+                    const cardStaggerDelay =
+                        isEntering && stagger
+                            ? absOffset * staggerDelay
+                            : 0
+
                     return (
                         <motion.div
                             key={i}
                             onClick={() => {
                                 if (!isActive) goTo(i)
                             }}
-                            initial={false}
+                            initial={
+                                entranceMode === "none"
+                                    ? false
+                                    : entrancePose
+                            }
                             animate={{
-                                x,
-                                y,
-                                scale,
+                                ...animateTarget,
                                 zIndex: 1000 - absOffset,
                             }}
                             transition={{
-                                duration: transitionDuration,
+                                duration: isEntering
+                                    ? entranceDuration
+                                    : transitionDuration,
+                                delay: cardStaggerDelay,
                                 ease: [0.32, 0.72, 0, 1],
                             }}
                             style={{
@@ -699,6 +883,75 @@ addPropertyControls(OverlapSlideshow, {
         max: 1,
         step: 0.05,
         hidden: (p: Props) => !p.enableDrag,
+    },
+    entranceMode: {
+        type: ControlType.Enum,
+        title: "Entrance",
+        description: "How cards appear when the slideshow loads.",
+        options: [
+            "none",
+            "stackCenter",
+            "thumbnailRow",
+            "fadeInPlace",
+            "dealFromEdge",
+        ],
+        optionTitles: [
+            "None",
+            "Stack from Center",
+            "Thumbnail Row",
+            "Fade in Place",
+            "Deal from Edge",
+        ],
+        defaultValue: "none",
+    },
+    entranceTrigger: {
+        type: ControlType.Enum,
+        title: "Trigger",
+        options: ["onMount", "layerInView", "sectionInView"],
+        optionTitles: ["On Mount", "Layer in View", "Section in View"],
+        defaultValue: "onMount",
+        displaySegmentedControl: true,
+        hidden: (p: Props) => p.entranceMode === "none",
+    },
+    entranceDuration: {
+        type: ControlType.Number,
+        title: "Enter Duration",
+        defaultValue: 0.7,
+        min: 0.1,
+        max: 3,
+        step: 0.05,
+        unit: "s",
+        hidden: (p: Props) => p.entranceMode === "none",
+    },
+    entranceDelay: {
+        type: ControlType.Number,
+        title: "Enter Delay",
+        description: "Pre-roll before the entrance starts.",
+        defaultValue: 0.1,
+        min: 0,
+        max: 3,
+        step: 0.05,
+        unit: "s",
+        hidden: (p: Props) => p.entranceMode === "none",
+    },
+    stagger: {
+        type: ControlType.Boolean,
+        title: "Stagger",
+        description:
+            "Fire cards one after another. Cards closer to the active one animate first, outer cards follow.",
+        defaultValue: true,
+        hidden: (p: Props) => p.entranceMode === "none",
+    },
+    staggerDelay: {
+        type: ControlType.Number,
+        title: "Stagger Time",
+        defaultValue: 0.08,
+        min: 0,
+        max: 0.5,
+        step: 0.01,
+        unit: "s",
+        hidden: (p: Props) =>
+            p.entranceMode === "none" || !p.stagger,
     },
     channel: {
         type: ControlType.String,
