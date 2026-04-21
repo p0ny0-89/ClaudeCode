@@ -165,14 +165,15 @@ interface Props {
     onActiveCardHoverStart?: () => void
     onActiveCardHoverEnd?: () => void
     // Built-in "Set Variant"-style cursor, scoped to the active card.
-    // Drop in two Cursor component instances (same master, different
-    // variants). The slideshow renders them at the mouse position via
-    // a portal, crossfading when the mouse enters/leaves the focused
-    // card. No Framer Variables or Interactions setup required.
+    // Drop ONE cursor component instance in and name the variant to
+    // switch to on active-card hover. We re-render the same element
+    // with a different `variant` prop via React.cloneElement so
+    // Framer's native variant-transition (Smart Animate) can run
+    // inside the cursor component itself.
     enableActiveCardCursor?: boolean
-    cursorDefault?: React.ReactNode
-    cursorHover?: React.ReactNode
-    cursorTransitionDuration?: number
+    cursor?: React.ReactNode
+    cursorHoverVariant?: string
+    cursorDefaultVariant?: string
     hideBrowserCursor?: boolean
     style?: React.CSSProperties
 }
@@ -549,9 +550,9 @@ export default function OverlapSlideshow(props: Props) {
         onActiveCardHoverStart,
         onActiveCardHoverEnd,
         enableActiveCardCursor = false,
-        cursorDefault,
-        cursorHover,
-        cursorTransitionDuration = 0.25,
+        cursor,
+        cursorHoverVariant,
+        cursorDefaultVariant,
         hideBrowserCursor = true,
         style,
     } = props
@@ -1133,6 +1134,7 @@ export default function OverlapSlideshow(props: Props) {
                 </div>
             </motion.div>
             {enableActiveCardCursor &&
+                cursor &&
                 typeof document !== "undefined" &&
                 ReactDOM.createPortal(
                     <motion.div
@@ -1144,36 +1146,38 @@ export default function OverlapSlideshow(props: Props) {
                             zIndex: 999999,
                             x: cursorX,
                             y: cursorY,
-                            translateX: "-50%",
-                            translateY: "-50%",
                         }}
                     >
-                        {cursorDefault ? (
-                            <motion.div
-                                animate={{
-                                    opacity: activeCardHovered ? 0 : 1,
-                                }}
-                                transition={{
-                                    duration: cursorTransitionDuration,
-                                }}
-                                style={{ position: "absolute", inset: 0 }}
-                            >
-                                {cursorDefault}
-                            </motion.div>
-                        ) : null}
-                        {cursorHover ? (
-                            <motion.div
-                                animate={{
-                                    opacity: activeCardHovered ? 1 : 0,
-                                }}
-                                transition={{
-                                    duration: cursorTransitionDuration,
-                                }}
-                                style={{ position: "absolute", inset: 0 }}
-                            >
-                                {cursorHover}
-                            </motion.div>
-                        ) : null}
+                        <div
+                            style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                transform: "translate(-50%, -50%)",
+                            }}
+                        >
+                            {(() => {
+                                // Clone the user's cursor element with a
+                                // variant prop matching the current hover
+                                // state. Framer design components accept
+                                // a `variant` prop — when it changes,
+                                // Framer runs its native variant-to-
+                                // variant animation (Smart Animate) inside
+                                // the component.
+                                if (!React.isValidElement(cursor))
+                                    return cursor
+                                const targetVariant = activeCardHovered
+                                    ? cursorHoverVariant
+                                    : cursorDefaultVariant
+                                if (!targetVariant) return cursor
+                                return React.cloneElement(
+                                    cursor as React.ReactElement<
+                                        Record<string, unknown>
+                                    >,
+                                    { variant: targetVariant }
+                                )
+                            })()}
+                        </div>
                     </motion.div>,
                     document.body
                 )}
@@ -1525,31 +1529,29 @@ addPropertyControls(OverlapSlideshow, {
         type: ControlType.Boolean,
         title: "Active Card Cursor",
         description:
-            "Render a custom cursor that crossfades between two component variants when the mouse enters / leaves the focused card. No Variables or Interactions needed — just drop in the two Cursor instances.",
+            "Render a custom cursor that swaps variants when the mouse enters / leaves the focused card. Framer's variant-transition (Smart Animate) runs inside the cursor component.",
         defaultValue: false,
     },
-    cursorDefault: {
+    cursor: {
         type: ControlType.ComponentInstance,
-        title: "Default Cursor",
+        title: "Cursor",
         description:
-            "Shown while the mouse is anywhere but the focused card. Use your cursor component set to its default variant.",
+            "Your cursor component — any variant. The one you pick here is the default; Hover Variant below swaps to a different variant when over the focused card.",
         hidden: (p: Props) => !p.enableActiveCardCursor,
     },
-    cursorHover: {
-        type: ControlType.ComponentInstance,
-        title: "Hover Cursor",
+    cursorDefaultVariant: {
+        type: ControlType.String,
+        title: "Default Variant",
         description:
-            "Shown while the mouse is over the focused card. Use your cursor component set to its hover / active variant.",
+            "Optional — name of the variant to show when NOT over the focused card. Leave blank to use whatever variant was picked in the Cursor slot above.",
         hidden: (p: Props) => !p.enableActiveCardCursor,
     },
-    cursorTransitionDuration: {
-        type: ControlType.Number,
-        title: "Cursor Crossfade",
-        defaultValue: 0.25,
-        min: 0,
-        max: 1.5,
-        step: 0.05,
-        unit: "s",
+    cursorHoverVariant: {
+        type: ControlType.String,
+        title: "Hover Variant",
+        description:
+            "Name of the variant to show while the mouse is over the focused card. Must exactly match the variant name in your cursor component.",
+        defaultValue: "Hover",
         hidden: (p: Props) => !p.enableActiveCardCursor,
     },
     hideBrowserCursor: {
