@@ -26,6 +26,59 @@ import { motion } from "framer-motion"
 
 type Direction = "horizontal" | "vertical"
 
+// ────────────────────────────────────────────────────────────────────
+// Cross-component channel (pub-sub)
+//
+// The slideshow publishes its active index to a named channel. Other
+// components on the page (e.g. SlideshowFollower below) subscribe to
+// that channel and react without sharing a React tree.
+// ────────────────────────────────────────────────────────────────────
+
+type IndexListener = (index: number) => void
+
+interface ChannelStore {
+    index: number
+    listeners: Set<IndexListener>
+}
+
+const globalKey = "__overlapSlideshowChannels__"
+const globalScope = globalThis as unknown as {
+    [globalKey]?: Record<string, ChannelStore>
+}
+if (!globalScope[globalKey]) globalScope[globalKey] = {}
+const channelRegistry = globalScope[globalKey]!
+
+function getChannel(name: string): ChannelStore {
+    let store = channelRegistry[name]
+    if (!store) {
+        store = { index: 0, listeners: new Set() }
+        channelRegistry[name] = store
+    }
+    return store
+}
+
+function publishChannelIndex(name: string, index: number) {
+    const store = getChannel(name)
+    if (store.index === index) return
+    store.index = index
+    store.listeners.forEach((l) => l(index))
+}
+
+function useChannelIndex(name: string): number {
+    const [index, setIndex] = useState<number>(() => getChannel(name).index)
+    useEffect(() => {
+        const store = getChannel(name)
+        const listener: IndexListener = (i) => setIndex(i)
+        store.listeners.add(listener)
+        // Re-sync to the current value on (re)subscribe
+        setIndex(store.index)
+        return () => {
+            store.listeners.delete(listener)
+        }
+    }, [name])
+    return index
+}
+
 interface Props {
     cards?: React.ReactNode[]
     activeCards?: React.ReactNode[]
@@ -43,6 +96,7 @@ interface Props {
     pauseOnHover?: boolean
     scrollDriven?: boolean
     scrollThreshold?: number
+    channel?: string
     style?: React.CSSProperties
 }
 
@@ -64,6 +118,7 @@ export default function OverlapSlideshow(props: Props) {
         pauseOnHover = true,
         scrollDriven = false,
         scrollThreshold = 120,
+        channel = "default",
         style,
     } = props
 
@@ -79,6 +134,12 @@ export default function OverlapSlideshow(props: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const scrollAccumRef = useRef(0)
     const wheelCooldownRef = useRef(0)
+
+    // Broadcast the active index to any subscribers on this channel
+    // (e.g. a SlideshowFollower component elsewhere on the page).
+    useEffect(() => {
+        publishChannelIndex(channel, activeIndex)
+    }, [channel, activeIndex])
 
     // Keep active index valid when count or initial index changes
     useEffect(() => {
@@ -468,5 +529,136 @@ addPropertyControls(OverlapSlideshow, {
         step: 10,
         unit: "px",
         hidden: (p: Props) => !p.scrollDriven,
+    },
+    channel: {
+        type: ControlType.String,
+        title: "Channel",
+        description:
+            "Name this slideshow publishes on. Give a SlideshowFollower the same Channel to link them.",
+        defaultValue: "default",
+    },
+})
+
+// ────────────────────────────────────────────────────────────────────
+// SlideshowFollower
+//
+// Listens to a channel and instantly swaps between a list of component
+// instances — one per slideshow card index. Use this anywhere on the
+// page (outside the slideshow) to mirror the active card without the
+// slideshow's crossfade.
+//
+// Usage:
+// 1. Give your slideshow a Channel name (e.g. "hero").
+// 2. Add a SlideshowFollower to your layout and set its Channel to the
+//    same name.
+// 3. In the follower's "Items" array, add one component instance per
+//    card — in the same order as the slideshow's Idle Cards. Each item
+//    should already be pre-set to the variant you want shown for that
+//    card (since Framer can't switch a linked component's variant at
+//    runtime, you supply the target variant directly).
+// ────────────────────────────────────────────────────────────────────
+
+interface FollowerProps {
+    channel?: string
+    items?: React.ReactNode[]
+    fallbackIndex?: number
+    wrap?: boolean
+    style?: React.CSSProperties
+}
+
+export function SlideshowFollower(props: FollowerProps) {
+    const {
+        channel = "default",
+        items = [],
+        fallbackIndex = 0,
+        wrap = true,
+        style,
+    } = props
+
+    const liveIndex = useChannelIndex(channel)
+
+    if (items.length === 0) {
+        return (
+            <div
+                style={{
+                    ...style,
+                    width: "100%",
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#8a8a8a",
+                    fontFamily:
+                        "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                    fontSize: 12,
+                    background: "rgba(127,127,127,0.06)",
+                    border: "1px dashed rgba(127,127,127,0.35)",
+                    borderRadius: 6,
+                    padding: 12,
+                    textAlign: "center",
+                    boxSizing: "border-box",
+                }}
+            >
+                Add one item per slideshow card, then set Channel to
+                match the slideshow.
+            </div>
+        )
+    }
+
+    let index = liveIndex
+    if (index < 0 || index >= items.length) {
+        index = wrap
+            ? ((liveIndex % items.length) + items.length) % items.length
+            : Math.min(Math.max(0, fallbackIndex), items.length - 1)
+    }
+
+    return (
+        <div
+            style={{
+                position: "relative",
+                width: "100%",
+                height: "100%",
+                ...style,
+            }}
+        >
+            {items[index]}
+        </div>
+    )
+}
+
+SlideshowFollower.displayName = "Slideshow Follower"
+
+addPropertyControls(SlideshowFollower, {
+    channel: {
+        type: ControlType.String,
+        title: "Channel",
+        description:
+            "Must match the Channel set on the Overlap Slideshow you want to follow.",
+        defaultValue: "default",
+    },
+    items: {
+        type: ControlType.Array,
+        title: "Items",
+        description:
+            "One per slideshow card, in the same order. Pre-set each item to the variant you want shown when its card is active.",
+        control: { type: ControlType.ComponentInstance },
+    },
+    wrap: {
+        type: ControlType.Boolean,
+        title: "Wrap Out-of-Range",
+        description:
+            "If the slideshow has more cards than items here, wrap around instead of falling back.",
+        defaultValue: true,
+    },
+    fallbackIndex: {
+        type: ControlType.Number,
+        title: "Fallback Index",
+        description:
+            "Used when the active index is out of range and Wrap is off.",
+        defaultValue: 0,
+        min: 0,
+        max: 99,
+        step: 1,
+        hidden: (p: FollowerProps) => !!p.wrap,
     },
 })
