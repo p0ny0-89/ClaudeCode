@@ -181,6 +181,12 @@ interface Props {
     // over the focused card, while the scaled-down peek cards still
     // visibly spill past the frame edges.
     overflowVisible?: boolean
+    // When on, non-active cards become visually passive: pointer
+    // events pass straight through them. Pairs with Overflow Visible
+    // so that Framer's native per-layer cursor only fires over the
+    // focused card (you lose click-to-focus on the peek cards; you
+    // still advance via drag/swipe/scroll/auto-play).
+    focusedCardOnlyInteraction?: boolean
     style?: React.CSSProperties
 }
 
@@ -208,6 +214,7 @@ interface CardItemProps {
     onSelect: () => void
     onActiveHoverStart: () => void
     onActiveHoverEnd: () => void
+    focusedCardOnlyInteraction: boolean
     finalPose: CardPose
     preEntrancePose: CardPose
     mainEntrancePose: CardPose
@@ -236,6 +243,7 @@ function CardItem(props: CardItemProps) {
         onSelect,
         onActiveHoverStart,
         onActiveHoverEnd,
+        focusedCardOnlyInteraction,
         finalPose,
         preEntrancePose,
         mainEntrancePose,
@@ -466,6 +474,10 @@ function CardItem(props: CardItemProps) {
                 opacity: outerOpacityMV,
                 zIndex,
                 overflow: shouldClip ? "hidden" : undefined,
+                pointerEvents:
+                    !isActive && focusedCardOnlyInteraction
+                        ? "none"
+                        : undefined,
             }}
         >
             {/* Idle layer. Non-active cards deliberately block pointer
@@ -561,6 +573,7 @@ export default function OverlapSlideshow(props: Props) {
         cursorDefaultVariant,
         hideBrowserCursor = true,
         overflowVisible = false,
+        focusedCardOnlyInteraction = false,
         style,
     } = props
 
@@ -1125,6 +1138,9 @@ export default function OverlapSlideshow(props: Props) {
                             onSelect={() => goTo(i)}
                             onActiveHoverStart={handleActiveHoverStart}
                             onActiveHoverEnd={handleActiveHoverEnd}
+                            focusedCardOnlyInteraction={
+                                focusedCardOnlyInteraction
+                            }
                             finalPose={finalPose}
                             preEntrancePose={preEntrancePose}
                             mainEntrancePose={mainEntrancePose}
@@ -1575,5 +1591,13 @@ addPropertyControls(OverlapSlideshow, {
         description:
             "Let adjacent cards spill outside the slideshow's frame. Pair with a frame sized to one card so Framer's native Set Variant cursor fires only over the focused card.",
         defaultValue: false,
+    },
+    focusedCardOnlyInteraction: {
+        type: ControlType.Boolean,
+        title: "Focused Card Only",
+        description:
+            "Non-active cards ignore pointer events — Framer's native cursor only fires over the focused card, not the peek cards that spill past the frame. Side effect: click-to-focus on non-active cards is disabled (use drag / swipe / scroll / auto-play instead).",
+        defaultValue: false,
+        hidden: (p: Props) => !p.overflowVisible,
     },
 })
