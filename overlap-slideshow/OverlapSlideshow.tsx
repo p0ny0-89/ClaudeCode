@@ -1,5 +1,4 @@
 import * as React from "react"
-import * as ReactDOM from "react-dom"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import {
@@ -164,17 +163,6 @@ interface Props {
     // panel to drive a cursor variant, a hover text, etc.
     onActiveCardHoverStart?: () => void
     onActiveCardHoverEnd?: () => void
-    // Built-in "Set Variant"-style cursor, scoped to the active card.
-    // Drop ONE cursor component instance in and name the variant to
-    // switch to on active-card hover. We re-render the same element
-    // with a different `variant` prop via React.cloneElement so
-    // Framer's native variant-transition (Smart Animate) can run
-    // inside the cursor component itself.
-    enableActiveCardCursor?: boolean
-    cursor?: React.ReactNode
-    cursorHoverVariant?: string
-    cursorDefaultVariant?: string
-    hideBrowserCursor?: boolean
     // Let adjacent cards render outside the slideshow's own frame.
     // Useful when the frame is sized to a single card so Framer's
     // native per-layer hover (and Set Variant cursor) fires only
@@ -567,11 +555,6 @@ export default function OverlapSlideshow(props: Props) {
         onActivateCard12,
         onActiveCardHoverStart,
         onActiveCardHoverEnd,
-        enableActiveCardCursor = false,
-        cursor,
-        cursorHoverVariant,
-        cursorDefaultVariant,
-        hideBrowserCursor = true,
         overflowVisible = false,
         focusedCardOnlyInteraction = false,
         style,
@@ -587,42 +570,12 @@ export default function OverlapSlideshow(props: Props) {
         start: onActiveCardHoverStart,
         end: onActiveCardHoverEnd,
     }
-    // Hover state for driving the built-in active-card cursor crossfade.
-    const [activeCardHovered, setActiveCardHovered] = useState(false)
     const handleActiveHoverStart = useCallback(() => {
-        setActiveCardHovered(true)
         hoverHandlersRef.current.start?.()
     }, [])
     const handleActiveHoverEnd = useCallback(() => {
-        setActiveCardHovered(false)
         hoverHandlersRef.current.end?.()
     }, [])
-
-    // Mouse position for the built-in cursor. Stored as motion values so
-    // updates bypass React renders — the cursor tracks the mouse at 60fps.
-    const cursorX = useMotionValue(0)
-    const cursorY = useMotionValue(0)
-    useEffect(() => {
-        if (!enableActiveCardCursor) return
-        if (typeof window === "undefined") return
-        const handleMove = (e: MouseEvent) => {
-            cursorX.set(e.clientX)
-            cursorY.set(e.clientY)
-        }
-        window.addEventListener("mousemove", handleMove)
-        return () => window.removeEventListener("mousemove", handleMove)
-    }, [enableActiveCardCursor, cursorX, cursorY])
-
-    // Optionally hide the native browser cursor while ours is active.
-    useEffect(() => {
-        if (!enableActiveCardCursor || !hideBrowserCursor) return
-        if (typeof document === "undefined") return
-        const previous = document.body.style.cursor
-        document.body.style.cursor = "none"
-        return () => {
-            document.body.style.cursor = previous
-        }
-    }, [enableActiveCardCursor, hideBrowserCursor])
 
     const activateHandlers = [
         onActivateCard1,
@@ -1156,54 +1109,6 @@ export default function OverlapSlideshow(props: Props) {
                 })}
                 </div>
             </motion.div>
-            {enableActiveCardCursor &&
-                cursor &&
-                typeof document !== "undefined" &&
-                ReactDOM.createPortal(
-                    <motion.div
-                        style={{
-                            position: "fixed",
-                            top: 0,
-                            left: 0,
-                            pointerEvents: "none",
-                            zIndex: 999999,
-                            x: cursorX,
-                            y: cursorY,
-                        }}
-                    >
-                        <div
-                            style={{
-                                position: "absolute",
-                                top: 0,
-                                left: 0,
-                                transform: "translate(-50%, -50%)",
-                            }}
-                        >
-                            {(() => {
-                                // Clone the user's cursor element with a
-                                // variant prop matching the current hover
-                                // state. Framer design components accept
-                                // a `variant` prop — when it changes,
-                                // Framer runs its native variant-to-
-                                // variant animation (Smart Animate) inside
-                                // the component.
-                                if (!React.isValidElement(cursor))
-                                    return cursor
-                                const targetVariant = activeCardHovered
-                                    ? cursorHoverVariant
-                                    : cursorDefaultVariant
-                                if (!targetVariant) return cursor
-                                return React.cloneElement(
-                                    cursor as React.ReactElement<
-                                        Record<string, unknown>
-                                    >,
-                                    { variant: targetVariant }
-                                )
-                            })()}
-                        </div>
-                    </motion.div>,
-                    document.body
-                )}
         </div>
     )
 }
@@ -1547,43 +1452,6 @@ addPropertyControls(OverlapSlideshow, {
     },
     onActiveCardHoverEnd: {
         type: ControlType.EventHandler,
-    },
-    enableActiveCardCursor: {
-        type: ControlType.Boolean,
-        title: "Active Card Cursor",
-        description:
-            "Render a custom cursor that swaps variants when the mouse enters / leaves the focused card. Framer's variant-transition (Smart Animate) runs inside the cursor component.",
-        defaultValue: false,
-    },
-    cursor: {
-        type: ControlType.ComponentInstance,
-        title: "Cursor",
-        description:
-            "Your cursor component — any variant. The one you pick here is the default; Hover Variant below swaps to a different variant when over the focused card.",
-        hidden: (p: Props) => !p.enableActiveCardCursor,
-    },
-    cursorDefaultVariant: {
-        type: ControlType.String,
-        title: "Default Variant",
-        description:
-            "Optional — name of the variant to show when NOT over the focused card. Leave blank to use whatever variant was picked in the Cursor slot above.",
-        hidden: (p: Props) => !p.enableActiveCardCursor,
-    },
-    cursorHoverVariant: {
-        type: ControlType.String,
-        title: "Hover Variant",
-        description:
-            "Name of the variant to show while the mouse is over the focused card. Must exactly match the variant name in your cursor component.",
-        defaultValue: "Hover",
-        hidden: (p: Props) => !p.enableActiveCardCursor,
-    },
-    hideBrowserCursor: {
-        type: ControlType.Boolean,
-        title: "Hide System Cursor",
-        description:
-            "Hide the OS cursor while this custom cursor is active.",
-        defaultValue: true,
-        hidden: (p: Props) => !p.enableActiveCardCursor,
     },
     overflowVisible: {
         type: ControlType.Boolean,
