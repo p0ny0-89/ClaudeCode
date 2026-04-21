@@ -158,6 +158,11 @@ interface Props {
     onActivateCard10?: () => void
     onActivateCard11?: () => void
     onActivateCard12?: () => void
+    // Fired when the mouse enters / leaves the currently-active
+    // (focused) card. Wire to Set Variable in Framer's Interactions
+    // panel to drive a cursor variant, a hover text, etc.
+    onActiveCardHoverStart?: () => void
+    onActiveCardHoverEnd?: () => void
     style?: React.CSSProperties
 }
 
@@ -183,6 +188,8 @@ interface CardItemProps {
     stageDragX: MotionValue<number>
     stageDragY: MotionValue<number>
     onSelect: () => void
+    onActiveHoverStart: () => void
+    onActiveHoverEnd: () => void
     finalPose: CardPose
     preEntrancePose: CardPose
     mainEntrancePose: CardPose
@@ -209,6 +216,8 @@ function CardItem(props: CardItemProps) {
         stageDragX,
         stageDragY,
         onSelect,
+        onActiveHoverStart,
+        onActiveHoverEnd,
         finalPose,
         preEntrancePose,
         mainEntrancePose,
@@ -401,11 +410,30 @@ function CardItem(props: CardItemProps) {
     const shouldClip = parallaxStrength > 0 && clipCards
     const parallaxOverscale = shouldClip ? 1.05 : 1
 
+    // Hover tracking — only fire the slideshow's hover events while the
+    // mouse is over THIS card AND this card is the active one. We use
+    // a ref + effect so a mid-hover isActive flip still fires start/end
+    // correctly (e.g. scrolling cards under a stationary cursor).
+    const [hovered, setHovered] = useState(false)
+    const wasActiveHoverRef = useRef(false)
+    useEffect(() => {
+        const nowActiveHover = isActive && hovered
+        if (nowActiveHover && !wasActiveHoverRef.current) {
+            onActiveHoverStart()
+            wasActiveHoverRef.current = true
+        } else if (!nowActiveHover && wasActiveHoverRef.current) {
+            onActiveHoverEnd()
+            wasActiveHoverRef.current = false
+        }
+    }, [isActive, hovered, onActiveHoverStart, onActiveHoverEnd])
+
     return (
         <motion.div
             onClick={() => {
                 if (!isActive) onSelect()
             }}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
             style={{
                 position: "absolute",
                 width: cardWidth,
@@ -507,8 +535,27 @@ export default function OverlapSlideshow(props: Props) {
         onActivateCard10,
         onActivateCard11,
         onActivateCard12,
+        onActiveCardHoverStart,
+        onActiveCardHoverEnd,
         style,
     } = props
+
+    // Keep hover handlers in a ref so CardItem's hover effect doesn't
+    // re-run on every identity change of the callback prop.
+    const hoverHandlersRef = useRef({
+        start: onActiveCardHoverStart,
+        end: onActiveCardHoverEnd,
+    })
+    hoverHandlersRef.current = {
+        start: onActiveCardHoverStart,
+        end: onActiveCardHoverEnd,
+    }
+    const handleActiveHoverStart = useCallback(() => {
+        hoverHandlersRef.current.start?.()
+    }, [])
+    const handleActiveHoverEnd = useCallback(() => {
+        hoverHandlersRef.current.end?.()
+    }, [])
 
     const activateHandlers = [
         onActivateCard1,
@@ -1022,6 +1069,8 @@ export default function OverlapSlideshow(props: Props) {
                             stageDragX={stageDragX}
                             stageDragY={stageDragY}
                             onSelect={() => goTo(i)}
+                            onActiveHoverStart={handleActiveHoverStart}
+                            onActiveHoverEnd={handleActiveHoverEnd}
                             finalPose={finalPose}
                             preEntrancePose={preEntrancePose}
                             mainEntrancePose={mainEntrancePose}
@@ -1374,5 +1423,11 @@ addPropertyControls(OverlapSlideshow, {
     onActivateCard12: {
         type: ControlType.EventHandler,
         hidden: (p: Props) => (p.cards?.length ?? 0) < 12,
+    },
+    onActiveCardHoverStart: {
+        type: ControlType.EventHandler,
+    },
+    onActiveCardHoverEnd: {
+        type: ControlType.EventHandler,
     },
 })
