@@ -80,6 +80,29 @@ function getEntrancePose(
     }
 }
 
+// Compute the center-position of a card at |offset| steps from active,
+// walking outward while keeping `overlap` pixels of edge-to-edge overlap
+// between every adjacent pair. A fixed stride is correct only for ±1;
+// beyond that, each card's scaled half-width changes, so we accumulate.
+function computeCardCenter(
+    absOffset: number,
+    cardSize: number,
+    overlap: number,
+    scaleStep: number
+): number {
+    if (absOffset === 0) return 0
+    let pos = cardSize / 2 // start at the active card's outward edge
+    for (let k = 1; k <= absOffset; k++) {
+        pos -= overlap
+        const halfScaled = (cardSize * Math.pow(scaleStep, k)) / 2
+        pos += halfScaled // reach this card's center
+        if (k < absOffset) {
+            pos += halfScaled // continue to its outward edge for the next hop
+        }
+    }
+    return pos
+}
+
 // ────────────────────────────────────────────────────────────────────
 // Cross-component channel (pub-sub)
 //
@@ -534,11 +557,9 @@ export default function OverlapSlideshow(props: Props) {
         return offset
     }
 
-    // Stride so the *first* neighbor overlaps the active card by exactly
-    // `overlap` pixels edge-to-edge. Cards beyond ±1 use the same stride
-    // (visually fine; they're already small and partially hidden).
-    const strideH = cardWidth / 2 - overlap + (cardWidth * scaleStep) / 2
-    const strideV = cardHeight / 2 - overlap + (cardHeight * scaleStep) / 2
+    // Positions are computed per card (see computeCardCenter) so that
+    // every adjacent pair — not just active ↔ ±1 — overlaps by exactly
+    // `overlap` pixels, even as each card's scaled half-width shrinks.
 
     return (
         <div
@@ -629,8 +650,15 @@ export default function OverlapSlideshow(props: Props) {
                     if (absOffset > visibleNeighbors) return null
 
                     const scale = Math.pow(scaleStep, absOffset)
-                    const x = isHorizontal ? offset * strideH : 0
-                    const y = isHorizontal ? 0 : offset * strideV
+                    const sign = Math.sign(offset)
+                    const centerDistance = computeCardCenter(
+                        absOffset,
+                        isHorizontal ? cardWidth : cardHeight,
+                        overlap,
+                        scaleStep
+                    )
+                    const x = isHorizontal ? sign * centerDistance : 0
+                    const y = isHorizontal ? 0 : sign * centerDistance
                     const isActive = offset === 0
                     const activeCard = activeCards[i]
 
