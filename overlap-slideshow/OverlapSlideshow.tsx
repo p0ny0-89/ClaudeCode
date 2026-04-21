@@ -1,7 +1,15 @@
 import * as React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
-import { motion } from "framer-motion"
+import {
+    motion,
+    animate,
+    useMotionValue,
+    useTransform,
+    useVelocity,
+    useSpring,
+    type MotionValue,
+} from "framer-motion"
 
 /**
  * OverlapSlideshow
@@ -184,6 +192,7 @@ interface Props {
     preEntranceDuration?: number
     stagger?: boolean
     staggerDelay?: number
+    parallaxStrength?: number
     channel?: string
     // Native-Framer event triggers. Each fires when that card becomes
     // the active one. Wire them to Set Variable actions in Framer's
@@ -202,6 +211,302 @@ interface Props {
     onActivateCard11?: () => void
     onActivateCard12?: () => void
     style?: React.CSSProperties
+}
+
+// ────────────────────────────────────────────────────────────────────
+// CardItem — renders one card. Each card owns motion values for its
+// x/y/scale/opacity so the inner content layer can read them via
+// useTransform and translate in the opposite direction by
+// parallaxStrength. It also reads the stage drag motion values so the
+// parallax applies during user drag as well as during tween-based
+// index changes (click, wheel, auto-play).
+// ────────────────────────────────────────────────────────────────────
+
+interface CardItemProps {
+    idleContent: React.ReactNode
+    activeContent: React.ReactNode | undefined
+    isActive: boolean
+    zIndex: number
+    cardWidth: number
+    cardHeight: number
+    transitionDuration: number
+    parallaxStrength: number
+    stageDragX: MotionValue<number>
+    stageDragY: MotionValue<number>
+    onSelect: () => void
+    finalPose: CardPose
+    preEntrancePose: CardPose
+    mainEntrancePose: CardPose
+    entranceMode: EntranceMode
+    isMultiStage: boolean
+    hasEntered: boolean
+    isEntering: boolean
+    entranceDuration: number
+    preEntranceDuration: number
+    cardStaggerDelay: number
+}
+
+function CardItem(props: CardItemProps) {
+    const {
+        idleContent,
+        activeContent,
+        isActive,
+        zIndex,
+        cardWidth,
+        cardHeight,
+        transitionDuration,
+        parallaxStrength,
+        stageDragX,
+        stageDragY,
+        onSelect,
+        finalPose,
+        preEntrancePose,
+        mainEntrancePose,
+        entranceMode,
+        isMultiStage,
+        hasEntered,
+        isEntering,
+        entranceDuration,
+        preEntranceDuration,
+        cardStaggerDelay,
+    } = props
+
+    // Seed motion values with the initial pose. For entranceMode=none
+    // we start directly at the final pose.
+    const initialPose: CardPose =
+        entranceMode === "none" ? finalPose : preEntrancePose
+
+    const xMV = useMotionValue(initialPose.x)
+    const yMV = useMotionValue(initialPose.y)
+    const scaleMV = useMotionValue(initialPose.scale)
+    const outerOpacityMV = useMotionValue(initialPose.opacity)
+    // Ramp parallax in after the entrance finishes so the inner layer
+    // doesn't get yanked around during a dramatic entrance pose change.
+    const parallaxGate = useMotionValue(
+        isEntering ? 0 : parallaxStrength
+    )
+
+    useEffect(() => {
+        const ease: [number, number, number, number] = [
+            0.32, 0.72, 0, 1,
+        ]
+
+        if (!hasEntered) {
+            xMV.set(preEntrancePose.x)
+            yMV.set(preEntrancePose.y)
+            scaleMV.set(preEntrancePose.scale)
+            outerOpacityMV.set(preEntrancePose.opacity)
+            return
+        }
+
+        if (isEntering && isMultiStage) {
+            const total = preEntranceDuration + entranceDuration
+            const times = [
+                0,
+                preEntranceDuration / total,
+                1,
+            ]
+            const common = {
+                duration: total,
+                times,
+                ease,
+                delay: cardStaggerDelay,
+            }
+            const ctrl = [
+                animate(
+                    xMV,
+                    [
+                        preEntrancePose.x,
+                        mainEntrancePose.x,
+                        finalPose.x,
+                    ],
+                    common
+                ),
+                animate(
+                    yMV,
+                    [
+                        preEntrancePose.y,
+                        mainEntrancePose.y,
+                        finalPose.y,
+                    ],
+                    common
+                ),
+                animate(
+                    scaleMV,
+                    [
+                        preEntrancePose.scale,
+                        mainEntrancePose.scale,
+                        finalPose.scale,
+                    ],
+                    common
+                ),
+                animate(
+                    outerOpacityMV,
+                    [
+                        preEntrancePose.opacity,
+                        mainEntrancePose.opacity,
+                        1,
+                    ],
+                    common
+                ),
+            ]
+            return () => ctrl.forEach((c) => c.stop())
+        }
+
+        if (isEntering) {
+            const common = {
+                duration: entranceDuration,
+                ease,
+                delay: cardStaggerDelay,
+            }
+            const ctrl = [
+                animate(xMV, finalPose.x, common),
+                animate(yMV, finalPose.y, common),
+                animate(scaleMV, finalPose.scale, common),
+                animate(outerOpacityMV, 1, common),
+            ]
+            return () => ctrl.forEach((c) => c.stop())
+        }
+
+        const common = { duration: transitionDuration, ease }
+        const ctrl = [
+            animate(xMV, finalPose.x, common),
+            animate(yMV, finalPose.y, common),
+            animate(scaleMV, finalPose.scale, common),
+            animate(outerOpacityMV, 1, common),
+        ]
+        return () => ctrl.forEach((c) => c.stop())
+    }, [
+        hasEntered,
+        isEntering,
+        isMultiStage,
+        finalPose.x,
+        finalPose.y,
+        finalPose.scale,
+        preEntrancePose.x,
+        preEntrancePose.y,
+        preEntrancePose.scale,
+        preEntrancePose.opacity,
+        mainEntrancePose.x,
+        mainEntrancePose.y,
+        mainEntrancePose.scale,
+        mainEntrancePose.opacity,
+        entranceDuration,
+        preEntranceDuration,
+        transitionDuration,
+        cardStaggerDelay,
+        xMV,
+        yMV,
+        scaleMV,
+        outerOpacityMV,
+    ])
+
+    // Ease the parallax gate to avoid popping when isEntering flips.
+    useEffect(() => {
+        const target = isEntering ? 0 : parallaxStrength
+        const ctrl = animate(parallaxGate, target, {
+            duration: 0.3,
+            ease: [0.32, 0.72, 0, 1],
+        })
+        return () => ctrl.stop()
+    }, [isEntering, parallaxStrength, parallaxGate])
+
+    // Velocity-based parallax. Inner content offsets opposite to the
+    // card's apparent motion speed — from its own tween (click / wheel /
+    // auto-play) AND from the stage's drag. Always settles to 0 at rest,
+    // so non-active cards don't look permanently shifted.
+    const apparentX = useTransform<number, number>(
+        [xMV, stageDragX],
+        ([x, d]) => x + d
+    )
+    const apparentY = useTransform<number, number>(
+        [yMV, stageDragY],
+        ([y, d]) => y + d
+    )
+    const xVelocity = useVelocity(apparentX)
+    const yVelocity = useVelocity(apparentY)
+    const smoothXVel = useSpring(xVelocity, {
+        damping: 50,
+        stiffness: 500,
+    })
+    const smoothYVel = useSpring(yVelocity, {
+        damping: 50,
+        stiffness: 500,
+    })
+    // Scale factor: parallaxStrength is expressed in the UI as a 0–100
+    // dial; multiply velocity (px/s) by 0.0004 * strength to keep the
+    // per-frame offset visually subtle. At strength 20 and a moderate
+    // 800 px/s transition, this yields ~6.4 px of lag.
+    const innerX = useTransform<number, number>(
+        [smoothXVel, parallaxGate],
+        ([v, g]) => -v * g * 0.0004
+    )
+    const innerY = useTransform<number, number>(
+        [smoothYVel, parallaxGate],
+        ([v, g]) => -v * g * 0.0004
+    )
+    // Small fixed overscale so the parallax lag never exposes a
+    // background strip at the card edges.
+    const parallaxOverscale = parallaxStrength > 0 ? 1.05 : 1
+
+    return (
+        <motion.div
+            onClick={() => {
+                if (!isActive) onSelect()
+            }}
+            style={{
+                position: "absolute",
+                width: cardWidth,
+                height: cardHeight,
+                left: -cardWidth / 2,
+                top: -cardHeight / 2,
+                cursor: isActive ? "default" : "pointer",
+                willChange: "transform",
+                x: xMV,
+                y: yMV,
+                scale: scaleMV,
+                opacity: outerOpacityMV,
+                zIndex,
+                overflow: parallaxStrength > 0 ? "hidden" : undefined,
+            }}
+        >
+            {/* Idle layer */}
+            <motion.div
+                className="overlap-slideshow-card-fill"
+                animate={{ opacity: isActive ? 0 : 1 }}
+                transition={{ duration: transitionDuration }}
+                style={{
+                    position: "absolute",
+                    inset: 0,
+                    x: innerX,
+                    y: innerY,
+                    scale: parallaxOverscale,
+                    pointerEvents: isActive ? "none" : "auto",
+                }}
+            >
+                {idleContent}
+            </motion.div>
+
+            {/* Active layer (crossfades in when focused) */}
+            {activeContent ? (
+                <motion.div
+                    className="overlap-slideshow-card-fill"
+                    animate={{ opacity: isActive ? 1 : 0 }}
+                    transition={{ duration: transitionDuration }}
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        x: innerX,
+                        y: innerY,
+                        scale: parallaxOverscale,
+                        pointerEvents: isActive ? "auto" : "none",
+                    }}
+                >
+                    {activeContent}
+                </motion.div>
+            ) : null}
+        </motion.div>
+    )
 }
 
 export default function OverlapSlideshow(props: Props) {
@@ -233,6 +538,7 @@ export default function OverlapSlideshow(props: Props) {
         preEntranceDuration = 0.5,
         stagger = true,
         staggerDelay = 0.08,
+        parallaxStrength = 0,
         channel = "default",
         onActivateCard1,
         onActivateCard2,
@@ -285,6 +591,11 @@ export default function OverlapSlideshow(props: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const scrollAccumRef = useRef(0)
     const wheelCooldownRef = useRef(0)
+
+    // Drag motion values on the stage wrapper — passed to each CardItem
+    // so its inner content layer can parallax-lag against the drag.
+    const stageDragX = useMotionValue(0)
+    const stageDragY = useMotionValue(0)
 
     // Inject (once per document) a CSS rule that forces the linked
     // component inside each card slot to fill its frame. Without this
@@ -625,6 +936,8 @@ export default function OverlapSlideshow(props: Props) {
                     inset: 0,
                     width: "100%",
                     height: "100%",
+                    x: stageDragX,
+                    y: stageDragY,
                     cursor: enableDrag ? "grab" : undefined,
                     touchAction: enableDrag
                         ? isHorizontal
@@ -700,156 +1013,31 @@ export default function OverlapSlideshow(props: Props) {
                             ? absOffset * staggerDelay
                             : 0
 
-                    let animateTarget: Record<
-                        string,
-                        number | number[]
-                    >
-                    if (!hasEntered) {
-                        animateTarget = {
-                            x: preEntrancePose.x,
-                            y: preEntrancePose.y,
-                            scale: preEntrancePose.scale,
-                            opacity: preEntrancePose.opacity,
-                        }
-                    } else if (isEntering && isMultiStage) {
-                        animateTarget = {
-                            x: [
-                                preEntrancePose.x,
-                                mainEntrancePose.x,
-                                finalPose.x,
-                            ],
-                            y: [
-                                preEntrancePose.y,
-                                mainEntrancePose.y,
-                                finalPose.y,
-                            ],
-                            scale: [
-                                preEntrancePose.scale,
-                                mainEntrancePose.scale,
-                                finalPose.scale,
-                            ],
-                            opacity: [
-                                preEntrancePose.opacity,
-                                mainEntrancePose.opacity,
-                                finalPose.opacity,
-                            ],
-                        }
-                    } else {
-                        animateTarget = {
-                            x: finalPose.x,
-                            y: finalPose.y,
-                            scale: finalPose.scale,
-                            opacity: 1,
-                        }
-                    }
-
-                    const sequenceDuration = isMultiStage
-                        ? preEntranceDuration + entranceDuration
-                        : entranceDuration
-                    const transitionObj =
-                        isEntering && isMultiStage
-                            ? {
-                                  duration: sequenceDuration,
-                                  times: [
-                                      0,
-                                      preEntranceDuration /
-                                          sequenceDuration,
-                                      1,
-                                  ],
-                                  delay: cardStaggerDelay,
-                                  ease: [0.32, 0.72, 0, 1] as [
-                                      number,
-                                      number,
-                                      number,
-                                      number
-                                  ],
-                              }
-                            : {
-                                  duration: isEntering
-                                      ? entranceDuration
-                                      : transitionDuration,
-                                  delay: cardStaggerDelay,
-                                  ease: [0.32, 0.72, 0, 1] as [
-                                      number,
-                                      number,
-                                      number,
-                                      number
-                                  ],
-                              }
-
                     return (
-                        <motion.div
+                        <CardItem
                             key={i}
-                            onClick={() => {
-                                if (!isActive) goTo(i)
-                            }}
-                            initial={
-                                entranceMode === "none"
-                                    ? false
-                                    : {
-                                          x: preEntrancePose.x,
-                                          y: preEntrancePose.y,
-                                          scale: preEntrancePose.scale,
-                                          opacity: preEntrancePose.opacity,
-                                      }
-                            }
-                            animate={{
-                                ...animateTarget,
-                                zIndex: 1000 - absOffset,
-                            }}
-                            transition={transitionObj}
-                            style={{
-                                position: "absolute",
-                                width: cardWidth,
-                                height: cardHeight,
-                                left: -cardWidth / 2,
-                                top: -cardHeight / 2,
-                                cursor: isActive ? "default" : "pointer",
-                                willChange: "transform",
-                            }}
-                        >
-                            {/* Idle layer */}
-                            <motion.div
-                                className="overlap-slideshow-card-fill"
-                                animate={{ opacity: isActive ? 0 : 1 }}
-                                transition={{
-                                    duration: transitionDuration,
-                                }}
-                                style={{
-                                    position: "absolute",
-                                    inset: 0,
-                                    width: "100%",
-                                    height: "100%",
-                                    pointerEvents: isActive
-                                        ? "none"
-                                        : "auto",
-                                }}
-                            >
-                                {card}
-                            </motion.div>
-
-                            {/* Active layer (crossfades in when focused) */}
-                            {activeCard ? (
-                                <motion.div
-                                    className="overlap-slideshow-card-fill"
-                                    animate={{ opacity: isActive ? 1 : 0 }}
-                                    transition={{
-                                        duration: transitionDuration,
-                                    }}
-                                    style={{
-                                        position: "absolute",
-                                        inset: 0,
-                                        width: "100%",
-                                        height: "100%",
-                                        pointerEvents: isActive
-                                            ? "auto"
-                                            : "none",
-                                    }}
-                                >
-                                    {activeCard}
-                                </motion.div>
-                            ) : null}
-                        </motion.div>
+                            idleContent={card}
+                            activeContent={activeCard}
+                            isActive={isActive}
+                            zIndex={1000 - absOffset}
+                            cardWidth={cardWidth}
+                            cardHeight={cardHeight}
+                            transitionDuration={transitionDuration}
+                            parallaxStrength={parallaxStrength}
+                            stageDragX={stageDragX}
+                            stageDragY={stageDragY}
+                            onSelect={() => goTo(i)}
+                            finalPose={finalPose}
+                            preEntrancePose={preEntrancePose}
+                            mainEntrancePose={mainEntrancePose}
+                            entranceMode={entranceMode}
+                            isMultiStage={isMultiStage}
+                            hasEntered={hasEntered}
+                            isEntering={isEntering}
+                            entranceDuration={entranceDuration}
+                            preEntranceDuration={preEntranceDuration}
+                            cardStaggerDelay={cardStaggerDelay}
+                        />
                     )
                 })}
                 </div>
@@ -1125,6 +1313,16 @@ addPropertyControls(OverlapSlideshow, {
         unit: "s",
         hidden: (p: Props) =>
             p.entranceMode === "none" || !p.stagger,
+    },
+    parallaxStrength: {
+        type: ControlType.Number,
+        title: "Parallax",
+        description:
+            "Inner content lags behind the card frame during any motion (drag, click, wheel, auto-play). 0 disables.",
+        defaultValue: 0,
+        min: 0,
+        max: 100,
+        step: 1,
     },
     channel: {
         type: ControlType.String,
