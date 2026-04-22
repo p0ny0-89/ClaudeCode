@@ -20,7 +20,7 @@
 
 import type { ComponentType } from "react"
 import * as React from "react"
-import { useSlideshowState } from "./OverlapSlideshow"
+import { useSlideshowState } from "./OverlapSlideshow.tsx"
 
 export function prevButton(Component): ComponentType {
     return (props: any) => {
