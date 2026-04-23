@@ -168,6 +168,8 @@ export function useSlideshowState(): SlideshowApi {
 interface Props {
     cards?: React.ReactNode[]
     activeCards?: React.ReactNode[]
+    links?: string[]
+    linkTarget?: "_self" | "_blank"
     direction?: Direction
     cardWidth?: number
     cardHeight?: number
@@ -253,6 +255,8 @@ interface CardItemProps {
     stageDragX: MotionValue<number>
     stageDragY: MotionValue<number>
     onSelect: () => void
+    link: string | undefined
+    linkTarget: "_self" | "_blank"
     onActiveHoverStart: () => void
     onActiveHoverEnd: () => void
     focusedCardOnlyInteraction: boolean
@@ -282,6 +286,8 @@ function CardItem(props: CardItemProps) {
         stageDragX,
         stageDragY,
         onSelect,
+        link,
+        linkTarget,
         onActiveHoverStart,
         onActiveHoverEnd,
         focusedCardOnlyInteraction,
@@ -496,8 +502,34 @@ function CardItem(props: CardItemProps) {
 
     return (
         <motion.div
-            onClick={() => {
-                if (!isActive) onSelect()
+            onClick={(e) => {
+                if (!isActive) {
+                    onSelect()
+                    return
+                }
+                if (!link) return
+                // Skip when the click originated on a real interactive
+                // element inside the card (a link, button, etc.) so
+                // inner CTAs keep their own behavior and we don't
+                // double-navigate.
+                const target = e.target as HTMLElement | null
+                const boundary = e.currentTarget as HTMLElement
+                let walk: HTMLElement | null = target
+                while (walk && walk !== boundary) {
+                    if (
+                        walk.matches?.(
+                            "a, button, input, select, textarea, [role='button'], [role='link']"
+                        )
+                    ) {
+                        return
+                    }
+                    walk = walk.parentElement
+                }
+                if (linkTarget === "_blank") {
+                    window.open(link, "_blank", "noopener,noreferrer")
+                } else {
+                    window.location.href = link
+                }
             }}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
@@ -507,7 +539,11 @@ function CardItem(props: CardItemProps) {
                 height: cardHeight,
                 left: -cardWidth / 2,
                 top: -cardHeight / 2,
-                cursor: isActive ? "default" : "pointer",
+                cursor: isActive
+                    ? link
+                        ? "pointer"
+                        : "default"
+                    : "pointer",
                 willChange: "transform",
                 x: xMV,
                 y: yMV,
@@ -567,6 +603,8 @@ export default function OverlapSlideshow(props: Props) {
     const {
         cards = [],
         activeCards = [],
+        links = [],
+        linkTarget = "_self",
         direction = "horizontal",
         cardWidth = 400,
         cardHeight = 300,
@@ -1169,6 +1207,8 @@ export default function OverlapSlideshow(props: Props) {
                             stageDragX={stageDragX}
                             stageDragY={stageDragY}
                             onSelect={() => goTo(i)}
+                            link={links[i] || undefined}
+                            linkTarget={linkTarget}
                             onActiveHoverStart={handleActiveHoverStart}
                             onActiveHoverEnd={handleActiveHoverEnd}
                             focusedCardOnlyInteraction={
@@ -1207,6 +1247,21 @@ addPropertyControls(OverlapSlideshow, {
         description:
             "Matched to Idle Cards by order. Shown while that card is focused.",
         control: { type: ControlType.ComponentInstance },
+    },
+    links: {
+        type: ControlType.Array,
+        title: "Links",
+        description:
+            "Optional URL per card (matched by order). Clicking a focused card follows its link. Leave blank for no link.",
+        control: { type: ControlType.Link },
+    },
+    linkTarget: {
+        type: ControlType.Enum,
+        title: "Link Target",
+        options: ["_self", "_blank"],
+        optionTitles: ["Same Tab", "New Tab"],
+        defaultValue: "_self",
+        displaySegmentedControl: true,
     },
     direction: {
         type: ControlType.Enum,
