@@ -16,21 +16,23 @@ import {
  * OverlapSlideshow
  *
  * A slideshow where the active card is centered and adjacent cards
- * overlap + scale down in steps. Each card slot takes two component
- * instances: an Idle variant (shown when not focused) and an Active
- * variant (shown when focused) — the two crossfade on focus change.
+ * overlap + scale down in steps. Each card slot takes a single
+ * Framer component instance. Focused-vs-idle visual differentiation
+ * is expected to come from variants *inside* that card component,
+ * driven by Framer's Set Variable action wired to the
+ * onActivateCardN events this slideshow emits.
  *
  * To use:
  * 1. In Framer, create a Code File and paste this whole file in.
  * 2. Drop the component on your canvas.
- * 3. In the property panel, add your cards to "Idle Cards" and their
- *    matching active versions to "Active Cards" in the SAME order.
+ * 3. In the property panel, add your cards to the "Cards" array.
+ * 4. If you want focused cards to look different, give your card
+ *    component two variants and drive the swap with a Framer
+ *    Variable + Set Variable action on the "Activate Card N" event.
  *
  * Notes:
- * - Idle Cards and Active Cards are matched by index. Missing Active
- *   entries are tolerated (the Idle variant stays visible when active).
- * - Size each card visually by setting Card Width / Card Height in the
- *   property panel — cards render inside a fixed-size frame.
+ * - Size each card visually by setting Card Width / Card Height in
+ *   the property panel — cards render inside a fixed-size frame.
  */
 
 type Direction = "horizontal" | "vertical"
@@ -167,7 +169,6 @@ export function useSlideshowState(): SlideshowApi {
 
 interface Props {
     cards?: React.ReactNode[]
-    activeCards?: React.ReactNode[]
     direction?: Direction
     cardWidth?: number
     cardHeight?: number
@@ -241,8 +242,7 @@ interface Props {
 // ────────────────────────────────────────────────────────────────────
 
 interface CardItemProps {
-    idleContent: React.ReactNode
-    activeContent: React.ReactNode | undefined
+    content: React.ReactNode
     isActive: boolean
     zIndex: number
     cardWidth: number
@@ -270,8 +270,7 @@ interface CardItemProps {
 
 function CardItem(props: CardItemProps) {
     const {
-        idleContent,
-        activeContent,
+        content,
         isActive,
         zIndex,
         cardWidth,
@@ -521,14 +520,16 @@ function CardItem(props: CardItemProps) {
                         : undefined,
             }}
         >
-            {/* Idle layer. Non-active cards deliberately block pointer
-                events so inner links/buttons don't fire on the click
-                that's meant to bring the card into focus. The outer
-                motion.div's onClick handles the focus. */}
+            {/* Single card content layer. Non-active cards block
+                pointer events so inner links/buttons don't fire on
+                the click that's meant to bring the card into focus —
+                the outer motion.div's onClick handles that focus
+                select. Visual idle-vs-active differentiation is
+                expected to come from variants inside the card
+                component itself, driven by Framer's Set Variable +
+                the onActivateCardN events this component emits. */}
             <motion.div
                 className="overlap-slideshow-card-fill"
-                animate={{ opacity: isActive ? 0 : 1 }}
-                transition={{ duration: transitionDuration }}
                 style={{
                     position: "absolute",
                     inset: 0,
@@ -538,27 +539,8 @@ function CardItem(props: CardItemProps) {
                     pointerEvents: isActive ? "auto" : "none",
                 }}
             >
-                {idleContent}
+                {content}
             </motion.div>
-
-            {/* Active layer (crossfades in when focused) */}
-            {activeContent ? (
-                <motion.div
-                    className="overlap-slideshow-card-fill"
-                    animate={{ opacity: isActive ? 1 : 0 }}
-                    transition={{ duration: transitionDuration }}
-                    style={{
-                        position: "absolute",
-                        inset: 0,
-                        x: innerX,
-                        y: innerY,
-                        scale: parallaxOverscale,
-                        pointerEvents: isActive ? "auto" : "none",
-                    }}
-                >
-                    {activeContent}
-                </motion.div>
-            ) : null}
         </motion.div>
     )
 }
@@ -566,7 +548,6 @@ function CardItem(props: CardItemProps) {
 export default function OverlapSlideshow(props: Props) {
     const {
         cards = [],
-        activeCards = [],
         direction = "horizontal",
         cardWidth = 400,
         cardHeight = 300,
@@ -973,8 +954,7 @@ export default function OverlapSlideshow(props: Props) {
                     boxSizing: "border-box",
                 }}
             >
-                Add cards to the "Idle Cards" and "Active Cards" arrays
-                in the property panel.
+                Add cards to the "Cards" array in the property panel.
             </div>
         )
     }
@@ -1114,7 +1094,6 @@ export default function OverlapSlideshow(props: Props) {
                     const x = isHorizontal ? sign * centerDistance : 0
                     const y = isHorizontal ? 0 : sign * centerDistance
                     const isActive = offset === 0
-                    const activeCard = activeCards[i]
 
                     const finalPose: CardPose = {
                         x,
@@ -1157,8 +1136,7 @@ export default function OverlapSlideshow(props: Props) {
                     return (
                         <CardItem
                             key={i}
-                            idleContent={card}
-                            activeContent={activeCard}
+                            content={card}
                             isActive={isActive}
                             zIndex={1000 - absOffset}
                             cardWidth={cardWidth}
@@ -1198,14 +1176,9 @@ OverlapSlideshow.displayName = "Overlap Slideshow"
 addPropertyControls(OverlapSlideshow, {
     cards: {
         type: ControlType.Array,
-        title: "Idle Cards",
-        control: { type: ControlType.ComponentInstance },
-    },
-    activeCards: {
-        type: ControlType.Array,
-        title: "Active Cards",
+        title: "Cards",
         description:
-            "Matched to Idle Cards by order. Shown while that card is focused.",
+            "Differentiate focused vs idle visuals with variants inside each card, driven by Framer's Set Variable action and the Activate Card N events this component emits.",
         control: { type: ControlType.ComponentInstance },
     },
     direction: {
