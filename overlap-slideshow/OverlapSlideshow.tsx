@@ -489,13 +489,6 @@ function CardItem(props: CardItemProps) {
     // correctly (e.g. scrolling cards under a stationary cursor).
     const [hovered, setHovered] = useState(false)
     const wasActiveHoverRef = useRef(false)
-    // Real anchor element we click programmatically when the focused
-    // card is clicked. Using an anchor (instead of window.location)
-    // lets Framer's client-side router intercept CMS / internal-page
-    // URLs like "/blog/post" and route within the preview / published
-    // site — otherwise the browser hard-navigates to framer.com/...
-    // and you land on Framer's login.
-    const linkAnchorRef = useRef<HTMLAnchorElement | null>(null)
     useEffect(() => {
         const nowActiveHover = isActive && hovered
         if (nowActiveHover && !wasActiveHoverRef.current) {
@@ -509,32 +502,14 @@ function CardItem(props: CardItemProps) {
 
     return (
         <motion.div
-            onClick={(e) => {
-                if (!isActive) {
-                    onSelect()
-                    return
-                }
-                if (!link) return
-                // Skip when the click originated on a real interactive
-                // element inside the card (a link, button, etc.) so
-                // inner CTAs keep their own behavior and we don't
-                // double-navigate.
-                const target = e.target as HTMLElement | null
-                const boundary = e.currentTarget as HTMLElement
-                let walk: HTMLElement | null = target
-                while (walk && walk !== boundary) {
-                    if (
-                        walk.matches?.(
-                            "a, button, input, select, textarea, [role='button'], [role='link']"
-                        )
-                    ) {
-                        return
-                    }
-                    walk = walk.parentElement
-                }
-                // Fire a real click on the hidden anchor so Framer's
-                // router handles internal / CMS URLs correctly.
-                linkAnchorRef.current?.click()
+            onClick={() => {
+                // Non-active cards focus themselves on click. When the
+                // focused card is clicked and has a link set, the
+                // anchor overlay (rendered below) catches the click
+                // directly — that way Framer's router intercepts a
+                // real user click event and resolves CMS / internal
+                // URLs correctly.
+                if (!isActive) onSelect()
             }}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
@@ -544,11 +519,7 @@ function CardItem(props: CardItemProps) {
                 height: cardHeight,
                 left: -cardWidth / 2,
                 top: -cardHeight / 2,
-                cursor: isActive
-                    ? link
-                        ? "pointer"
-                        : "default"
-                    : "pointer",
+                cursor: isActive ? "default" : "pointer",
                 willChange: "transform",
                 x: xMV,
                 y: yMV,
@@ -601,13 +572,20 @@ function CardItem(props: CardItemProps) {
                 </motion.div>
             ) : null}
 
-            {/* Hidden anchor for navigation. Clicking this (vs
-                window.location) lets Framer's router resolve CMS /
-                internal-page URLs inside preview and published sites.
-                Kept visually collapsed and out of the tab order. */}
-            {link ? (
+            {/* Anchor overlay — only rendered when the card is focused
+                and has a link. Sits on top of the card so the user's
+                click lands on a real <a> element. Framer's router
+                intercepts real anchor clicks and resolves CMS /
+                internal URLs correctly; programmatic anchor.click()
+                does NOT trigger the router, which is why the overlay
+                pattern is necessary.
+
+                Side effect: inner CTAs on an active linked card are
+                covered by this overlay. If you need inner CTAs, leave
+                the card's link slot blank and put the CTA's link on
+                the CTA itself. */}
+            {isActive && link ? (
                 <a
-                    ref={linkAnchorRef}
                     href={link}
                     target={linkTarget}
                     rel={
@@ -615,15 +593,15 @@ function CardItem(props: CardItemProps) {
                             ? "noopener noreferrer"
                             : undefined
                     }
-                    aria-hidden="true"
-                    tabIndex={-1}
+                    aria-label="Open card link"
                     style={{
                         position: "absolute",
-                        width: 0,
-                        height: 0,
-                        overflow: "hidden",
-                        pointerEvents: "none",
-                        opacity: 0,
+                        inset: 0,
+                        zIndex: 10,
+                        display: "block",
+                        cursor: "pointer",
+                        textDecoration: "none",
+                        color: "inherit",
                     }}
                 />
             ) : null}
