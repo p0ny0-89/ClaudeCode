@@ -168,8 +168,6 @@ export function useSlideshowState(): SlideshowApi {
 interface Props {
     cards?: React.ReactNode[]
     activeCards?: React.ReactNode[]
-    links?: string[]
-    linkTarget?: "_self" | "_blank"
     direction?: Direction
     cardWidth?: number
     cardHeight?: number
@@ -255,8 +253,6 @@ interface CardItemProps {
     stageDragX: MotionValue<number>
     stageDragY: MotionValue<number>
     onSelect: () => void
-    link: string | undefined
-    linkTarget: "_self" | "_blank"
     onActiveHoverStart: () => void
     onActiveHoverEnd: () => void
     focusedCardOnlyInteraction: boolean
@@ -286,8 +282,6 @@ function CardItem(props: CardItemProps) {
         stageDragX,
         stageDragY,
         onSelect,
-        link,
-        linkTarget,
         onActiveHoverStart,
         onActiveHoverEnd,
         focusedCardOnlyInteraction,
@@ -503,12 +497,6 @@ function CardItem(props: CardItemProps) {
     return (
         <motion.div
             onClick={() => {
-                // Non-active cards focus themselves on click. When the
-                // focused card is clicked and has a link set, the
-                // anchor overlay (rendered below) catches the click
-                // directly — that way Framer's router intercepts a
-                // real user click event and resolves CMS / internal
-                // URLs correctly.
                 if (!isActive) onSelect()
             }}
             onMouseEnter={() => setHovered(true)}
@@ -571,40 +559,6 @@ function CardItem(props: CardItemProps) {
                     {activeContent}
                 </motion.div>
             ) : null}
-
-            {/* Anchor overlay — only rendered when the card is focused
-                and has a link. Sits on top of the card so the user's
-                click lands on a real <a> element. Framer's router
-                intercepts real anchor clicks and resolves CMS /
-                internal URLs correctly; programmatic anchor.click()
-                does NOT trigger the router, which is why the overlay
-                pattern is necessary.
-
-                Side effect: inner CTAs on an active linked card are
-                covered by this overlay. If you need inner CTAs, leave
-                the card's link slot blank and put the CTA's link on
-                the CTA itself. */}
-            {isActive && link ? (
-                <a
-                    href={link}
-                    target={linkTarget}
-                    rel={
-                        linkTarget === "_blank"
-                            ? "noopener noreferrer"
-                            : undefined
-                    }
-                    aria-label="Open card link"
-                    style={{
-                        position: "absolute",
-                        inset: 0,
-                        zIndex: 10,
-                        display: "block",
-                        cursor: "pointer",
-                        textDecoration: "none",
-                        color: "inherit",
-                    }}
-                />
-            ) : null}
         </motion.div>
     )
 }
@@ -613,8 +567,6 @@ export default function OverlapSlideshow(props: Props) {
     const {
         cards = [],
         activeCards = [],
-        links = [],
-        linkTarget = "_self",
         direction = "horizontal",
         cardWidth = 400,
         cardHeight = 300,
@@ -1217,8 +1169,6 @@ export default function OverlapSlideshow(props: Props) {
                             stageDragX={stageDragX}
                             stageDragY={stageDragY}
                             onSelect={() => goTo(i)}
-                            link={links[i] || undefined}
-                            linkTarget={linkTarget}
                             onActiveHoverStart={handleActiveHoverStart}
                             onActiveHoverEnd={handleActiveHoverEnd}
                             focusedCardOnlyInteraction={
@@ -1257,21 +1207,6 @@ addPropertyControls(OverlapSlideshow, {
         description:
             "Matched to Idle Cards by order. Shown while that card is focused.",
         control: { type: ControlType.ComponentInstance },
-    },
-    links: {
-        type: ControlType.Array,
-        title: "Links",
-        description:
-            "Optional URL per card (matched by order). Clicking a focused card follows its link. Leave blank for no link.",
-        control: { type: ControlType.Link },
-    },
-    linkTarget: {
-        type: ControlType.Enum,
-        title: "Link Target",
-        options: ["_self", "_blank"],
-        optionTitles: ["Same Tab", "New Tab"],
-        defaultValue: "_self",
-        displaySegmentedControl: true,
     },
     direction: {
         type: ControlType.Enum,
