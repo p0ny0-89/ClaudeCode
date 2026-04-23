@@ -489,6 +489,13 @@ function CardItem(props: CardItemProps) {
     // correctly (e.g. scrolling cards under a stationary cursor).
     const [hovered, setHovered] = useState(false)
     const wasActiveHoverRef = useRef(false)
+    // Real anchor element we click programmatically when the focused
+    // card is clicked. Using an anchor (instead of window.location)
+    // lets Framer's client-side router intercept CMS / internal-page
+    // URLs like "/blog/post" and route within the preview / published
+    // site — otherwise the browser hard-navigates to framer.com/...
+    // and you land on Framer's login.
+    const linkAnchorRef = useRef<HTMLAnchorElement | null>(null)
     useEffect(() => {
         const nowActiveHover = isActive && hovered
         if (nowActiveHover && !wasActiveHoverRef.current) {
@@ -525,11 +532,9 @@ function CardItem(props: CardItemProps) {
                     }
                     walk = walk.parentElement
                 }
-                if (linkTarget === "_blank") {
-                    window.open(link, "_blank", "noopener,noreferrer")
-                } else {
-                    window.location.href = link
-                }
+                // Fire a real click on the hidden anchor so Framer's
+                // router handles internal / CMS URLs correctly.
+                linkAnchorRef.current?.click()
             }}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
@@ -594,6 +599,33 @@ function CardItem(props: CardItemProps) {
                 >
                     {activeContent}
                 </motion.div>
+            ) : null}
+
+            {/* Hidden anchor for navigation. Clicking this (vs
+                window.location) lets Framer's router resolve CMS /
+                internal-page URLs inside preview and published sites.
+                Kept visually collapsed and out of the tab order. */}
+            {link ? (
+                <a
+                    ref={linkAnchorRef}
+                    href={link}
+                    target={linkTarget}
+                    rel={
+                        linkTarget === "_blank"
+                            ? "noopener noreferrer"
+                            : undefined
+                    }
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    style={{
+                        position: "absolute",
+                        width: 0,
+                        height: 0,
+                        overflow: "hidden",
+                        pointerEvents: "none",
+                        opacity: 0,
+                    }}
+                />
             ) : null}
         </motion.div>
     )
