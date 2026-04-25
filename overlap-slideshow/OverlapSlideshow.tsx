@@ -217,6 +217,12 @@ interface Props {
     // panel to drive a cursor variant, a hover text, etc.
     onActiveCardHoverStart?: () => void
     onActiveCardHoverEnd?: () => void
+    // Per-card gradient mask applied only to non-focused cards. The
+    // mask fades each inactive card toward its outer edge (away from
+    // the active card) so neighbors visually recede without affecting
+    // the focused card — its hover scale-up bleeds freely.
+    maskInactiveCards?: boolean
+    maskFalloffPercent?: number
     // Let adjacent cards render outside the slideshow's own frame.
     // Useful when the frame is sized to a single card so Framer's
     // native per-layer hover (and Set Variant cursor) fires only
@@ -260,6 +266,11 @@ interface CardItemProps {
     onActiveHoverStart: () => void
     onActiveHoverEnd: () => void
     focusedCardOnlyInteraction: boolean
+    // Pre-computed CSS mask string for this card (parent decides the
+    // gradient direction based on the card's offset from active and
+    // the slideshow direction). Undefined when masking is off or this
+    // card is the active one.
+    inactiveMaskImage: string | undefined
     finalPose: CardPose
     preEntrancePose: CardPose
     mainEntrancePose: CardPose
@@ -389,6 +400,7 @@ function CardItemInner(props: CardItemProps) {
         onActiveHoverStart,
         onActiveHoverEnd,
         focusedCardOnlyInteraction,
+        inactiveMaskImage,
         finalPose,
         preEntrancePose,
         mainEntrancePose,
@@ -571,6 +583,13 @@ function CardItemInner(props: CardItemProps) {
                 opacity: outerOpacityMV,
                 zIndex,
                 overflow: shouldClip ? "hidden" : undefined,
+                // Per-card mask for non-focused cards. The active card
+                // skips the mask entirely so any hover scale-up can
+                // bleed past the card frame without being clipped.
+                maskImage: isActive ? undefined : inactiveMaskImage,
+                WebkitMaskImage: isActive
+                    ? undefined
+                    : inactiveMaskImage,
                 pointerEvents:
                     !isActive && focusedCardOnlyInteraction
                         ? "none"
@@ -645,6 +664,7 @@ const CardItem = memo(CardItemInner, (prev, next) => {
         next.focusedCardOnlyInteraction
     )
         return false
+    if (prev.inactiveMaskImage !== next.inactiveMaskImage) return false
     if (prev.entranceMode !== next.entranceMode) return false
     if (prev.isMultiStage !== next.isMultiStage) return false
     if (prev.hasEntered !== next.hasEntered) return false
@@ -726,6 +746,8 @@ export default function OverlapSlideshow(props: Props) {
         onActivateCard12,
         onActiveCardHoverStart,
         onActiveCardHoverEnd,
+        maskInactiveCards = false,
+        maskFalloffPercent = 50,
         overflowVisible = false,
         focusedCardOnlyInteraction = false,
         style,
@@ -1270,6 +1292,33 @@ export default function OverlapSlideshow(props: Props) {
                             ? absOffset * staggerDelay
                             : 0
 
+                    // Per-card mask gradient. Direction points away
+                    // from the active card so the inactive card fades
+                    // toward its outer edge. Active card and disabled
+                    // setups get undefined (no mask).
+                    const inactiveMaskImage =
+                        maskInactiveCards &&
+                        !isActive &&
+                        maskFalloffPercent > 0
+                            ? (() => {
+                                  const dir = isHorizontal
+                                      ? sign > 0
+                                          ? "to right"
+                                          : "to left"
+                                      : sign > 0
+                                        ? "to bottom"
+                                        : "to top"
+                                  const stop = Math.max(
+                                      0,
+                                      Math.min(
+                                          100,
+                                          100 - maskFalloffPercent
+                                      )
+                                  )
+                                  return `linear-gradient(${dir}, black ${stop}%, transparent 100%)`
+                              })()
+                            : undefined
+
                     return (
                         <CardItem
                             key={i}
@@ -1290,6 +1339,7 @@ export default function OverlapSlideshow(props: Props) {
                             focusedCardOnlyInteraction={
                                 focusedCardOnlyInteraction
                             }
+                            inactiveMaskImage={inactiveMaskImage}
                             finalPose={finalPose}
                             preEntrancePose={preEntrancePose}
                             mainEntrancePose={mainEntrancePose}
@@ -1658,5 +1708,24 @@ addPropertyControls(OverlapSlideshow, {
             "Non-active cards ignore pointer events — Framer's native cursor only fires over the focused card, not the peek cards that spill past the frame. Side effect: click-to-focus on non-active cards is disabled (use drag / swipe / scroll / auto-play instead).",
         defaultValue: false,
         hidden: (p: Props) => !p.overflowVisible,
+    },
+    maskInactiveCards: {
+        type: ControlType.Boolean,
+        title: "Fade Inactive Cards",
+        description:
+            "Apply a gradient mask to non-focused cards so they fade toward their outer edge (away from the active card). The focused card is never masked — its hover scale-up bleeds freely. Use this instead of an external Frame mask to keep the focused card unaffected.",
+        defaultValue: false,
+    },
+    maskFalloffPercent: {
+        type: ControlType.Number,
+        title: "Fade Distance",
+        description:
+            "How much of each inactive card's outer edge fades to transparent. 0 = no fade, 100 = whole card fades.",
+        defaultValue: 50,
+        min: 0,
+        max: 100,
+        step: 5,
+        unit: "%",
+        hidden: (p: Props) => !p.maskInactiveCards,
     },
 })
