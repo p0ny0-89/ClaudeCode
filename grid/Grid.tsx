@@ -54,6 +54,19 @@ type PointItem = {
     cx: number
     cy: number
 }
+type HalfItem = {
+    kind: "half"
+    key: string
+    // Anchor endpoint (stays fixed during morph)
+    x1: number
+    y1: number
+    // Initial free endpoint (cell midpoint)
+    x2Initial: number
+    y2Initial: number
+    // Morphed free endpoint (anchor + stub, or anchor itself for dot)
+    x2Morph: number
+    y2Morph: number
+}
 type Item = LineItem | PointItem
 
 /**
@@ -162,9 +175,9 @@ export function Grid(props: Props) {
     const total = items.length
     const totalSpread = stagger * Math.max(total - 1, 1)
 
-    // Intersection points used by the morph layer (only when starting from lines).
+    // Intersection points used by the dot-morph layer.
     const morphPoints = useMemo<PointItem[]>(() => {
-        if (!morphActive) return []
+        if (!morphActive || morphTo !== "dot") return []
         const { w, h } = size
         if (w === 0 || h === 0) return []
         const sx = Math.max(gridSizeX, 1)
@@ -176,7 +189,93 @@ export function Grid(props: Props) {
             }
         }
         return out
-    }, [morphActive, size, gridSizeX, gridSizeY])
+    }, [morphActive, morphTo, size, gridSizeX, gridSizeY])
+
+    // Half segments — two per cell along each axis, anchored to intersections.
+    // Hidden during entry (full lines do the drawing); shown at morph moment
+    // and animate their free endpoints inward to form the target shape.
+    const halves = useMemo<HalfItem[]>(() => {
+        if (!morphActive) return []
+        const { w, h } = size
+        if (w === 0 || h === 0) return []
+        const sx = Math.max(gridSizeX, 1)
+        const sy = Math.max(gridSizeY, 1)
+        const stubH =
+            morphTo === "crosshair"
+                ? Math.min(crosshairSize / 2, sx / 2)
+                : 0
+        const stubV =
+            morphTo === "crosshair"
+                ? Math.min(crosshairSize / 2, sy / 2)
+                : 0
+
+        const xs: number[] = []
+        for (let x = 0; x <= w + 0.5; x += sx) xs.push(x)
+        const ys: number[] = []
+        for (let y = 0; y <= h + 0.5; y += sy) ys.push(y)
+
+        const out: HalfItem[] = []
+
+        // Horizontal halves (along each y row)
+        for (const y of ys) {
+            for (let i = 0; i < xs.length - 1; i++) {
+                const xL = xs[i]
+                const xR = xs[i + 1]
+                const xMid = (xL + xR) / 2
+                out.push({
+                    kind: "half",
+                    key: `hr-${i}-${y}`,
+                    x1: xL,
+                    y1: y,
+                    x2Initial: xMid,
+                    y2Initial: y,
+                    x2Morph: xL + stubH,
+                    y2Morph: y,
+                })
+                out.push({
+                    kind: "half",
+                    key: `hl-${i}-${y}`,
+                    x1: xR,
+                    y1: y,
+                    x2Initial: xMid,
+                    y2Initial: y,
+                    x2Morph: xR - stubH,
+                    y2Morph: y,
+                })
+            }
+        }
+
+        // Vertical halves (along each x column)
+        for (const x of xs) {
+            for (let i = 0; i < ys.length - 1; i++) {
+                const yT = ys[i]
+                const yB = ys[i + 1]
+                const yMid = (yT + yB) / 2
+                out.push({
+                    kind: "half",
+                    key: `vd-${x}-${i}`,
+                    x1: x,
+                    y1: yT,
+                    x2Initial: x,
+                    y2Initial: yMid,
+                    x2Morph: x,
+                    y2Morph: yT + stubV,
+                })
+                out.push({
+                    kind: "half",
+                    key: `vu-${x}-${i}`,
+                    x1: x,
+                    y1: yB,
+                    x2Initial: x,
+                    y2Initial: yMid,
+                    x2Morph: x,
+                    y2Morph: yB - stubV,
+                })
+            }
+        }
+
+        return out
+    }, [morphActive, morphTo, size, gridSizeX, gridSizeY, crosshairSize])
 
     // Phase machine: enter -> morphed (after entry + hold).
     const [phase, setPhase] = useState<"enter" | "morphed">("enter")
@@ -271,11 +370,23 @@ export function Grid(props: Props) {
           }
         : undefined
 
-    // Marker layer (used during morph): start hidden, fade + scale in when phase flips.
+    // Dot-marker layer (only used when morphTo === "dot"). Markers fade + scale
+    // in over the same morph window while halves retract to length 0.
     const markerInitial = { opacity: 0, scale: 0 }
     const markerTarget =
         phase === "morphed" ? { opacity: 1, scale: 1 } : markerInitial
-    const morphTransition = { duration: morphDuration, ease: morphEasing }
+    const dotMorphTransition = {
+        duration: morphDuration,
+        ease: morphEasing,
+    }
+    // Lines snap out the moment morph begins; halves take over instantly at
+    // full extent and animate their endpoints inward.
+    const lineMorphTransition = { opacity: { duration: 0 } }
+    const halfTransition = {
+        opacity: { duration: 0 },
+        x2: { duration: morphDuration, ease: morphEasing },
+        y2: { duration: morphDuration, ease: morphEasing },
+    }
 
     return (
         <div
@@ -330,7 +441,7 @@ export function Grid(props: Props) {
                                     animate={lineTarget}
                                     transition={
                                         phase === "morphed"
-                                            ? morphTransition
+                                            ? lineMorphTransition
                                             : {
                                                   duration,
                                                   delay,
@@ -389,7 +500,7 @@ export function Grid(props: Props) {
                                         animate={lineTarget}
                                         transition={
                                             phase === "morphed"
-                                                ? morphTransition
+                                                ? lineMorphTransition
                                                 : {
                                                       duration,
                                                       delay,
@@ -402,58 +513,61 @@ export function Grid(props: Props) {
                         )
                     })}
 
+                    {/* Halves: hidden during entry, take over at morph
+                        moment and retract their free endpoints inward.
+                        For crosshair morph they leave stubs at intersections
+                        (forming the crosshair). For dot morph they retract to
+                        zero length while the dot markers below fade in. */}
                     {morphActive &&
-                        morphPoints.map((p) => {
-                            if (morphTo === "dot") {
-                                return (
-                                    <motion.circle
-                                        key={p.key}
-                                        cx={p.cx}
-                                        cy={p.cy}
-                                        r={lineWidth}
-                                        fill={color}
-                                        initial={markerInitial}
-                                        animate={markerTarget}
-                                        transition={morphTransition}
-                                        style={{
-                                            transformBox: "fill-box",
-                                            transformOrigin: "center",
-                                        }}
-                                    />
-                                )
-                            }
-                            // crosshair marker: small + centered on intersection
-                            const s = crosshairSize / 2
-                            return (
-                                <motion.g
-                                    key={p.key}
-                                    initial={markerInitial}
-                                    animate={markerTarget}
-                                    transition={morphTransition}
-                                    style={{
-                                        transformBox: "fill-box",
-                                        transformOrigin: "center",
-                                    }}
-                                >
-                                    <line
-                                        x1={p.cx - s}
-                                        y1={p.cy}
-                                        x2={p.cx + s}
-                                        y2={p.cy}
-                                        stroke={color}
-                                        strokeWidth={lineWidth}
-                                    />
-                                    <line
-                                        x1={p.cx}
-                                        y1={p.cy - s}
-                                        x2={p.cx}
-                                        y2={p.cy + s}
-                                        stroke={color}
-                                        strokeWidth={lineWidth}
-                                    />
-                                </motion.g>
-                            )
-                        })}
+                        halves.map((half) => (
+                            <motion.line
+                                key={half.key}
+                                x1={half.x1}
+                                y1={half.y1}
+                                stroke={color}
+                                strokeWidth={lineWidth}
+                                initial={{
+                                    x2: half.x2Initial,
+                                    y2: half.y2Initial,
+                                    opacity: 0,
+                                }}
+                                animate={
+                                    phase === "morphed"
+                                        ? {
+                                              x2: half.x2Morph,
+                                              y2: half.y2Morph,
+                                              opacity: 1,
+                                          }
+                                        : {
+                                              x2: half.x2Initial,
+                                              y2: half.y2Initial,
+                                              opacity: 0,
+                                          }
+                                }
+                                transition={halfTransition}
+                            />
+                        ))}
+
+                    {/* Dot markers (only for dot morph). Fade + scale in as
+                        halves retract to nothing. */}
+                    {morphActive &&
+                        morphTo === "dot" &&
+                        morphPoints.map((p) => (
+                            <motion.circle
+                                key={p.key}
+                                cx={p.cx}
+                                cy={p.cy}
+                                r={lineWidth}
+                                fill={color}
+                                initial={markerInitial}
+                                animate={markerTarget}
+                                transition={dotMorphTransition}
+                                style={{
+                                    transformBox: "fill-box",
+                                    transformOrigin: "center",
+                                }}
+                            />
+                        ))}
                 </svg>
             )}
         </div>
