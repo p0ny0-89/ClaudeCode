@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 type GridStyle = "solid" | "dashed" | "crosshair" | "dot"
 type Direction = "top" | "bottom" | "left" | "right" | "center" | "random"
 type Effect = "fade" | "draw" | "both"
+type MorphTo = "none" | "crosshair" | "dot"
 type Easing =
     | "linear"
     | "easeIn"
@@ -32,6 +33,10 @@ interface Props {
     duration: number
     stagger: number
     easing: Easing
+    morphTo: MorphTo
+    holdDuration: number
+    morphDuration: number
+    morphEasing: Easing
 }
 
 type LineItem = {
@@ -72,10 +77,16 @@ export function Grid(props: Props) {
         duration,
         stagger,
         easing,
+        morphTo,
+        holdDuration,
+        morphDuration,
+        morphEasing,
     } = props
 
     const useFade = animate && (effect === "fade" || effect === "both")
     const useDraw = animate && (effect === "draw" || effect === "both")
+    const isLineGrid = gridStyle === "solid" || gridStyle === "dashed"
+    const morphActive = animate && isLineGrid && morphTo !== "none"
 
     const ref = useRef<HTMLDivElement>(null)
     const [size, setSize] = useState({ w: 0, h: 0 })
@@ -151,6 +162,44 @@ export function Grid(props: Props) {
     const total = items.length
     const totalSpread = stagger * Math.max(total - 1, 1)
 
+    // Intersection points used by the morph layer (only when starting from lines).
+    const morphPoints = useMemo<PointItem[]>(() => {
+        if (!morphActive) return []
+        const { w, h } = size
+        if (w === 0 || h === 0) return []
+        const sx = Math.max(gridSizeX, 1)
+        const sy = Math.max(gridSizeY, 1)
+        const out: PointItem[] = []
+        for (let y = 0; y <= h + 0.5; y += sy) {
+            for (let x = 0; x <= w + 0.5; x += sx) {
+                out.push({ kind: "point", key: `m-${x}-${y}`, cx: x, cy: y })
+            }
+        }
+        return out
+    }, [morphActive, size, gridSizeX, gridSizeY])
+
+    // Phase machine: enter -> morphed (after entry + hold).
+    const [phase, setPhase] = useState<"enter" | "morphed">("enter")
+    const entryEnd = duration + totalSpread
+    useEffect(() => {
+        setPhase("enter")
+        if (!morphActive) return
+        const delayMs = (entryEnd + holdDuration) * 1000
+        const t = setTimeout(() => setPhase("morphed"), delayMs)
+        return () => clearTimeout(t)
+    }, [
+        morphActive,
+        morphTo,
+        entryEnd,
+        holdDuration,
+        gridStyle,
+        gridSizeX,
+        gridSizeY,
+        size.w,
+        size.h,
+        animate,
+    ])
+
     const delayFor = (
         anchor: { x: number; y: number },
         index: number
@@ -195,12 +244,20 @@ export function Grid(props: Props) {
               ...(useDraw && { pathLength: 0 }),
           }
         : false
-    const lineTarget = animate
+    const lineEntered = animate
         ? {
               ...(useFade && { opacity: 1 }),
               ...(useDraw && { pathLength: 1 }),
           }
         : undefined
+    // When the grid morphs, lines fade out (keep pathLength 1 so they don't redraw).
+    const lineMorphed = {
+        opacity: 0,
+        ...(useDraw && { pathLength: 1 }),
+    }
+    const lineTarget =
+        morphActive && phase === "morphed" ? lineMorphed : lineEntered
+
     const dotInitial = animate
         ? {
               ...(useFade && { opacity: 0 }),
@@ -213,6 +270,12 @@ export function Grid(props: Props) {
               ...(useDraw && { scale: 1 }),
           }
         : undefined
+
+    // Marker layer (used during morph): start hidden, fade + scale in when phase flips.
+    const markerInitial = { opacity: 0, scale: 0 }
+    const markerTarget =
+        phase === "morphed" ? { opacity: 1, scale: 1 } : markerInitial
+    const morphTransition = { duration: morphDuration, ease: morphEasing }
 
     return (
         <div
@@ -265,11 +328,15 @@ export function Grid(props: Props) {
                                     }
                                     initial={lineInitial}
                                     animate={lineTarget}
-                                    transition={{
-                                        duration,
-                                        delay,
-                                        ease: easing,
-                                    }}
+                                    transition={
+                                        phase === "morphed"
+                                            ? morphTransition
+                                            : {
+                                                  duration,
+                                                  delay,
+                                                  ease: easing,
+                                              }
+                                    }
                                 />
                             )
                         }
@@ -320,16 +387,73 @@ export function Grid(props: Props) {
                                         strokeWidth={lineWidth}
                                         initial={lineInitial}
                                         animate={lineTarget}
-                                        transition={{
-                                            duration,
-                                            delay,
-                                            ease: easing,
-                                        }}
+                                        transition={
+                                            phase === "morphed"
+                                                ? morphTransition
+                                                : {
+                                                      duration,
+                                                      delay,
+                                                      ease: easing,
+                                                  }
+                                        }
                                     />
                                 ))}
                             </g>
                         )
                     })}
+
+                    {morphActive &&
+                        morphPoints.map((p) => {
+                            if (morphTo === "dot") {
+                                return (
+                                    <motion.circle
+                                        key={p.key}
+                                        cx={p.cx}
+                                        cy={p.cy}
+                                        r={lineWidth}
+                                        fill={color}
+                                        initial={markerInitial}
+                                        animate={markerTarget}
+                                        transition={morphTransition}
+                                        style={{
+                                            transformBox: "fill-box",
+                                            transformOrigin: "center",
+                                        }}
+                                    />
+                                )
+                            }
+                            // crosshair marker: small + centered on intersection
+                            const s = crosshairSize / 2
+                            return (
+                                <motion.g
+                                    key={p.key}
+                                    initial={markerInitial}
+                                    animate={markerTarget}
+                                    transition={morphTransition}
+                                    style={{
+                                        transformBox: "fill-box",
+                                        transformOrigin: "center",
+                                    }}
+                                >
+                                    <line
+                                        x1={p.cx - s}
+                                        y1={p.cy}
+                                        x2={p.cx + s}
+                                        y2={p.cy}
+                                        stroke={color}
+                                        strokeWidth={lineWidth}
+                                    />
+                                    <line
+                                        x1={p.cx}
+                                        y1={p.cy - s}
+                                        x2={p.cx}
+                                        y2={p.cy + s}
+                                        stroke={color}
+                                        strokeWidth={lineWidth}
+                                    />
+                                </motion.g>
+                            )
+                        })}
                 </svg>
             )}
         </div>
@@ -350,6 +474,10 @@ Grid.defaultProps = {
     duration: 0.6,
     stagger: 0.02,
     easing: "easeOut",
+    morphTo: "none",
+    holdDuration: 1.5,
+    morphDuration: 0.6,
+    morphEasing: "easeInOut",
 }
 
 addPropertyControls(Grid, {
@@ -478,5 +606,63 @@ addPropertyControls(Grid, {
         ],
         defaultValue: "easeOut",
         hidden: (p: Props) => !p.animate,
+    },
+    morphTo: {
+        type: ControlType.Enum,
+        title: "Morph To",
+        options: ["none", "crosshair", "dot"],
+        optionTitles: ["None", "Crosshair", "Dot"],
+        defaultValue: "none",
+        hidden: (p: Props) =>
+            !p.animate ||
+            (p.gridStyle !== "solid" && p.gridStyle !== "dashed"),
+    },
+    holdDuration: {
+        type: ControlType.Number,
+        title: "Hold",
+        defaultValue: 1.5,
+        min: 0,
+        max: 10,
+        step: 0.1,
+        unit: "s",
+        hidden: (p: Props) =>
+            !p.animate ||
+            p.morphTo === "none" ||
+            (p.gridStyle !== "solid" && p.gridStyle !== "dashed"),
+    },
+    morphDuration: {
+        type: ControlType.Number,
+        title: "Morph Dur.",
+        defaultValue: 0.6,
+        min: 0,
+        max: 5,
+        step: 0.05,
+        unit: "s",
+        hidden: (p: Props) =>
+            !p.animate ||
+            p.morphTo === "none" ||
+            (p.gridStyle !== "solid" && p.gridStyle !== "dashed"),
+    },
+    morphEasing: {
+        type: ControlType.Enum,
+        title: "Morph Ease",
+        options: [
+            "linear",
+            "easeIn",
+            "easeOut",
+            "easeInOut",
+            "circIn",
+            "circOut",
+            "circInOut",
+            "backIn",
+            "backOut",
+            "backInOut",
+            "anticipate",
+        ],
+        defaultValue: "easeInOut",
+        hidden: (p: Props) =>
+            !p.animate ||
+            p.morphTo === "none" ||
+            (p.gridStyle !== "solid" && p.gridStyle !== "dashed"),
     },
 })
