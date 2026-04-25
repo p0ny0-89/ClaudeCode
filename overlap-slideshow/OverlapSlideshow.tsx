@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import {
     motion,
@@ -243,6 +243,7 @@ interface Props {
 
 interface CardItemProps {
     content: React.ReactNode
+    cardIndex: number
     isActive: boolean
     zIndex: number
     cardWidth: number
@@ -252,7 +253,10 @@ interface CardItemProps {
     clipCards: boolean
     stageDragX: MotionValue<number>
     stageDragY: MotionValue<number>
-    onSelect: () => void
+    // Stable callback (not a per-render closure). Receives the card
+    // index so a single useCallback in the parent can serve all cards
+    // — this lets React.memo on CardItem actually fire.
+    onSelect: (index: number) => void
     onActiveHoverStart: () => void
     onActiveHoverEnd: () => void
     focusedCardOnlyInteraction: boolean
@@ -268,9 +272,110 @@ interface CardItemProps {
     cardStaggerDelay: number
 }
 
-function CardItem(props: CardItemProps) {
+interface ParallaxLayerProps {
+    content: React.ReactNode
+    isActive: boolean
+    parallaxStrength: number
+    clipCards: boolean
+    isEntering: boolean
+    xMV: MotionValue<number>
+    yMV: MotionValue<number>
+    stageDragX: MotionValue<number>
+    stageDragY: MotionValue<number>
+}
+
+// Velocity-based parallax inner layer. Extracted so its useVelocity /
+// useSpring / useTransform chain (one of the heaviest things in this
+// file) only mounts when the user actually turns parallax on. With
+// parallaxStrength at the default 0, this entire component never runs.
+function ParallaxLayer(props: ParallaxLayerProps) {
     const {
         content,
+        isActive,
+        parallaxStrength,
+        clipCards,
+        isEntering,
+        xMV,
+        yMV,
+        stageDragX,
+        stageDragY,
+    } = props
+
+    // Ramp parallax in after the entrance finishes so the inner layer
+    // doesn't get yanked around during a dramatic entrance pose change.
+    const parallaxGate = useMotionValue(
+        isEntering ? 0 : parallaxStrength
+    )
+
+    useEffect(() => {
+        const target = isEntering ? 0 : parallaxStrength
+        const ctrl = animate(parallaxGate, target, {
+            duration: 0.3,
+            ease: [0.32, 0.72, 0, 1],
+        })
+        return () => ctrl.stop()
+    }, [isEntering, parallaxStrength, parallaxGate])
+
+    // Inner content offsets opposite to the card's apparent motion
+    // speed — from its own tween (click / wheel / auto-play) AND from
+    // the stage's drag. Always settles to 0 at rest, so non-active
+    // cards don't look permanently shifted.
+    const apparentX = useTransform<number, number>(
+        [xMV, stageDragX],
+        ([x, d]) => x + d
+    )
+    const apparentY = useTransform<number, number>(
+        [yMV, stageDragY],
+        ([y, d]) => y + d
+    )
+    const xVelocity = useVelocity(apparentX)
+    const yVelocity = useVelocity(apparentY)
+    const smoothXVel = useSpring(xVelocity, {
+        damping: 50,
+        stiffness: 500,
+    })
+    const smoothYVel = useSpring(yVelocity, {
+        damping: 50,
+        stiffness: 500,
+    })
+    // Scale factor: parallaxStrength is expressed in the UI as a 0–100
+    // dial; multiply velocity (px/s) by 0.0004 * strength to keep the
+    // per-frame offset visually subtle. At strength 20 and a moderate
+    // 800 px/s transition, this yields ~6.4 px of lag.
+    const innerX = useTransform<number, number>(
+        [smoothXVel, parallaxGate],
+        ([v, g]) => -v * g * 0.0004
+    )
+    const innerY = useTransform<number, number>(
+        [smoothYVel, parallaxGate],
+        ([v, g]) => -v * g * 0.0004
+    )
+    // Only overscale when we're also clipping — otherwise the
+    // overscaled content would just visibly bleed past the card edge
+    // even at rest.
+    const parallaxOverscale = clipCards ? 1.05 : 1
+
+    return (
+        <motion.div
+            className="overlap-slideshow-card-fill"
+            style={{
+                position: "absolute",
+                inset: 0,
+                x: innerX,
+                y: innerY,
+                scale: parallaxOverscale,
+                pointerEvents: isActive ? "auto" : "none",
+            }}
+        >
+            {content}
+        </motion.div>
+    )
+}
+
+function CardItemInner(props: CardItemProps) {
+    const {
+        content,
+        cardIndex,
         isActive,
         zIndex,
         cardWidth,
@@ -305,11 +410,6 @@ function CardItem(props: CardItemProps) {
     const yMV = useMotionValue(initialPose.y)
     const scaleMV = useMotionValue(initialPose.scale)
     const outerOpacityMV = useMotionValue(initialPose.opacity)
-    // Ramp parallax in after the entrance finishes so the inner layer
-    // doesn't get yanked around during a dramatic entrance pose change.
-    const parallaxGate = useMotionValue(
-        isEntering ? 0 : parallaxStrength
-    )
 
     useEffect(() => {
         const ease: [number, number, number, number] = [
@@ -426,55 +526,12 @@ function CardItem(props: CardItemProps) {
         outerOpacityMV,
     ])
 
-    // Ease the parallax gate to avoid popping when isEntering flips.
-    useEffect(() => {
-        const target = isEntering ? 0 : parallaxStrength
-        const ctrl = animate(parallaxGate, target, {
-            duration: 0.3,
-            ease: [0.32, 0.72, 0, 1],
-        })
-        return () => ctrl.stop()
-    }, [isEntering, parallaxStrength, parallaxGate])
-
-    // Velocity-based parallax. Inner content offsets opposite to the
-    // card's apparent motion speed — from its own tween (click / wheel /
-    // auto-play) AND from the stage's drag. Always settles to 0 at rest,
-    // so non-active cards don't look permanently shifted.
-    const apparentX = useTransform<number, number>(
-        [xMV, stageDragX],
-        ([x, d]) => x + d
-    )
-    const apparentY = useTransform<number, number>(
-        [yMV, stageDragY],
-        ([y, d]) => y + d
-    )
-    const xVelocity = useVelocity(apparentX)
-    const yVelocity = useVelocity(apparentY)
-    const smoothXVel = useSpring(xVelocity, {
-        damping: 50,
-        stiffness: 500,
-    })
-    const smoothYVel = useSpring(yVelocity, {
-        damping: 50,
-        stiffness: 500,
-    })
-    // Scale factor: parallaxStrength is expressed in the UI as a 0–100
-    // dial; multiply velocity (px/s) by 0.0004 * strength to keep the
-    // per-frame offset visually subtle. At strength 20 and a moderate
-    // 800 px/s transition, this yields ~6.4 px of lag.
-    const innerX = useTransform<number, number>(
-        [smoothXVel, parallaxGate],
-        ([v, g]) => -v * g * 0.0004
-    )
-    const innerY = useTransform<number, number>(
-        [smoothYVel, parallaxGate],
-        ([v, g]) => -v * g * 0.0004
-    )
-    // Only overscale when we're also clipping — otherwise the
-    // overscaled content would just visibly bleed past the card edge
-    // even at rest.
-    const shouldClip = parallaxStrength > 0 && clipCards
-    const parallaxOverscale = shouldClip ? 1.05 : 1
+    // Whether the parallax inner layer (and its useVelocity / useSpring
+    // chain) is needed. Skipped entirely when strength is 0 — saves a
+    // motion.div per visible card and avoids running spring simulations
+    // for every visible neighbor.
+    const parallaxOn = parallaxStrength > 0
+    const shouldClip = parallaxOn && clipCards
 
     // Hover tracking — only fire the slideshow's hover events while the
     // mouse is over THIS card AND this card is the active one. We use
@@ -496,7 +553,7 @@ function CardItem(props: CardItemProps) {
     return (
         <motion.div
             onClick={() => {
-                if (!isActive) onSelect()
+                if (!isActive) onSelect(cardIndex)
             }}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
@@ -527,23 +584,103 @@ function CardItem(props: CardItemProps) {
                 select. Visual idle-vs-active differentiation is
                 expected to come from variants inside the card
                 component itself, driven by Framer's Set Variable +
-                the onActivateCardN events this component emits. */}
-            <motion.div
-                className="overlap-slideshow-card-fill"
-                style={{
-                    position: "absolute",
-                    inset: 0,
-                    x: innerX,
-                    y: innerY,
-                    scale: parallaxOverscale,
-                    pointerEvents: isActive ? "auto" : "none",
-                }}
-            >
-                {content}
-            </motion.div>
+                the onActivateCardN events this component emits.
+
+                When parallax is on, the layer is a motion.div with the
+                full velocity-driven inner-offset chain. When parallax
+                is off (the default), it's a plain div — no motion
+                hooks, no spring simulation, no per-frame transform on
+                the inner layer. Big perf win when many cards are
+                visible. */}
+            {parallaxOn ? (
+                <ParallaxLayer
+                    content={content}
+                    isActive={isActive}
+                    parallaxStrength={parallaxStrength}
+                    clipCards={clipCards}
+                    isEntering={isEntering}
+                    xMV={xMV}
+                    yMV={yMV}
+                    stageDragX={stageDragX}
+                    stageDragY={stageDragY}
+                />
+            ) : (
+                <div
+                    className="overlap-slideshow-card-fill"
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        pointerEvents: isActive ? "auto" : "none",
+                    }}
+                >
+                    {content}
+                </div>
+            )}
         </motion.div>
     )
 }
+
+// React.memo with a focused comparator so cards skip re-renders when
+// hover / unrelated parent state ticks. Index-change re-renders still
+// happen (poses change) — that's the intended path. The comparator
+// cost is ~30 primitive comparisons per visible card per parent
+// render; cheap relative to skipping a CardItem body re-render.
+const CardItem = memo(CardItemInner, (prev, next) => {
+    if (prev.content !== next.content) return false
+    if (prev.cardIndex !== next.cardIndex) return false
+    if (prev.isActive !== next.isActive) return false
+    if (prev.zIndex !== next.zIndex) return false
+    if (prev.cardWidth !== next.cardWidth) return false
+    if (prev.cardHeight !== next.cardHeight) return false
+    if (prev.transitionDuration !== next.transitionDuration) return false
+    if (prev.parallaxStrength !== next.parallaxStrength) return false
+    if (prev.clipCards !== next.clipCards) return false
+    if (prev.stageDragX !== next.stageDragX) return false
+    if (prev.stageDragY !== next.stageDragY) return false
+    if (prev.onSelect !== next.onSelect) return false
+    if (prev.onActiveHoverStart !== next.onActiveHoverStart) return false
+    if (prev.onActiveHoverEnd !== next.onActiveHoverEnd) return false
+    if (
+        prev.focusedCardOnlyInteraction !==
+        next.focusedCardOnlyInteraction
+    )
+        return false
+    if (prev.entranceMode !== next.entranceMode) return false
+    if (prev.isMultiStage !== next.isMultiStage) return false
+    if (prev.hasEntered !== next.hasEntered) return false
+    if (prev.isEntering !== next.isEntering) return false
+    if (prev.entranceDuration !== next.entranceDuration) return false
+    if (prev.preEntranceDuration !== next.preEntranceDuration)
+        return false
+    if (prev.cardStaggerDelay !== next.cardStaggerDelay) return false
+
+    const fa = prev.finalPose
+    const fb = next.finalPose
+    if (fa.x !== fb.x || fa.y !== fb.y || fa.scale !== fb.scale)
+        return false
+
+    const pa = prev.preEntrancePose
+    const pb = next.preEntrancePose
+    if (
+        pa.x !== pb.x ||
+        pa.y !== pb.y ||
+        pa.scale !== pb.scale ||
+        pa.opacity !== pb.opacity
+    )
+        return false
+
+    const ma = prev.mainEntrancePose
+    const mb = next.mainEntrancePose
+    if (
+        ma.x !== mb.x ||
+        ma.y !== mb.y ||
+        ma.scale !== mb.scale ||
+        ma.opacity !== mb.opacity
+    )
+        return false
+
+    return true
+})
 
 export default function OverlapSlideshow(props: Props) {
     const {
@@ -1137,6 +1274,7 @@ export default function OverlapSlideshow(props: Props) {
                         <CardItem
                             key={i}
                             content={card}
+                            cardIndex={i}
                             isActive={isActive}
                             zIndex={1000 - absOffset}
                             cardWidth={cardWidth}
@@ -1146,7 +1284,7 @@ export default function OverlapSlideshow(props: Props) {
                             clipCards={clipCards}
                             stageDragX={stageDragX}
                             stageDragY={stageDragY}
-                            onSelect={() => goTo(i)}
+                            onSelect={goTo}
                             onActiveHoverStart={handleActiveHoverStart}
                             onActiveHoverEnd={handleActiveHoverEnd}
                             focusedCardOnlyInteraction={
