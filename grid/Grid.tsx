@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 
 type GridStyle = "solid" | "dashed" | "crosshair" | "dot"
 type Direction = "top" | "bottom" | "left" | "right" | "center" | "random"
+type Effect = "fade" | "draw" | "both"
 type Easing =
     | "linear"
     | "easeIn"
@@ -26,6 +27,7 @@ interface Props {
     crosshairSize: number
     dashLength: number
     animate: boolean
+    effect: Effect
     direction: Direction
     duration: number
     stagger: number
@@ -65,11 +67,15 @@ export function Grid(props: Props) {
         crosshairSize,
         dashLength,
         animate,
+        effect,
         direction,
         duration,
         stagger,
         easing,
     } = props
+
+    const useFade = animate && (effect === "fade" || effect === "both")
+    const useDraw = animate && (effect === "draw" || effect === "both")
 
     const ref = useRef<HTMLDivElement>(null)
     const [size, setSize] = useState({ w: 0, h: 0 })
@@ -183,8 +189,30 @@ export function Grid(props: Props) {
         return t * totalSpread
     }
 
-    const initial = animate ? { opacity: 0 } : false
-    const target = animate ? { opacity: 1 } : undefined
+    const lineInitial = animate
+        ? {
+              ...(useFade && { opacity: 0 }),
+              ...(useDraw && { pathLength: 0 }),
+          }
+        : false
+    const lineTarget = animate
+        ? {
+              ...(useFade && { opacity: 1 }),
+              ...(useDraw && { pathLength: 1 }),
+          }
+        : undefined
+    const dotInitial = animate
+        ? {
+              ...(useFade && { opacity: 0 }),
+              ...(useDraw && { scale: 0 }),
+          }
+        : false
+    const dotTarget = animate
+        ? {
+              ...(useFade && { opacity: 1 }),
+              ...(useDraw && { scale: 1 }),
+          }
+        : undefined
 
     return (
         <div
@@ -205,22 +233,38 @@ export function Grid(props: Props) {
                     {items.map((item, i) => {
                         if (item.kind === "line") {
                             const delay = delayFor(item.anchor, i)
+                            const isVertical = item.x1 === item.x2
+                            // Flip line origin so draw direction follows the chosen direction
+                            let { x1, y1, x2, y2 } = item
+                            if (useDraw) {
+                                if (
+                                    isVertical &&
+                                    direction === "bottom"
+                                ) {
+                                    ;[y1, y2] = [y2, y1]
+                                } else if (
+                                    !isVertical &&
+                                    direction === "right"
+                                ) {
+                                    ;[x1, x2] = [x2, x1]
+                                }
+                            }
                             return (
                                 <motion.line
                                     key={item.key}
-                                    x1={item.x1}
-                                    y1={item.y1}
-                                    x2={item.x2}
-                                    y2={item.y2}
+                                    x1={x1}
+                                    y1={y1}
+                                    x2={x2}
+                                    y2={y2}
                                     stroke={color}
                                     strokeWidth={lineWidth}
                                     strokeDasharray={
-                                        gridStyle === "dashed"
+                                        gridStyle === "dashed" && !useDraw
                                             ? `${dashLength} ${dashLength}`
                                             : undefined
                                     }
-                                    initial={initial}
-                                    animate={target}
+                                    initial={lineInitial}
+                                    animate={lineTarget}
                                     transition={{
                                         duration,
                                         delay,
@@ -243,8 +287,8 @@ export function Grid(props: Props) {
                                     cy={item.cy}
                                     r={lineWidth}
                                     fill={color}
-                                    initial={initial}
-                                    animate={target}
+                                    initial={dotInitial}
+                                    animate={dotTarget}
                                     transition={{
                                         duration,
                                         delay,
@@ -254,35 +298,36 @@ export function Grid(props: Props) {
                             )
                         }
 
+                        // Crosshair: render 4 arms originating from the center
+                        // so pathLength draws each arm outward from the intersection.
                         const s = crosshairSize / 2
+                        const arms: [number, number, number, number][] = [
+                            [item.cx, item.cy, item.cx - s, item.cy],
+                            [item.cx, item.cy, item.cx + s, item.cy],
+                            [item.cx, item.cy, item.cx, item.cy - s],
+                            [item.cx, item.cy, item.cx, item.cy + s],
+                        ]
                         return (
-                            <motion.g
-                                key={item.key}
-                                initial={initial}
-                                animate={target}
-                                transition={{
-                                    duration,
-                                    delay,
-                                    ease: easing,
-                                }}
-                            >
-                                <line
-                                    x1={item.cx - s}
-                                    y1={item.cy}
-                                    x2={item.cx + s}
-                                    y2={item.cy}
-                                    stroke={color}
-                                    strokeWidth={lineWidth}
-                                />
-                                <line
-                                    x1={item.cx}
-                                    y1={item.cy - s}
-                                    x2={item.cx}
-                                    y2={item.cy + s}
-                                    stroke={color}
-                                    strokeWidth={lineWidth}
-                                />
-                            </motion.g>
+                            <g key={item.key}>
+                                {arms.map(([ax1, ay1, ax2, ay2], a) => (
+                                    <motion.line
+                                        key={a}
+                                        x1={ax1}
+                                        y1={ay1}
+                                        x2={ax2}
+                                        y2={ay2}
+                                        stroke={color}
+                                        strokeWidth={lineWidth}
+                                        initial={lineInitial}
+                                        animate={lineTarget}
+                                        transition={{
+                                            duration,
+                                            delay,
+                                            ease: easing,
+                                        }}
+                                    />
+                                ))}
+                            </g>
                         )
                     })}
                 </svg>
@@ -300,6 +345,7 @@ Grid.defaultProps = {
     crosshairSize: 8,
     dashLength: 4,
     animate: true,
+    effect: "fade",
     direction: "top",
     duration: 0.6,
     stagger: 0.02,
@@ -370,6 +416,14 @@ addPropertyControls(Grid, {
         type: ControlType.Boolean,
         title: "Animate In",
         defaultValue: true,
+    },
+    effect: {
+        type: ControlType.Enum,
+        title: "Effect",
+        options: ["fade", "draw", "both"],
+        optionTitles: ["Fade", "Draw", "Fade + Draw"],
+        defaultValue: "fade",
+        hidden: (p: Props) => !p.animate,
     },
     direction: {
         type: ControlType.Enum,
