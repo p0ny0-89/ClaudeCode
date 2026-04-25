@@ -1225,6 +1225,15 @@ export default function OverlapSlideshow(props: Props) {
                             ? "pan-y"
                             : "pan-x"
                         : undefined,
+                    // Isolate the blend group so the vignette
+                    // overlay's mix-blend-mode: destination-out
+                    // actually erases card pixels (alpha mask
+                    // behaviour) instead of being painted as a
+                    // colored gradient on top. Without this, the
+                    // dragStage's transform-induced stacking context
+                    // is not blend-isolated and the overlay falls
+                    // back to source-over painting.
+                    isolation: "isolate",
                 }}
                 whileDrag={{ cursor: "grabbing" }}
             >
