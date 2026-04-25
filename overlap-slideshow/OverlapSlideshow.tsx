@@ -1,5 +1,6 @@
 import * as React from "react"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import {
     motion,
@@ -219,17 +220,13 @@ interface Props {
     onActiveCardHoverEnd?: () => void
     // Container-level vignette that fades inactive cards at the
     // slideshow's viewport edges. Each side (top, bottom, left,
-    // right) is an independent control — % of the slideshow frame
-    // that fades on that side. The active card is drawn on top of
-    // the overlay via z-index, so its hover scale-up bleeds freely
-    // past the fade — exactly the "external Frame mask but only
-    // affects the inactive cards" behaviour the user wants.
-    //
-    // Implementation uses mix-blend-mode: destination-out so the
-    // overlay erases card pixels rather than painting a colored
-    // gradient. That means it works on any background without the
-    // user having to specify a fade color, and the gradient stops
-    // are naturally relative to the component's own frame size.
+    // right) is independent — % of the slideshow frame that fades
+    // on that side. Implemented as a real CSS mask-image on a
+    // wrapper containing only the inactive cards; the active card
+    // is rendered (via React portal) into a separate unmasked
+    // layer on top, so its hover scale-up bleeds freely past the
+    // fade. The mask is true alpha — fades to transparent, not to
+    // a color — so it works on any background.
     maskInactiveCards?: boolean
     maskTopFade?: number
     maskBottomFade?: number
@@ -810,6 +807,14 @@ export default function OverlapSlideshow(props: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const scrollAccumRef = useRef(0)
     const wheelCooldownRef = useRef(0)
+    // Two anchor divs the cards portal into. One sits inside a CSS-
+    // masked wrapper (inactive cards), the other inside an unmasked
+    // wrapper on top (active card). Cards stay React children of this
+    // component, so React preserves their state and motion values
+    // across activeIndex changes — only the DOM target switches.
+    const maskedAnchorRef = useRef<HTMLDivElement | null>(null)
+    const unmaskedAnchorRef = useRef<HTMLDivElement | null>(null)
+    const [anchorsReady, setAnchorsReady] = useState(false)
 
     // Drag motion values on the stage wrapper — passed to each CardItem
     // so its inner content layer can parallax-lag against the drag.
@@ -840,6 +845,21 @@ export default function OverlapSlideshow(props: Props) {
         `
         document.head.appendChild(styleEl)
     }, [])
+
+    // Mark the portal targets as ready once the masked / unmasked
+    // anchor divs have mounted. The first render returns null cards
+    // (refs are still null); the post-mount setState triggers a
+    // second render where the cards are portaled in. A one-frame
+    // empty flash is acceptable.
+    useEffect(() => {
+        if (
+            maskedAnchorRef.current &&
+            unmaskedAnchorRef.current &&
+            !anchorsReady
+        ) {
+            setAnchorsReady(true)
+        }
+    }, [anchorsReady])
 
     // Entrance animation — fire based on entranceTrigger, then set
     // hasEntered so cards animate from entrancePose → finalPose.
@@ -1225,166 +1245,227 @@ export default function OverlapSlideshow(props: Props) {
                             ? "pan-y"
                             : "pan-x"
                         : undefined,
-                    // Isolate the blend group so the vignette
-                    // overlay's mix-blend-mode: destination-out
-                    // actually erases card pixels (alpha mask
-                    // behaviour) instead of being painted as a
-                    // colored gradient on top. Without this, the
-                    // dragStage's transform-induced stacking context
-                    // is not blend-isolated and the overlay falls
-                    // back to source-over painting.
+                    // Isolate the dragStage's stacking context. Not
+                    // strictly needed by the CSS-mask path, but keeps
+                    // the slideshow's z-index ordering self-contained
+                    // so neighboring page elements (custom cursors,
+                    // etc.) can't slip into the middle of the card
+                    // stack.
                     isolation: "isolate",
                 }}
                 whileDrag={{ cursor: "grabbing" }}
             >
-                <div
-                    style={{
-                        position: "absolute",
-                        left: "50%",
-                        top: "50%",
-                        width: 0,
-                        height: 0,
-                    }}
-                >
-                    {cards.map((card, i) => {
-                    const offset = getOffset(i)
-                    const absOffset = Math.abs(offset)
-
-                    if (absOffset > visibleNeighbors) return null
-
-                    const scale = Math.pow(scaleStep, absOffset)
-                    const sign = Math.sign(offset)
-                    const centerDistance = computeCardCenter(
-                        absOffset,
-                        isHorizontal ? cardWidth : cardHeight,
-                        overlap,
-                        scaleStep
-                    )
-                    const x = isHorizontal ? sign * centerDistance : 0
-                    const y = isHorizontal ? 0 : sign * centerDistance
-                    const isActive = offset === 0
-
-                    const finalPose: CardPose = {
-                        x,
-                        y,
-                        scale,
-                        opacity: 1,
-                    }
-                    const mainEntrancePose =
-                        entranceMode === "none"
-                            ? finalPose
-                            : getEntrancePose(
-                                  entranceMode,
-                                  offset,
-                                  cardWidth,
-                                  cardHeight,
-                                  isHorizontal,
-                                  { x, y, scale }
-                              )
-                    const preEntrancePose =
-                        preEntranceMode === "none"
-                            ? mainEntrancePose
-                            : getEntrancePose(
-                                  preEntranceMode,
-                                  offset,
-                                  cardWidth,
-                                  cardHeight,
-                                  isHorizontal,
-                                  { x, y, scale }
-                              )
-
-                    const isMultiStage =
-                        entranceMode !== "none" &&
-                        preEntranceMode !== "none"
-
-                    const cardStaggerDelay =
-                        isEntering && stagger
-                            ? absOffset * staggerDelay
-                            : 0
-
-                    return (
-                        <CardItem
-                            key={i}
-                            content={card}
-                            cardIndex={i}
-                            isActive={isActive}
-                            zIndex={1000 - absOffset}
-                            cardWidth={cardWidth}
-                            cardHeight={cardHeight}
-                            transitionDuration={transitionDuration}
-                            parallaxStrength={parallaxStrength}
-                            clipCards={clipCards}
-                            stageDragX={stageDragX}
-                            stageDragY={stageDragY}
-                            onSelect={goTo}
-                            onActiveHoverStart={handleActiveHoverStart}
-                            onActiveHoverEnd={handleActiveHoverEnd}
-                            focusedCardOnlyInteraction={
-                                focusedCardOnlyInteraction
-                            }
-                            finalPose={finalPose}
-                            preEntrancePose={preEntrancePose}
-                            mainEntrancePose={mainEntrancePose}
-                            entranceMode={entranceMode}
-                            isMultiStage={isMultiStage}
-                            hasEntered={hasEntered}
-                            isEntering={isEntering}
-                            entranceDuration={entranceDuration}
-                            preEntranceDuration={preEntranceDuration}
-                            cardStaggerDelay={cardStaggerDelay}
-                        />
-                    )
-                })}
-                </div>
+                {/* MASKED LAYER — holds inactive cards. The vignette
+                    is applied as a real CSS mask-image on (up to)
+                    four nested wrappers, one per enabled edge. The
+                    nesting intersects them naturally: each child is
+                    only visible where its parent's mask AND its own
+                    mask are both opaque. Edges become transparent;
+                    the rest stays fully visible. */}
                 {(() => {
-                    if (!maskInactiveCards) return null
-                    // Build one black-to-transparent gradient layer per
-                    // enabled side. They alpha-composite together, so
-                    // corners (where two sides overlap) end up more
-                    // opaque than either side alone — a natural
-                    // vignette. mix-blend-mode: destination-out then
-                    // erases card pixels by the overlay's alpha.
-                    const layers: string[] = []
-                    if (maskTopFade > 0) {
-                        layers.push(
-                            `linear-gradient(to bottom, black 0%, transparent ${maskTopFade}%)`
-                        )
-                    }
-                    if (maskBottomFade > 0) {
-                        layers.push(
-                            `linear-gradient(to top, black 0%, transparent ${maskBottomFade}%)`
-                        )
-                    }
-                    if (maskLeftFade > 0) {
-                        layers.push(
-                            `linear-gradient(to right, black 0%, transparent ${maskLeftFade}%)`
-                        )
-                    }
-                    if (maskRightFade > 0) {
-                        layers.push(
-                            `linear-gradient(to left, black 0%, transparent ${maskRightFade}%)`
-                        )
-                    }
-                    if (layers.length === 0) return null
-                    return (
+                    const anchorEl = (
                         <div
-                            aria-hidden
+                            ref={maskedAnchorRef}
                             style={{
                                 position: "absolute",
-                                inset: 0,
-                                backgroundImage: layers.join(", "),
-                                pointerEvents: "none",
-                                mixBlendMode: "destination-out",
-                                // Sit above all inactive cards
-                                // (zIndex 1000 - absOffset, so up to
-                                // 999) but below the active card
-                                // (zIndex 1000) so the active card
-                                // stays unaffected by the erase.
-                                zIndex: 999,
+                                left: "50%",
+                                top: "50%",
+                                width: 0,
+                                height: 0,
                             }}
                         />
                     )
+                    let masked: React.ReactNode = anchorEl
+                    if (maskInactiveCards) {
+                        const wrap = (
+                            child: React.ReactNode,
+                            mask: string
+                        ) => (
+                            <div
+                                style={{
+                                    position: "absolute",
+                                    inset: 0,
+                                    maskImage: mask,
+                                    WebkitMaskImage: mask,
+                                }}
+                            >
+                                {child}
+                            </div>
+                        )
+                        if (maskRightFade > 0) {
+                            masked = wrap(
+                                masked,
+                                `linear-gradient(to left, transparent 0%, black ${maskRightFade}%)`
+                            )
+                        }
+                        if (maskLeftFade > 0) {
+                            masked = wrap(
+                                masked,
+                                `linear-gradient(to right, transparent 0%, black ${maskLeftFade}%)`
+                            )
+                        }
+                        if (maskBottomFade > 0) {
+                            masked = wrap(
+                                masked,
+                                `linear-gradient(to top, transparent 0%, black ${maskBottomFade}%)`
+                            )
+                        }
+                        if (maskTopFade > 0) {
+                            masked = wrap(
+                                masked,
+                                `linear-gradient(to bottom, transparent 0%, black ${maskTopFade}%)`
+                            )
+                        }
+                    }
+                    return (
+                        <div
+                            style={{
+                                position: "absolute",
+                                inset: 0,
+                            }}
+                        >
+                            {masked}
+                        </div>
+                    )
                 })()}
+
+                {/* UNMASKED LAYER — holds the active card on top of
+                    the masked layer (later in DOM = drawn last).
+                    pointerEvents: none on the wrapper so clicks on
+                    empty area pass through to the inactive cards
+                    below; the active card itself has its own
+                    pointer-events so hover / interactions still
+                    work. */}
+                <div
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        pointerEvents: "none",
+                    }}
+                >
+                    <div
+                        ref={unmaskedAnchorRef}
+                        style={{
+                            position: "absolute",
+                            left: "50%",
+                            top: "50%",
+                            width: 0,
+                            height: 0,
+                        }}
+                    />
+                </div>
+
+                {/* Cards rendered as React children of OverlapSlideshow
+                    but portaled into either anchor based on isActive.
+                    Portals preserve the React component instance and
+                    motion-value state across activeIndex changes —
+                    only the DOM target switches, so transition
+                    animations continue smoothly. */}
+                {anchorsReady &&
+                    cards.map((card, i) => {
+                        const offset = getOffset(i)
+                        const absOffset = Math.abs(offset)
+
+                        if (absOffset > visibleNeighbors) return null
+
+                        const scale = Math.pow(scaleStep, absOffset)
+                        const sign = Math.sign(offset)
+                        const centerDistance = computeCardCenter(
+                            absOffset,
+                            isHorizontal ? cardWidth : cardHeight,
+                            overlap,
+                            scaleStep
+                        )
+                        const x = isHorizontal
+                            ? sign * centerDistance
+                            : 0
+                        const y = isHorizontal
+                            ? 0
+                            : sign * centerDistance
+                        const isActive = offset === 0
+
+                        const finalPose: CardPose = {
+                            x,
+                            y,
+                            scale,
+                            opacity: 1,
+                        }
+                        const mainEntrancePose =
+                            entranceMode === "none"
+                                ? finalPose
+                                : getEntrancePose(
+                                      entranceMode,
+                                      offset,
+                                      cardWidth,
+                                      cardHeight,
+                                      isHorizontal,
+                                      { x, y, scale }
+                                  )
+                        const preEntrancePose =
+                            preEntranceMode === "none"
+                                ? mainEntrancePose
+                                : getEntrancePose(
+                                      preEntranceMode,
+                                      offset,
+                                      cardWidth,
+                                      cardHeight,
+                                      isHorizontal,
+                                      { x, y, scale }
+                                  )
+
+                        const isMultiStage =
+                            entranceMode !== "none" &&
+                            preEntranceMode !== "none"
+
+                        const cardStaggerDelay =
+                            isEntering && stagger
+                                ? absOffset * staggerDelay
+                                : 0
+
+                        const target = isActive
+                            ? unmaskedAnchorRef.current
+                            : maskedAnchorRef.current
+                        if (!target) return null
+
+                        return createPortal(
+                            <CardItem
+                                key={i}
+                                content={card}
+                                cardIndex={i}
+                                isActive={isActive}
+                                zIndex={1000 - absOffset}
+                                cardWidth={cardWidth}
+                                cardHeight={cardHeight}
+                                transitionDuration={transitionDuration}
+                                parallaxStrength={parallaxStrength}
+                                clipCards={clipCards}
+                                stageDragX={stageDragX}
+                                stageDragY={stageDragY}
+                                onSelect={goTo}
+                                onActiveHoverStart={
+                                    handleActiveHoverStart
+                                }
+                                onActiveHoverEnd={handleActiveHoverEnd}
+                                focusedCardOnlyInteraction={
+                                    focusedCardOnlyInteraction
+                                }
+                                finalPose={finalPose}
+                                preEntrancePose={preEntrancePose}
+                                mainEntrancePose={mainEntrancePose}
+                                entranceMode={entranceMode}
+                                isMultiStage={isMultiStage}
+                                hasEntered={hasEntered}
+                                isEntering={isEntering}
+                                entranceDuration={entranceDuration}
+                                preEntranceDuration={
+                                    preEntranceDuration
+                                }
+                                cardStaggerDelay={cardStaggerDelay}
+                            />,
+                            target,
+                            String(i)
+                        )
+                    })}
             </motion.div>
         </div>
     )
@@ -1744,7 +1825,7 @@ addPropertyControls(OverlapSlideshow, {
         type: ControlType.Boolean,
         title: "Fade Inactive Cards",
         description:
-            "Apply a single container-level vignette to the slideshow's frame so inactive cards fade out at the edges. The focused card is drawn on top of the overlay and is never affected — its hover scale-up bleeds freely past the fade. Each side is an independent control below, expressed as a percentage of the slideshow's frame size.",
+            "Apply a true alpha mask (CSS mask-image) to the inactive cards so they fade to transparent at the slideshow's edges. The focused card is rendered into a separate unmasked layer on top, so its hover scale-up bleeds freely past the fade. Works on any background — the cards become transparent, not painted over with a color. Each side is an independent control below, as a percentage of the slideshow's frame size.",
         defaultValue: false,
     },
     maskTopFade: {
