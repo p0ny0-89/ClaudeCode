@@ -221,8 +221,20 @@ interface Props {
     // mask fades each inactive card toward its outer edge (away from
     // the active card) so neighbors visually recede without affecting
     // the focused card — its hover scale-up bleeds freely.
+    //
+    // Three independent stops along the inner→outer axis:
+    //   - maskInnerFade: fades the inner edge (the side touching the
+    //     active card) so inactive cards don't bleed onto active
+    //     content. 0 = no inner fade.
+    //   - maskFadeStart: where the outer fade begins (% from inner
+    //     edge). Card is fully opaque from inner edge to here.
+    //   - maskFadeEnd: where the outer fade reaches fully transparent
+    //     (% from inner edge). Close to Start = sharp cutoff; 100 =
+    //     long soft fade to outer edge.
     maskInactiveCards?: boolean
-    maskFalloffPercent?: number
+    maskFadeStart?: number
+    maskFadeEnd?: number
+    maskInnerFade?: number
     // Let adjacent cards render outside the slideshow's own frame.
     // Useful when the frame is sized to a single card so Framer's
     // native per-layer hover (and Set Variant cursor) fires only
@@ -747,7 +759,9 @@ export default function OverlapSlideshow(props: Props) {
         onActiveCardHoverStart,
         onActiveCardHoverEnd,
         maskInactiveCards = false,
-        maskFalloffPercent = 50,
+        maskFadeStart = 50,
+        maskFadeEnd = 100,
+        maskInnerFade = 0,
         overflowVisible = false,
         focusedCardOnlyInteraction = false,
         style,
@@ -1292,14 +1306,14 @@ export default function OverlapSlideshow(props: Props) {
                             ? absOffset * staggerDelay
                             : 0
 
-                    // Per-card mask gradient. Direction points away
-                    // from the active card so the inactive card fades
-                    // toward its outer edge. Active card and disabled
-                    // setups get undefined (no mask).
+                    // Per-card mask gradient. Inner edge = 0%, outer
+                    // edge = 100% along the gradient direction. Three
+                    // user-controlled stops let the user dial in both
+                    // a sharp/soft outer fade AND an optional inner
+                    // fade to keep inactive content from bleeding onto
+                    // the active card.
                     const inactiveMaskImage =
-                        maskInactiveCards &&
-                        !isActive &&
-                        maskFalloffPercent > 0
+                        maskInactiveCards && !isActive
                             ? (() => {
                                   const dir = isHorizontal
                                       ? sign > 0
@@ -1308,14 +1322,36 @@ export default function OverlapSlideshow(props: Props) {
                                       : sign > 0
                                         ? "to bottom"
                                         : "to top"
-                                  const stop = Math.max(
+                                  const inner = Math.max(
                                       0,
-                                      Math.min(
-                                          100,
-                                          100 - maskFalloffPercent
-                                      )
+                                      Math.min(100, maskInnerFade)
                                   )
-                                  return `linear-gradient(${dir}, black ${stop}%, transparent 100%)`
+                                  const outerStart = Math.max(
+                                      inner,
+                                      Math.min(100, maskFadeStart)
+                                  )
+                                  const outerEnd = Math.max(
+                                      outerStart,
+                                      Math.min(100, maskFadeEnd)
+                                  )
+                                  // Build the stops left-to-right
+                                  // along the gradient axis:
+                                  //   0 → inner   transparent → black
+                                  //   inner → outerStart   black
+                                  //   outerStart → outerEnd   black → transparent
+                                  //   outerEnd → 100   transparent
+                                  const stops: string[] = []
+                                  if (inner > 0) {
+                                      stops.push("transparent 0%")
+                                      stops.push(`black ${inner}%`)
+                                  } else {
+                                      stops.push("black 0%")
+                                  }
+                                  stops.push(`black ${outerStart}%`)
+                                  stops.push(
+                                      `transparent ${outerEnd}%`
+                                  )
+                                  return `linear-gradient(${dir}, ${stops.join(", ")})`
                               })()
                             : undefined
 
@@ -1716,14 +1752,38 @@ addPropertyControls(OverlapSlideshow, {
             "Apply a gradient mask to non-focused cards so they fade toward their outer edge (away from the active card). The focused card is never masked — its hover scale-up bleeds freely. Use this instead of an external Frame mask to keep the focused card unaffected.",
         defaultValue: false,
     },
-    maskFalloffPercent: {
+    maskFadeStart: {
         type: ControlType.Number,
-        title: "Fade Distance",
+        title: "Outer Fade Start",
         description:
-            "How much of each inactive card's outer edge fades to transparent. 0 = no fade, 100 = whole card fades.",
+            "Where the outer-edge fade begins along each inactive card (% from the inner edge nearest the active card). The card is fully opaque from the inner edge up to here.",
         defaultValue: 50,
         min: 0,
         max: 100,
+        step: 5,
+        unit: "%",
+        hidden: (p: Props) => !p.maskInactiveCards,
+    },
+    maskFadeEnd: {
+        type: ControlType.Number,
+        title: "Outer Fade End",
+        description:
+            "Where the outer-edge fade is fully transparent (% from the inner edge). Set close to Outer Fade Start for a sharp narrow fade; set to 100 for a long soft fade reaching all the way to the outer edge.",
+        defaultValue: 100,
+        min: 0,
+        max: 100,
+        step: 5,
+        unit: "%",
+        hidden: (p: Props) => !p.maskInactiveCards,
+    },
+    maskInnerFade: {
+        type: ControlType.Number,
+        title: "Inner Fade",
+        description:
+            "Fade applied to the edge nearest the focused card. Use this when an inactive card visually bleeds onto the active card's content — set to a small value (e.g. 5–15%) for a sharp clearing band along the inner edge. 0 = no inner fade.",
+        defaultValue: 0,
+        min: 0,
+        max: 50,
         step: 5,
         unit: "%",
         hidden: (p: Props) => !p.maskInactiveCards,
