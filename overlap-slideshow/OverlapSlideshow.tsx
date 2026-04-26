@@ -815,6 +815,15 @@ export default function OverlapSlideshow(props: Props) {
     const maskedAnchorRef = useRef<HTMLDivElement | null>(null)
     const unmaskedAnchorRef = useRef<HTMLDivElement | null>(null)
     const [anchorsReady, setAnchorsReady] = useState(false)
+    // Last known cursor position over the slideshow. When activeIndex
+    // changes (scroll, drag, autoplay, click) and the cursor hasn't
+    // moved, the browser doesn't fire mouseenter on the card that
+    // slides into the cursor's position — so its hover variant never
+    // triggers. We replay synthetic pointer events at this position
+    // after each swap to wake up any hover handlers on the new
+    // active card.
+    const cursorPosRef = useRef<{ x: number; y: number } | null>(null)
+    const cursorOverRef = useRef(false)
 
     // Drag motion values on the stage wrapper — passed to each CardItem
     // so its inner content layer can parallax-lag against the drag.
@@ -964,6 +973,62 @@ export default function OverlapSlideshow(props: Props) {
     useEffect(() => {
         const handler = activateHandlersRef.current[activeIndex]
         if (handler) handler()
+    }, [activeIndex])
+
+    // When activeIndex changes (scroll, drag, autoplay, click) and
+    // the cursor is sitting still over the slideshow, the browser
+    // doesn't fire mouseenter on whichever card just slid into the
+    // cursor's position — so its hover variant doesn't trigger
+    // until the user wiggles the mouse out and back in. Replay
+    // synthetic pointer events at the cursor's last known position
+    // to wake those handlers up. We use elementFromPoint so the
+    // events land on the topmost element actually under the cursor
+    // after the DOM has updated for the new active index.
+    useEffect(() => {
+        if (typeof document === "undefined") return
+        if (!cursorOverRef.current) return
+        const pos = cursorPosRef.current
+        if (!pos) return
+
+        // Wait for the portal swap and any layout reflow to settle
+        // before measuring elementFromPoint.
+        const id = requestAnimationFrame(() => {
+            if (!cursorOverRef.current) return
+            const current = cursorPosRef.current
+            if (!current) return
+            const target = document.elementFromPoint(
+                current.x,
+                current.y
+            )
+            if (!target) return
+            const init = {
+                bubbles: true,
+                cancelable: true,
+                clientX: current.x,
+                clientY: current.y,
+                view: window,
+            }
+            // pointerover/mouseover bubble; React's event system
+            // diffs them against the previous hover target and
+            // synthesizes onMouseEnter/onPointerEnter for the new
+            // element (and the corresponding leave for the old one).
+            // That covers Framer Motion's whileHover and any custom
+            // onMouseEnter handlers inside the card component.
+            try {
+                target.dispatchEvent(
+                    new PointerEvent("pointerover", {
+                        ...init,
+                        pointerType: "mouse",
+                    })
+                )
+            } catch {
+                // PointerEvent may not be constructible in some
+                // older environments; fall through to MouseEvent.
+            }
+            target.dispatchEvent(new MouseEvent("mouseover", init))
+            target.dispatchEvent(new MouseEvent("mousemove", init))
+        })
+        return () => cancelAnimationFrame(id)
     }, [activeIndex])
 
     // Keep active index valid when count or initial index changes
@@ -1161,8 +1226,25 @@ export default function OverlapSlideshow(props: Props) {
     return (
         <div
             ref={containerRef}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
+            onMouseEnter={(e) => {
+                cursorOverRef.current = true
+                cursorPosRef.current = {
+                    x: e.clientX,
+                    y: e.clientY,
+                }
+                setIsHovered(true)
+            }}
+            onMouseLeave={() => {
+                cursorOverRef.current = false
+                cursorPosRef.current = null
+                setIsHovered(false)
+            }}
+            onMouseMove={(e) => {
+                cursorPosRef.current = {
+                    x: e.clientX,
+                    y: e.clientY,
+                }
+            }}
             style={{
                 position: "relative",
                 width: "100%",
