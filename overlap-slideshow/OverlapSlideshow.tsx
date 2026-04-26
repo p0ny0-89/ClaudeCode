@@ -218,6 +218,14 @@ interface Props {
     // panel to drive a cursor variant, a hover text, etc.
     onActiveCardHoverStart?: () => void
     onActiveCardHoverEnd?: () => void
+    // Mount every card in the array upfront, even ones outside the
+    // current visible-neighbor window. Off-window cards are pinned
+    // at the visible edge with opacity: 0 so they take memory but
+    // don't paint visibly. Eliminates the brief mount-and-load
+    // delay when navigating to cards that haven't been on-screen
+    // before. Trade-off is more memory while the slideshow is
+    // mounted; recommended up to ~20 cards.
+    preloadAllCards?: boolean
     // Container-level vignette that fades inactive cards at the
     // slideshow's viewport edges. Each side (top, bottom, left,
     // right) is independent — % of the slideshow frame that fades
@@ -741,6 +749,7 @@ export default function OverlapSlideshow(props: Props) {
         onActivateCard12,
         onActiveCardHoverStart,
         onActiveCardHoverEnd,
+        preloadAllCards = false,
         maskInactiveCards = false,
         maskTopFade = 0,
         maskBottomFade = 0,
@@ -1447,13 +1456,37 @@ export default function OverlapSlideshow(props: Props) {
                     cards.map((card, i) => {
                         const offset = getOffset(i)
                         const absOffset = Math.abs(offset)
+                        const isWithinVisible =
+                            absOffset <= visibleNeighbors
 
-                        if (absOffset > visibleNeighbors) return null
+                        // Without preload: skip rendering off-window
+                        // cards entirely (original behavior).
+                        // With preload: render every card; off-window
+                        // cards get pinned to the visible-edge pose
+                        // with opacity 0 so they're mounted (assets
+                        // loaded, components warm) but invisible.
+                        if (!preloadAllCards && !isWithinVisible) {
+                            return null
+                        }
 
-                        const scale = Math.pow(scaleStep, absOffset)
+                        // Clamp the offset used for positioning so
+                        // off-window cards stack at the visible edge
+                        // rather than continuing to spiral outward.
+                        // When they enter the visible window via
+                        // navigation, finalPose changes and the
+                        // existing animate() pipeline tweens them
+                        // smoothly into place.
+                        const positionAbsOffset = Math.min(
+                            absOffset,
+                            visibleNeighbors
+                        )
+                        const scale = Math.pow(
+                            scaleStep,
+                            positionAbsOffset
+                        )
                         const sign = Math.sign(offset)
                         const centerDistance = computeCardCenter(
-                            absOffset,
+                            positionAbsOffset,
                             isHorizontal ? cardWidth : cardHeight,
                             overlap,
                             scaleStep
@@ -1470,7 +1503,7 @@ export default function OverlapSlideshow(props: Props) {
                             x,
                             y,
                             scale,
-                            opacity: 1,
+                            opacity: isWithinVisible ? 1 : 0,
                         }
                         const mainEntrancePose =
                             entranceMode === "none"
@@ -1902,6 +1935,13 @@ addPropertyControls(OverlapSlideshow, {
             "Non-active cards ignore pointer events — Framer's native cursor only fires over the focused card, not the peek cards that spill past the frame. Side effect: click-to-focus on non-active cards is disabled (use drag / swipe / scroll / auto-play instead).",
         defaultValue: false,
         hidden: (p: Props) => !p.overflowVisible,
+    },
+    preloadAllCards: {
+        type: ControlType.Boolean,
+        title: "Preload All Cards",
+        description:
+            "Mount every card in the array as soon as the slideshow mounts (off-window cards stack at the visible edge with opacity 0). Eliminates the brief mount-and-load delay when you navigate to a card that hasn't been on-screen yet — useful when the slideshow is below the fold and you want it warm before the user scrolls to it. Trade-off is more memory; recommended up to ~20 cards.",
+        defaultValue: false,
     },
     maskInactiveCards: {
         type: ControlType.Boolean,
