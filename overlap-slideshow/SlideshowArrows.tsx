@@ -22,6 +22,44 @@ import type { ComponentType } from "react"
 import * as React from "react"
 import { useSlideshowState } from "./OverlapSlideshow.tsx"
 
+// Mobile browsers don't fire mouseleave / pointerleave after a tap
+// (the finger lifts, it doesn't "leave"), so any hover variant set
+// up in Framer stays stuck on the button until something else gets
+// hovered. Synthesize the leave events ourselves on touchend so the
+// hover variant clears as soon as the tap finishes.
+const clearStuckHoverAfterTouch = (target: HTMLElement) => {
+    // Wait one frame so any onClick / pressed-variant transitions
+    // run first before we tell the component the hover ended.
+    requestAnimationFrame(() => {
+        const init = { bubbles: false, cancelable: true } as const
+        const bubbleInit = { ...init, bubbles: true } as const
+        try {
+            target.dispatchEvent(
+                new PointerEvent("pointerleave", {
+                    ...init,
+                    pointerType: "touch",
+                })
+            )
+            target.dispatchEvent(
+                new PointerEvent("pointerout", {
+                    ...bubbleInit,
+                    pointerType: "touch",
+                })
+            )
+        } catch {
+            // PointerEvent may not be constructible in some older
+            // environments; mouse events below cover those.
+        }
+        target.dispatchEvent(new MouseEvent("mouseleave", init))
+        target.dispatchEvent(new MouseEvent("mouseout", bubbleInit))
+        // If the button became focused via the tap, blur it so any
+        // :focus-visible style also clears.
+        if (typeof (target as HTMLElement).blur === "function") {
+            ;(target as HTMLElement).blur()
+        }
+    })
+}
+
 export function prevButton(Component): ComponentType {
     return (props: any) => {
         const { prev, canGoPrev } = useSlideshowState()
@@ -31,6 +69,12 @@ export function prevButton(Component): ComponentType {
                 onClick={(e: React.MouseEvent) => {
                     if (canGoPrev) prev()
                     if (props.onClick) props.onClick(e)
+                }}
+                onTouchEnd={(e: React.TouchEvent) => {
+                    clearStuckHoverAfterTouch(
+                        e.currentTarget as HTMLElement
+                    )
+                    if (props.onTouchEnd) props.onTouchEnd(e)
                 }}
                 style={{
                     ...props.style,
@@ -52,6 +96,12 @@ export function nextButton(Component): ComponentType {
                 onClick={(e: React.MouseEvent) => {
                     if (canGoNext) next()
                     if (props.onClick) props.onClick(e)
+                }}
+                onTouchEnd={(e: React.TouchEvent) => {
+                    clearStuckHoverAfterTouch(
+                        e.currentTarget as HTMLElement
+                    )
+                    if (props.onTouchEnd) props.onTouchEnd(e)
                 }}
                 style={{
                     ...props.style,
