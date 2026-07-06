@@ -87,6 +87,9 @@ const child = spawn(
       PORT: String(port),
     },
     stdio: "inherit",
+    // Node >= 18.20 requires a shell to spawn .cmd shims on Windows
+    // (CVE-2024-27980 guard), otherwise spawn throws EINVAL.
+    shell: process.platform === "win32",
   },
 );
 
