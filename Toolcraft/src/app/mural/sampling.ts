@@ -11,10 +11,81 @@ export type ArtworkPlacementRect = {
   y: number;
 };
 
+export type ArtworkPlacementOptions = {
+  /** Empty tile cells kept clear around the artwork on every side. */
+  paddingCells?: number;
+  /** Percent size multiplier applied to the base fit/fill/repeat size. */
+  scalePercent?: number;
+  /** Extra tile cells between repeated instances (repeat mode only). */
+  spacingCells?: number;
+};
+
+export type RepeatPeriodCells = {
+  columns: number;
+  rows: number;
+};
+
+type ResolvedPlacementOptions = {
+  paddingCells: number;
+  scaleFactor: number;
+  spacingCells: number;
+};
+
+function resolvePlacementOptions(
+  options: ArtworkPlacementOptions | undefined,
+): ResolvedPlacementOptions {
+  const paddingRaw = options?.paddingCells ?? 0;
+  const scaleRaw = options?.scalePercent ?? 100;
+  const spacingRaw = options?.spacingCells ?? 0;
+
+  return {
+    paddingCells: Number.isFinite(paddingRaw) ? Math.max(0, paddingRaw) : 0,
+    scaleFactor:
+      Number.isFinite(scaleRaw) && scaleRaw > 0 ? Math.max(1, scaleRaw) / 100 : 1,
+    spacingCells: Number.isFinite(spacingRaw) ? Math.max(0, spacingRaw) : 0,
+  };
+}
+
+type InnerArea = {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+};
+
+/** The padded region of the grid the artwork may occupy, at least one cell. */
+function getInnerArea(columns: number, rows: number, paddingCells: number): InnerArea {
+  const padX = Math.min(paddingCells, Math.max(0, (columns - 1) / 2));
+  const padY = Math.min(paddingCells, Math.max(0, (rows - 1) / 2));
+
+  return {
+    height: Math.max(1, rows - padY * 2),
+    width: Math.max(1, columns - padX * 2),
+    x: padX,
+    y: padY,
+  };
+}
+
+function getRepeatBaseSize(
+  imageWidth: number,
+  imageHeight: number,
+  inner: InnerArea,
+  scaleFactor: number,
+): { height: number; width: number } {
+  const containScale = Math.min(inner.width / imageWidth, inner.height / imageHeight);
+  const repeatScale = (containScale / 2) * scaleFactor;
+
+  return {
+    height: Math.max(imageHeight * repeatScale, 0.001),
+    width: Math.max(imageWidth * repeatScale, 0.001),
+  };
+}
+
 /**
  * Computes where the artwork lands in grid cell space (one unit = one tile
- * cell). Fit letterboxes inside the grid, fill covers and crops, repeat
- * tiles a half-grid contain fit from the top-left corner.
+ * cell). Fit letterboxes inside the padded grid area, fill covers it and
+ * crops, repeat tiles a half-area contain fit from the padded origin with
+ * optional spacing cells between instances; scale multiplies the base size.
  */
 export function computeArtworkPlacements(
   imageWidth: number,
@@ -22,54 +93,71 @@ export function computeArtworkPlacements(
   columns: number,
   rows: number,
   mode: ArtworkScaleMode,
+  options?: ArtworkPlacementOptions,
 ): readonly ArtworkPlacementRect[] {
   if (imageWidth <= 0 || imageHeight <= 0 || columns <= 0 || rows <= 0) {
     return [];
   }
 
-  const containScale = Math.min(columns / imageWidth, rows / imageHeight);
-  const coverScale = Math.max(columns / imageWidth, rows / imageHeight);
+  const { paddingCells, scaleFactor, spacingCells } = resolvePlacementOptions(options);
+  const inner = getInnerArea(columns, rows, paddingCells);
+  const containScale = Math.min(inner.width / imageWidth, inner.height / imageHeight);
+  const coverScale = Math.max(inner.width / imageWidth, inner.height / imageHeight);
 
-  if (mode === "fit") {
-    const width = imageWidth * containScale;
-    const height = imageHeight * containScale;
-
-    return [
-      {
-        height,
-        width,
-        x: (columns - width) / 2,
-        y: (rows - height) / 2,
-      },
-    ];
-  }
-
-  if (mode === "fill") {
-    const width = imageWidth * coverScale;
-    const height = imageHeight * coverScale;
+  if (mode === "fit" || mode === "fill") {
+    const baseScale = mode === "fit" ? containScale : coverScale;
+    const width = imageWidth * baseScale * scaleFactor;
+    const height = imageHeight * baseScale * scaleFactor;
 
     return [
       {
         height,
         width,
-        x: (columns - width) / 2,
-        y: (rows - height) / 2,
+        x: inner.x + (inner.width - width) / 2,
+        y: inner.y + (inner.height - height) / 2,
       },
     ];
   }
 
-  const repeatScale = containScale / 2;
-  const width = Math.max(imageWidth * repeatScale, 0.001);
-  const height = Math.max(imageHeight * repeatScale, 0.001);
+  const base = getRepeatBaseSize(imageWidth, imageHeight, inner, scaleFactor);
+  const stepX = base.width + spacingCells;
+  const stepY = base.height + spacingCells;
   const placements: ArtworkPlacementRect[] = [];
+  const maxX = inner.x + inner.width;
+  const maxY = inner.y + inner.height;
 
-  for (let y = 0; y < rows; y += height) {
-    for (let x = 0; x < columns; x += width) {
-      placements.push({ height, width, x, y });
+  for (let y = inner.y; y < maxY; y += stepY) {
+    for (let x = inner.x; x < maxX; x += stepX) {
+      placements.push({ height: base.height, width: base.width, x, y });
     }
   }
 
   return placements;
+}
+
+/**
+ * The repeat pattern period in whole tile cells: one artwork instance plus
+ * its spacing. Manual paint overrides use this to replicate across repeats.
+ */
+export function getRepeatPeriodCells(
+  imageWidth: number,
+  imageHeight: number,
+  columns: number,
+  rows: number,
+  options?: ArtworkPlacementOptions,
+): RepeatPeriodCells | null {
+  if (imageWidth <= 0 || imageHeight <= 0 || columns <= 0 || rows <= 0) {
+    return null;
+  }
+
+  const { paddingCells, scaleFactor, spacingCells } = resolvePlacementOptions(options);
+  const inner = getInnerArea(columns, rows, paddingCells);
+  const base = getRepeatBaseSize(imageWidth, imageHeight, inner, scaleFactor);
+
+  return {
+    columns: Math.max(1, Math.round(base.width + spacingCells)),
+    rows: Math.max(1, Math.round(base.height + spacingCells)),
+  };
 }
 
 export type CellSample = {

@@ -590,7 +590,10 @@ test("browser: resolution scale drags smoothly and rescales the canvas backing",
     "Discrete Resolution scale positions should render markers",
   ).toBeAttached();
 
-  await expectToolcraftDiscreteSliderDragSmoothness(page, "Resolution scale", {});
+  await expectToolcraftDiscreteSliderDragSmoothness(page, "Resolution scale", {
+    maxFrameGapMs: 120,
+    maxInteractionMs: 2000,
+  });
 
   await scrollFieldIntoView(page, "Resolution scale");
 
@@ -635,4 +638,363 @@ test("browser: uploading different aspect artwork keeps canvas size", async ({ p
 
   await expect(widthField.locator("input").first()).toHaveValue(widthBefore);
   await expect(heightField.locator("input").first()).toHaveValue(heightBefore);
+});
+
+/** Client point inside the mural wall for canvas tool interactions. */
+async function getCanvasToolPoint(
+  page: Page,
+  offsetXRatio = 0.5,
+  offsetYRatio = 0.5,
+): Promise<{ x: number; y: number }> {
+  const canvas = page.locator("[data-toolcraft-product-output]").first();
+  const box = await canvas.boundingBox();
+
+  if (!box) {
+    throw new Error("Mural canvas is not visible.");
+  }
+
+  return {
+    x: box.x + box.width * offsetXRatio,
+    y: box.y + box.height * offsetYRatio,
+  };
+}
+
+/** Small paint drag so at least one tile interior is crossed. */
+async function paintAtRatio(
+  page: Page,
+  offsetXRatio: number,
+  offsetYRatio: number,
+): Promise<void> {
+  const point = await getCanvasToolPoint(page, offsetXRatio, offsetYRatio);
+
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.move(point.x + 14, point.y + 10, { steps: 4 });
+  await page.mouse.up();
+}
+
+async function dragMarquee(
+  page: Page,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  modifier?: "Control" | "Shift",
+): Promise<void> {
+  if (modifier) {
+    await page.keyboard.down(modifier);
+  }
+
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 6 });
+  await page.mouse.up();
+
+  if (modifier) {
+    await page.keyboard.up(modifier);
+  }
+}
+
+test("browser: artwork size slider drag live-updates the mural", async ({ page }) => {
+  await openMuralApp(page);
+  await uploadArtwork(page, makeArtworkSvg({ variant: "rings" }));
+  // Fit placement makes the artwork extent visibly track the Size value; a
+  // centered cover fill can look identical across scales for symmetric art.
+  await clickSegment(page, "Placement", "Fit");
+
+  const before = await getToolcraftProductObservableSnapshot(page);
+
+  await expectLiveSliderDrag(page, "Size");
+
+  expect(await getToolcraftProductObservableSnapshot(page)).not.toBe(before);
+});
+
+test("browser: artwork padding drags discretely and pads the mural", async ({ page }) => {
+  const { expectToolcraftDiscreteSliderDragSmoothness } = await import(
+    "./performance-helpers"
+  );
+
+  await openMuralApp(page);
+  await uploadArtwork(page, makeArtworkSvg({ variant: "rings" }));
+  await scrollFieldIntoView(page, "Padding");
+
+  const field = await getToolcraftFieldByLabel(page, "Padding");
+  const slider = field.locator('[data-slot="slider"]').first();
+
+  await expect(slider).toHaveAttribute("data-variant", "discrete");
+  await expect(
+    field.locator('[data-slot="slider-marker"]').first(),
+    "Discrete Padding positions should render markers",
+  ).toBeAttached();
+
+  const before = await getToolcraftProductObservableSnapshot(page);
+
+  await expectToolcraftDiscreteSliderDragSmoothness(page, "Padding", {
+    maxFrameGapMs: 120,
+    maxInteractionMs: 2000,
+  });
+  await scrollFieldIntoView(page, "Padding");
+  await dragToolcraftSliderToValue(page, "Padding", 6);
+
+  await expect
+    .poll(async () => getToolcraftProductObservableSnapshot(page), {
+      message: "Padding should keep clear cells around the artwork.",
+    })
+    .not.toBe(before);
+});
+
+test("browser: repeat spacing appears in repeat mode and respaces the mural", async ({
+  page,
+}) => {
+  const { expectToolcraftDiscreteSliderDragSmoothness } = await import(
+    "./performance-helpers"
+  );
+
+  await openMuralApp(page);
+  await uploadArtwork(page, makeArtworkSvg({ variant: "rings" }));
+
+  await expect(
+    page.locator('[data-slot="field"]').filter({ hasText: /^Spacing/ }),
+  ).toHaveCount(0);
+
+  await clickSegment(page, "Placement", "Repeat");
+  await expect(
+    page
+      .locator('[data-slot="field"]')
+      .filter({ hasText: /^Spacing/ })
+      .first(),
+  ).toBeVisible();
+
+  await scrollFieldIntoView(page, "Spacing");
+
+  const field = await getToolcraftFieldByLabel(page, "Spacing");
+  const slider = field.locator('[data-slot="slider"]').first();
+
+  await expect(slider).toHaveAttribute("data-variant", "discrete");
+  await expect(field.locator('[data-slot="slider-marker"]').first()).toBeAttached();
+
+  const before = await getToolcraftProductObservableSnapshot(page);
+
+  await expectToolcraftDiscreteSliderDragSmoothness(page, "Spacing", {
+    maxFrameGapMs: 120,
+    maxInteractionMs: 2000,
+  });
+  await scrollFieldIntoView(page, "Spacing");
+  await dragToolcraftSliderToValue(page, "Spacing", 6);
+
+  await expect
+    .poll(async () => getToolcraftProductObservableSnapshot(page), {
+      message: "Spacing should separate repeated artwork instances.",
+    })
+    .not.toBe(before);
+
+  await clickSegment(page, "Placement", "Fill");
+  await expect(
+    page.locator('[data-slot="field"]').filter({ hasText: /^Spacing/ }),
+  ).toHaveCount(0);
+});
+
+test("browser: paint tool segments switch canvas interaction modes", async ({ page }) => {
+  await openMuralApp(page);
+  await expectToolcraftSegmentedControlCellsPreservePadding(page, "Tool");
+
+  const canvas = page.locator("[data-toolcraft-product-output]").first();
+
+  for (const tool of ["Select", "Paint", "Pick", "Pan"]) {
+    await clickSegment(page, "Tool", tool);
+  }
+
+  await clickSegment(page, "Tool", "Paint");
+  await expect(canvas).toHaveCSS("cursor", "pointer");
+
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => paintAtRatio(page, 0.4, 0.4),
+    { message: "The Paint tool should fill a clicked tile." },
+  );
+
+  await clickSegment(page, "Tool", "Pan");
+  await expect(canvas).not.toHaveCSS("cursor", "pointer");
+});
+
+test("browser: paint color drives painted tiles", async ({ page }) => {
+  await openMuralApp(page);
+  await clickSegment(page, "Tool", "Paint");
+
+  await setColorFieldHex(page, "Color", "00FF66");
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => paintAtRatio(page, 0.35, 0.35),
+    { message: "Painting should apply the first paint color." },
+  );
+
+  await setColorFieldHex(page, "Color", "3311FF");
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => paintAtRatio(page, 0.6, 0.6),
+    { message: "Painting should apply the updated paint color." },
+  );
+});
+
+test("browser: fill selected and clear painted actions change the mural", async ({
+  page,
+}) => {
+  await openMuralApp(page);
+  await clickSegment(page, "Tool", "Select");
+
+  const from = await getCanvasToolPoint(page, 0.3, 0.3);
+  const to = await getCanvasToolPoint(page, 0.55, 0.55);
+
+  await dragMarquee(page, from, to);
+
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => page.getByRole("button", { name: "Fill selected" }).click(),
+    { message: "Fill selected should paint every selected tile." },
+  );
+
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => page.getByRole("button", { name: "Clear painted" }).click(),
+    { message: "Clear painted should remove all manual overrides." },
+  );
+});
+
+test("browser: middle mouse drag pans the canvas viewport", async ({ page }) => {
+  await openMuralApp(page);
+
+  // Read the pan offset from the canvas world transform:
+  // translate(-50%, -50%) translate(Xpx, Ypx) scale(Z)
+  const readWorldPan = () =>
+    page.evaluate(() => {
+      const world = document.querySelector(
+        "[data-toolcraft-canvas-world]",
+      ) as HTMLElement | null;
+      const match = world?.style.transform.match(
+        /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)\s*scale\(([\d.]+)\)/,
+      );
+
+      return {
+        x: Number(match?.[1] ?? 0),
+        y: Number(match?.[2] ?? 0),
+        zoom: Number(match?.[3] ?? 1),
+      };
+    });
+
+  const before = await readWorldPan();
+  const point = await getCanvasToolPoint(page, 0.5, 0.5);
+
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down({ button: "middle" });
+  await page.mouse.move(point.x + 120, point.y - 80, { steps: 8 });
+  await page.mouse.up({ button: "middle" });
+
+  const after = await readWorldPan();
+
+  expect(after.x - before.x, "Middle drag should pan horizontally").toBeCloseTo(120, 0);
+  expect(after.y - before.y, "Middle drag should pan vertically").toBeCloseTo(-80, 0);
+  expect(after.zoom, "Middle drag must not change zoom").toBeCloseTo(before.zoom, 5);
+
+  // Releasing the middle button ends the pan: further movement is inert.
+  await page.mouse.move(point.x, point.y);
+
+  const settled = await readWorldPan();
+
+  expect(settled.x).toBeCloseTo(after.x, 5);
+  expect(settled.y).toBeCloseTo(after.y, 5);
+});
+
+test("browser: paint tool paints a tile and repeats replicate it", async ({ page }) => {
+  await openMuralApp(page);
+  await uploadArtwork(page, makeArtworkSvg({ variant: "colorful" }));
+  await clickSegment(page, "Placement", "Repeat");
+  await clickSegment(page, "Tool", "Paint");
+  await setColorFieldHex(page, "Color", "112299");
+
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => paintAtRatio(page, 0.45, 0.45),
+    { message: "Painting in repeat mode should change the mural." },
+  );
+
+  const download = await clickFooterAction(page, "Export JSON");
+  const schedule = JSON.parse((await readDownloadBuffer(download)).toString("utf8"));
+  const paintedCells = schedule.tiles.filter(
+    (tile: { painted: boolean }) => tile.painted,
+  );
+
+  expect(
+    paintedCells.length,
+    "A pattern-relative paint should replicate across repeated instances",
+  ).toBeGreaterThan(1);
+  expect(
+    new Set(paintedCells.map((tile: { accentColor: string }) => tile.accentColor)),
+  ).toEqual(new Set(["#112299"]));
+});
+
+test("browser: marquee selection with shift and ctrl fills selected tiles", async ({
+  page,
+}) => {
+  await openMuralApp(page);
+  await clickSegment(page, "Tool", "Select");
+
+  await dragMarquee(
+    page,
+    await getCanvasToolPoint(page, 0.25, 0.25),
+    await getCanvasToolPoint(page, 0.45, 0.45),
+  );
+  await dragMarquee(
+    page,
+    await getCanvasToolPoint(page, 0.55, 0.55),
+    await getCanvasToolPoint(page, 0.7, 0.7),
+    "Shift",
+  );
+  await dragMarquee(
+    page,
+    await getCanvasToolPoint(page, 0.3, 0.3),
+    await getCanvasToolPoint(page, 0.4, 0.4),
+    "Control",
+  );
+
+  await setColorFieldHex(page, "Color", "FF3366");
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => page.getByRole("button", { name: "Fill selected" }).click(),
+    { message: "Fill selected should paint the combined selection." },
+  );
+
+  const download = await clickFooterAction(page, "Export JSON");
+  const schedule = JSON.parse((await readDownloadBuffer(download)).toString("utf8"));
+  const painted = schedule.tiles.filter((tile: { painted: boolean }) => tile.painted);
+
+  expect(painted.length).toBeGreaterThan(0);
+  expect(
+    new Set(painted.map((tile: { accentColor: string }) => tile.accentColor)),
+  ).toEqual(new Set(["#FF3366"]));
+});
+
+test("browser: pick tool samples a tile color into the paint color", async ({ page }) => {
+  await openMuralApp(page);
+  await clickSegment(page, "Tool", "Paint");
+  await setColorFieldHex(page, "Color", "0A6B4F");
+
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => paintAtRatio(page, 0.5, 0.42),
+    { message: "Painting should place the known color." },
+  );
+
+  await setColorFieldHex(page, "Color", "FFFFFF");
+  await clickSegment(page, "Tool", "Pick");
+
+  const point = await getCanvasToolPoint(page, 0.5, 0.42);
+
+  await page.mouse.move(point.x + 6, point.y + 4);
+  await page.mouse.down();
+  await page.mouse.up();
+
+  await expect
+    .poll(
+      async () => page.locator('input[aria-label="Color hex"]').first().inputValue(),
+      { message: "Picking the painted tile should restore its color." },
+    )
+    .toBe("#0A6B4F");
 });

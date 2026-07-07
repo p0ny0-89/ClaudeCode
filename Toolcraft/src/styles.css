@@ -118,3 +118,15 @@ button {
   background-color: color-mix(in oklab, var(--foreground) 10%, transparent);
   background-clip: padding-box;
 }
+
+/* Mural tile tool cursors: the runtime theme forces cursor: default with
+   !important on every descendant, so the tool cursors need an equally
+   important, more specific rule keyed off the renderer's tool attribute. */
+[data-toolcraft-theme][data-toolcraft-theme] canvas[data-mural-tool="select"] {
+  cursor: crosshair !important;
+}
+
+[data-toolcraft-theme][data-toolcraft-theme] canvas[data-mural-tool="paint"],
+[data-toolcraft-theme][data-toolcraft-theme] canvas[data-mural-tool="pick"] {
+  cursor: pointer !important;
+}

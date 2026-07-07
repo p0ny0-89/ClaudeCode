@@ -4,7 +4,17 @@ import {
   type MuralGenerationSettings,
 } from "./generate";
 import { computeMuralGrid, type MuralGrid } from "./grid";
-import { isArtworkScaleMode, type ArtworkScaleMode } from "./sampling";
+import {
+  parseTileOverrides,
+  parseTileSelection,
+  type TileOverrideMap,
+  type TileSelection,
+} from "./overrides";
+import {
+  isArtworkScaleMode,
+  type ArtworkPlacementOptions,
+  type ArtworkScaleMode,
+} from "./sampling";
 import { isTilePresetId, type TilePresetId } from "./tile-presets";
 import {
   isWallUnit,
@@ -19,8 +29,16 @@ export function isMuralPreviewMode(value: unknown): value is MuralPreviewMode {
   return value === "artwork" || value === "grid" || value === "mural";
 }
 
+export type MuralPaintTool = "paint" | "pan" | "pick" | "select";
+
+export function isMuralPaintTool(value: unknown): value is MuralPaintTool {
+  return value === "paint" || value === "pan" || value === "pick" || value === "select";
+}
+
 export const muralTargets = {
   accentColor: "colors.accent",
+  artworkPadding: "artwork.padding",
+  artworkScale: "artwork.scale",
   artworkSource: "artwork.source",
   background: "appearance.background",
   baseColor: "colors.base",
@@ -33,8 +51,14 @@ export const muralTargets = {
   includeBackground: "export.includeBackground",
   mappingMode: "mapping.mode",
   moduleMode: "modules.mode",
+  paintActions: "paint.actions",
+  paintColor: "paint.color",
+  paintOverrides: "paint.overrides",
+  paintSelection: "paint.selection",
+  paintTool: "paint.tool",
   previewMode: "artwork.previewMode",
   randomness: "modules.randomness",
+  repeatSpacing: "artwork.spacing",
   scaleMode: "artwork.scaleMode",
   seed: "modules.seed",
   singleModule: "modules.single",
@@ -49,6 +73,8 @@ export const muralTargets = {
 
 export const muralDefaults = {
   accentColor: "#D9482B",
+  artworkPadding: 0,
+  artworkScale: 100,
   background: "#111114",
   baseColor: "#F4EFE6",
   contrast: 20,
@@ -57,8 +83,11 @@ export const muralDefaults = {
   groutSpacing: 0.25,
   mappingMode: "brightness" as const,
   moduleMode: "mixed" as const,
+  paintColor: "#D9482B",
+  paintTool: "pan" as const,
   previewMode: "mural" as const,
   randomness: 25,
+  repeatSpacing: 0,
   scaleMode: "fill" as const,
   seed: 47,
   singleModule: "solid" as const,
@@ -77,8 +106,13 @@ export type MuralSettings = {
   generation: MuralGenerationSettings;
   groutColor: string;
   groutSpacing: number;
+  overrides: TileOverrideMap;
+  paintColor: string;
+  paintTool: MuralPaintTool;
+  placement: ArtworkPlacementOptions;
   previewMode: MuralPreviewMode;
   scaleMode: ArtworkScaleMode;
+  selection: TileSelection;
   tileHeight: number;
   tileWidth: number;
   useSourceColors: boolean;
@@ -120,6 +154,21 @@ function parseSeed(value: unknown, fallback: number): number {
   return Math.max(1, Math.min(9999, Math.round(parsed)));
 }
 
+function parseBoundedNumber(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.max(min, Math.min(max, parsed));
+}
+
 export function parseMuralSettings(values: Record<string, unknown>): MuralSettings {
   const mappingModeValue = values[muralTargets.mappingMode];
   const moduleModeValue = values[muralTargets.moduleMode];
@@ -127,6 +176,7 @@ export function parseMuralSettings(values: Record<string, unknown>): MuralSettin
   const previewModeValue = values[muralTargets.previewMode];
   const scaleModeValue = values[muralTargets.scaleMode];
   const wallUnitValue = values[muralTargets.wallUnit];
+  const paintToolValue = values[muralTargets.paintTool];
 
   const singleModule: TilePresetId = isTilePresetId(singleModuleValue)
     ? singleModuleValue
@@ -155,12 +205,36 @@ export function parseMuralSettings(values: Record<string, unknown>): MuralSettin
       values[muralTargets.groutSpacing],
       muralDefaults.groutSpacing,
     ),
+    overrides: parseTileOverrides(values[muralTargets.paintOverrides]),
+    paintColor: parseHexColor(values[muralTargets.paintColor], muralDefaults.paintColor),
+    paintTool: isMuralPaintTool(paintToolValue) ? paintToolValue : muralDefaults.paintTool,
+    placement: {
+      paddingCells: parseBoundedNumber(
+        values[muralTargets.artworkPadding],
+        0,
+        12,
+        muralDefaults.artworkPadding,
+      ),
+      scalePercent: parseBoundedNumber(
+        values[muralTargets.artworkScale],
+        25,
+        400,
+        muralDefaults.artworkScale,
+      ),
+      spacingCells: parseBoundedNumber(
+        values[muralTargets.repeatSpacing],
+        0,
+        12,
+        muralDefaults.repeatSpacing,
+      ),
+    },
     previewMode: isMuralPreviewMode(previewModeValue)
       ? previewModeValue
       : muralDefaults.previewMode,
     scaleMode: isArtworkScaleMode(scaleModeValue)
       ? scaleModeValue
       : muralDefaults.scaleMode,
+    selection: parseTileSelection(values[muralTargets.paintSelection]),
     tileHeight: parseDimension(values[muralTargets.tileHeight], muralDefaults.tileHeight),
     tileWidth: parseDimension(values[muralTargets.tileWidth], muralDefaults.tileWidth),
     useSourceColors: values[muralTargets.useSourceColors] === true,

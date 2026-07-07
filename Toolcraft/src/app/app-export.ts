@@ -2,13 +2,22 @@ import { createToolcraftPngExportCanvas } from "@/toolcraft/runtime";
 import type { ToolcraftState } from "@/toolcraft/runtime";
 import type { ToolcraftPanelActionContext } from "@/toolcraft/runtime/react";
 
-import { sampleArtworkToCellGrid } from "./mural/artwork-sampler";
-import { generateMuralTilePlan } from "./mural/generate";
+import {
+  sampleArtworkToCellGrid,
+  type ArtworkSampleResult,
+} from "./mural/artwork-sampler";
+import { generateMuralTilePlan, type MuralTilePlan } from "./mural/generate";
 import { getMuralArtworkAsset } from "./mural-renderer";
-import { getMuralGridFromSettings, parseMuralSettings } from "./mural/mural-state";
+import {
+  getMuralGridFromSettings,
+  muralTargets,
+  parseMuralSettings,
+  type MuralSettings,
+} from "./mural/mural-state";
+import { buildSelectionOverrides } from "./mural/overrides";
 import { drawMural } from "./mural/render";
-import type { CellSampleGrid } from "./mural/sampling";
 import { buildMuralTileSchedule } from "./mural/schedule";
+import type { MuralGrid } from "./mural/grid";
 
 function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
@@ -22,25 +31,59 @@ function downloadBlob(blob: Blob, fileName: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function sampleCurrentArtwork(state: ToolcraftState): Promise<CellSampleGrid | null> {
-  const settings = parseMuralSettings(state.values);
-  const grid = getMuralGridFromSettings(settings);
+type MuralRenderModel = {
+  grid: MuralGrid;
+  plan: MuralTilePlan;
+  settings: MuralSettings;
+};
+
+async function sampleCurrentArtwork(
+  state: ToolcraftState,
+  settings: MuralSettings,
+  grid: MuralGrid,
+): Promise<ArtworkSampleResult> {
   const asset = getMuralArtworkAsset(state);
 
   if (!asset) {
-    return null;
+    return { cellGrid: null, repeatPeriod: null };
   }
 
   try {
     return await sampleArtworkToCellGrid({
       asset,
       columns: grid.columns,
+      placement: settings.placement,
       rows: grid.rows,
       scaleMode: settings.scaleMode,
     });
   } catch {
+    return { cellGrid: null, repeatPeriod: null };
+  }
+}
+
+/** Shared export/render model so PNG, JSON, and fill actions agree. */
+async function buildMuralRenderModel(state: ToolcraftState): Promise<MuralRenderModel> {
+  const settings = parseMuralSettings(state.values);
+  const grid = getMuralGridFromSettings(settings);
+  const sample = await sampleCurrentArtwork(state, settings, grid);
+  const plan = generateMuralTilePlan(grid, sample.cellGrid, settings.generation, {
+    overrides: settings.overrides,
+    repeatPeriod: settings.scaleMode === "repeat" ? sample.repeatPeriod : null,
+  });
+
+  return { grid, plan, settings };
+}
+
+async function getRepeatPeriodForState(
+  state: ToolcraftState,
+  settings: MuralSettings,
+  grid: MuralGrid,
+): Promise<ArtworkSampleResult["repeatPeriod"]> {
+  if (settings.scaleMode !== "repeat") {
     return null;
   }
+
+  return (await sampleCurrentArtwork(state, settings, grid)).repeatPeriod;
 }
 
 export type MuralImageExportEncoding = {
@@ -76,13 +119,10 @@ export async function exportMuralImage(
 ): Promise<void> {
   reportProgress(0.05);
 
-  const settings = parseMuralSettings(state.values);
-  const grid = getMuralGridFromSettings(settings);
-  const samples = await sampleCurrentArtwork(state);
+  const { grid, plan, settings } = await buildMuralRenderModel(state);
 
   reportProgress(0.35);
 
-  const plan = generateMuralTilePlan(grid, samples, settings.generation);
   const encoding = getMuralImageExportEncoding(state.values["export.image.format"]);
   const includeBackgroundValue = state.values["export.includeBackground"];
   const includeBackground = encoding.forcesBackground
@@ -125,13 +165,10 @@ export async function exportMuralSchedule(
 ): Promise<void> {
   reportProgress(0.1);
 
-  const settings = parseMuralSettings(state.values);
-  const grid = getMuralGridFromSettings(settings);
-  const samples = await sampleCurrentArtwork(state);
+  const { grid, plan, settings } = await buildMuralRenderModel(state);
 
   reportProgress(0.5);
 
-  const plan = generateMuralTilePlan(grid, samples, settings.generation);
   const schedule = buildMuralTileSchedule(grid, plan, settings);
   const blob = new Blob([JSON.stringify(schedule, null, 2)], {
     type: "application/json",
@@ -140,6 +177,56 @@ export async function exportMuralSchedule(
   reportProgress(0.9);
   downloadBlob(blob, "tile-mural-schedule.json");
   reportProgress(1);
+}
+
+/** Applies the paint color to every selected tile through the override map. */
+export async function fillSelectedTiles(
+  context: ToolcraftPanelActionContext,
+): Promise<void> {
+  const { dispatch, state } = context;
+  const settings = parseMuralSettings(state.values);
+
+  if (settings.selection.length === 0) {
+    return;
+  }
+
+  const grid = getMuralGridFromSettings(settings);
+  const repeatPeriod = await getRepeatPeriodForState(state, settings, grid);
+  const selectionOverrides = buildSelectionOverrides(
+    settings.selection,
+    settings.paintColor,
+    repeatPeriod,
+  );
+
+  dispatch({
+    label: "Fill selected tiles",
+    target: muralTargets.paintOverrides,
+    type: "controls.setValue",
+    value: { ...settings.overrides, ...selectionOverrides },
+  });
+}
+
+export function clearPaintedTiles(context: ToolcraftPanelActionContext): void {
+  const { dispatch, state } = context;
+  const settings = parseMuralSettings(state.values);
+
+  if (Object.keys(settings.overrides).length > 0) {
+    dispatch({
+      label: "Clear painted tiles",
+      target: muralTargets.paintOverrides,
+      type: "controls.setValue",
+      value: {},
+    });
+  }
+
+  if (settings.selection.length > 0) {
+    dispatch({
+      history: "skip",
+      target: muralTargets.paintSelection,
+      type: "controls.setValue",
+      value: [],
+    });
+  }
 }
 
 export function handleMuralPanelAction(
@@ -151,5 +238,13 @@ export function handleMuralPanelAction(
 
   if (context.action.value === "export-json") {
     return exportMuralSchedule(context.state, context.reportProgress);
+  }
+
+  if (context.action.value === "fill-selected") {
+    return fillSelectedTiles(context);
+  }
+
+  if (context.action.value === "clear-painted") {
+    clearPaintedTiles(context);
   }
 }

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createToolcraftState,
   getToolcraftImageExportSize,
   shouldIncludeToolcraftPreviewBackground,
+  toolcraftReducer,
 } from "@/toolcraft/runtime";
 import type { ToolcraftState } from "@/toolcraft/runtime";
 
@@ -14,13 +16,32 @@ import {
   generateMuralTilePlan,
   type MuralGenerationSettings,
 } from "./mural/generate";
-import { computeMuralCanvasLayout, computeMuralGrid } from "./mural/grid";
-import { muralDefaults, parseMuralSettings, type MuralSettings } from "./mural/mural-state";
+import {
+  computeMuralCanvasLayout,
+  computeMuralGrid,
+  locateTileCell,
+  locateTileCellsInRect,
+} from "./mural/grid";
+import {
+  isMuralPaintTool,
+  muralDefaults,
+  parseMuralSettings,
+  type MuralSettings,
+} from "./mural/mural-state";
+import {
+  applySelectionChange,
+  buildSelectionOverrides,
+  getTileCellKey,
+  getTileOverrideKey,
+  parseTileOverrides,
+} from "./mural/overrides";
+import { getCellPickColor } from "./mural-renderer";
 import { drawMural } from "./mural/render";
 import {
   applyContrast,
   cellSampleGridFromImageData,
   computeArtworkPlacements,
+  getRepeatPeriodCells,
   type CellSampleGrid,
 } from "./mural/sampling";
 import { buildMuralTileSchedule } from "./mural/schedule";
@@ -94,8 +115,13 @@ function makeSettings(overrides: Partial<MuralSettings> = {}): MuralSettings {
     generation: { ...defaultGenerationSettings },
     groutColor: muralDefaults.groutColor,
     groutSpacing: 0.25,
+    overrides: {},
+    paintColor: muralDefaults.paintColor,
+    paintTool: "pan",
+    placement: {},
     previewMode: "mural",
     scaleMode: "fill",
+    selection: [],
     tileHeight: 4,
     tileWidth: 4,
     useSourceColors: false,
@@ -330,6 +356,65 @@ describe("tile mural artwork sampling", () => {
 
     expect(repeat.length).toBeGreaterThan(1);
     expect(repeat[0]).toMatchObject({ x: 0, y: 0 });
+  });
+
+  it("artwork size scales placements within the padded area", () => {
+    const base = computeArtworkPlacements(200, 100, 10, 10, "fit");
+    const doubled = computeArtworkPlacements(200, 100, 10, 10, "fit", {
+      scalePercent: 200,
+    });
+
+    expect(doubled[0]!.width).toBeCloseTo(base[0]!.width * 2, 5);
+    expect(doubled[0]!.height).toBeCloseTo(base[0]!.height * 2, 5);
+
+    const halvedRepeat = computeArtworkPlacements(100, 100, 12, 12, "repeat", {
+      scalePercent: 50,
+    });
+    const baseRepeat = computeArtworkPlacements(100, 100, 12, 12, "repeat");
+
+    expect(halvedRepeat[0]!.width).toBeCloseTo(baseRepeat[0]!.width / 2, 5);
+    expect(halvedRepeat.length).toBeGreaterThan(baseRepeat.length);
+  });
+
+  it("artwork padding keeps clear cells around the artwork", () => {
+    const padded = computeArtworkPlacements(100, 100, 10, 10, "fit", {
+      paddingCells: 2,
+    });
+
+    expect(padded[0]).toMatchObject({ height: 6, width: 6, x: 2, y: 2 });
+
+    const paddedRepeat = computeArtworkPlacements(100, 100, 12, 12, "repeat", {
+      paddingCells: 3,
+    });
+
+    expect(paddedRepeat[0]!.x).toBe(3);
+    expect(paddedRepeat[0]!.y).toBe(3);
+    expect(
+      paddedRepeat.every(
+        (placement) => placement.x >= 3 && placement.x < 9 && placement.y < 9,
+      ),
+    ).toBe(true);
+  });
+
+  it("repeat spacing separates repeated artwork instances", () => {
+    const tight = computeArtworkPlacements(100, 100, 12, 12, "repeat", {
+      scalePercent: 50,
+    });
+    const spaced = computeArtworkPlacements(100, 100, 12, 12, "repeat", {
+      scalePercent: 50,
+      spacingCells: 2,
+    });
+
+    expect(tight[1]!.x - tight[0]!.x).toBeCloseTo(tight[0]!.width, 5);
+    expect(spaced[1]!.x - spaced[0]!.x).toBeCloseTo(spaced[0]!.width + 2, 5);
+    expect(spaced.length).toBeLessThan(tight.length);
+
+    const period = getRepeatPeriodCells(100, 100, 12, 12, {
+      scalePercent: 50,
+      spacingCells: 2,
+    });
+
+    expect(period).toEqual({ columns: 5, rows: 5 });
   });
 
   it("contrast rescales sampled luminance before module mapping", () => {
@@ -621,6 +706,163 @@ describe("tile mural rendering", () => {
         state: makeFakeState({ "export.includeBackground": true }),
       }),
     ).toBe(true);
+  });
+});
+
+describe("tile mural manual painting", () => {
+  it("paint tool selection maps to canvas interactions", () => {
+    expect(parseMuralSettings({ "paint.tool": "paint" }).paintTool).toBe("paint");
+    expect(parseMuralSettings({ "paint.tool": "select" }).paintTool).toBe("select");
+    expect(parseMuralSettings({ "paint.tool": "bogus" }).paintTool).toBe("pan");
+    expect(isMuralPaintTool("pick")).toBe(true);
+    expect(isMuralPaintTool("erase")).toBe(false);
+  });
+
+  it("paint color fills painted tile overrides", () => {
+    const plan = generateMuralTilePlan(smallGrid, null, defaultGenerationSettings, {
+      overrides: { "1:2": "#123456" },
+      repeatPeriod: null,
+    });
+    const painted = plan.cells.find((cell) => cell.row === 1 && cell.column === 2);
+
+    expect(painted).toMatchObject({ overrideHex: "#123456", presetId: "solid" });
+
+    const fake = new FakeContext2D();
+
+    drawMural({
+      context: asContext(fake),
+      grid: smallGrid,
+      height: 400,
+      includeBackground: false,
+      plan,
+      settings: makeSettings(),
+      width: 400,
+    });
+
+    expect(fake.fills.some((fill) => fill.color === "#123456")).toBe(true);
+  });
+
+  it("painted overrides replicate across repeat instances", () => {
+    const plan = generateMuralTilePlan(smallGrid, null, defaultGenerationSettings, {
+      overrides: { "0:0": "#ABCDEF" },
+      repeatPeriod: { columns: 2, rows: 2 },
+    });
+    const paintedCells = plan.cells.filter((cell) => cell.overrideHex === "#ABCDEF");
+
+    expect(paintedCells.map((cell) => `${cell.row}:${cell.column}`).sort()).toEqual([
+      "0:0",
+      "0:2",
+      "2:0",
+      "2:2",
+    ]);
+    expect(getTileOverrideKey(3, 3, { columns: 2, rows: 2 })).toBe("1:1");
+    expect(getTileOverrideKey(3, 3, null)).toBe("3:3");
+  });
+
+  it("marquee selection adds subtracts and fills tiles", () => {
+    const layout = computeMuralCanvasLayout(smallGrid, 400, 400);
+    const cells = locateTileCellsInRect(smallGrid, layout, {
+      height: 150,
+      width: 150,
+      x: 10,
+      y: 10,
+    });
+
+    expect(cells.length).toBe(4);
+
+    const keys = cells.map((cell) => getTileCellKey(cell.row, cell.column));
+    const added = applySelectionChange([], keys, "replace");
+    const extended = applySelectionChange(added, ["3:3"], "add");
+    const reduced = applySelectionChange(extended, [keys[0]!], "subtract");
+
+    expect(added).toHaveLength(4);
+    expect(extended).toHaveLength(5);
+    expect(reduced).toHaveLength(4);
+    expect(reduced).not.toContain(keys[0]);
+
+    const overrides = buildSelectionOverrides(reduced, "#00FF00", null);
+
+    expect(Object.keys(overrides)).toHaveLength(4);
+    expect(overrides["3:3"]).toBe("#00FF00");
+
+    const patternOverrides = buildSelectionOverrides(
+      ["0:0", "2:2"],
+      "#00FF00",
+      { columns: 2, rows: 2 },
+    );
+
+    expect(Object.keys(patternOverrides)).toEqual(["0:0"]);
+  });
+
+  it("eyedropper picks the tile color for painting", () => {
+    const settings = makeSettings();
+    const overriddenPlan = generateMuralTilePlan(smallGrid, null, defaultGenerationSettings, {
+      overrides: { "0:0": "#123456" },
+      repeatPeriod: null,
+    });
+
+    expect(getCellPickColor(overriddenPlan, smallGrid, settings, 0, 0)).toBe("#123456");
+
+    const emptyPlan = generateMuralTilePlan(smallGrid, null, {
+      ...defaultGenerationSettings,
+      density: 0,
+    });
+
+    expect(getCellPickColor(emptyPlan, smallGrid, settings, 1, 1)).toBe(
+      settings.baseColor,
+    );
+
+    const solidPlan = generateMuralTilePlan(smallGrid, null, {
+      ...defaultGenerationSettings,
+      density: 100,
+    });
+
+    expect(getCellPickColor(solidPlan, smallGrid, settings, 1, 1)).toBe(
+      settings.accentColor,
+    );
+  });
+
+  it("fill selected and clear painted update the override map", () => {
+    const filled = buildSelectionOverrides(["1:1", "2:3"], "#FF8800", null);
+
+    expect(filled).toEqual({ "1:1": "#FF8800", "2:3": "#FF8800" });
+
+    const plan = generateMuralTilePlan(smallGrid, null, defaultGenerationSettings, {
+      overrides: filled,
+      repeatPeriod: null,
+    });
+
+    expect(plan.cells.filter((cell) => cell.overrideHex).length).toBe(2);
+
+    const cleared = generateMuralTilePlan(smallGrid, null, defaultGenerationSettings, {
+      overrides: {},
+      repeatPeriod: null,
+    });
+
+    expect(cleared.cells.every((cell) => cell.overrideHex === null)).toBe(true);
+    expect(parseTileOverrides({ "1:1": "#FF8800", bogus: 12, "x:y": "#fff" })).toEqual({
+      "1:1": "#FF8800",
+    });
+  });
+
+  it("middle mouse pan matches runtime pan offsets", () => {
+    // The middle-mouse hook dispatches the same canvas.setOffset command the
+    // runtime left-drag pan uses: origin offset plus pointer delta.
+    const initial = createToolcraftState(appSchema);
+    const origin = initial.canvas.offset;
+    const panned = toolcraftReducer(initial, {
+      offset: { x: origin.x + 96, y: origin.y - 64 },
+      type: "canvas.setOffset",
+    });
+
+    expect(panned.canvas.offset).toEqual({ x: origin.x + 96, y: origin.y - 64 });
+    expect(panned.values).toEqual(initial.values);
+
+    const layout = computeMuralCanvasLayout(smallGrid, 400, 400);
+
+    expect(locateTileCell(smallGrid, layout, 150, 150)).toEqual({ column: 1, row: 1 });
+    expect(locateTileCell(smallGrid, layout, -10, 150)).toBeNull();
+    expect(locateTileCell(smallGrid, layout, 150, 450)).toBeNull();
   });
 });
 

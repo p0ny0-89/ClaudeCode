@@ -3,8 +3,11 @@ import type { ToolcraftMediaAsset } from "@/toolcraft/runtime";
 import {
   cellSampleGridFromImageData,
   computeArtworkPlacements,
+  getRepeatPeriodCells,
+  type ArtworkPlacementOptions,
   type ArtworkScaleMode,
   type CellSampleGrid,
+  type RepeatPeriodCells,
 } from "./sampling";
 
 const decodedImageCache = new Map<string, Promise<HTMLImageElement>>();
@@ -209,8 +212,15 @@ function getSharedSampleReader(): ArtworkSampleReader {
 export type SampleArtworkOptions = {
   asset: ToolcraftMediaAsset;
   columns: number;
+  placement?: ArtworkPlacementOptions;
   rows: number;
   scaleMode: ArtworkScaleMode;
+};
+
+export type ArtworkSampleResult = {
+  cellGrid: CellSampleGrid | null;
+  /** Pattern period in cells when the placement mode is repeat. */
+  repeatPeriod: RepeatPeriodCells | null;
 };
 
 /**
@@ -220,8 +230,8 @@ export type SampleArtworkOptions = {
  */
 export async function sampleArtworkToCellGrid(
   options: SampleArtworkOptions,
-): Promise<CellSampleGrid | null> {
-  const { asset, columns, rows, scaleMode } = options;
+): Promise<ArtworkSampleResult> {
+  const { asset, columns, placement, rows, scaleMode } = options;
   const image = await decodeImage(asset.dataUrl);
   const source = applyMediaTransform(image, asset);
   const sourceWidth =
@@ -230,8 +240,13 @@ export async function sampleArtworkToCellGrid(
     source instanceof HTMLCanvasElement ? source.height : source.naturalHeight;
 
   if (sourceWidth <= 0 || sourceHeight <= 0) {
-    return null;
+    return { cellGrid: null, repeatPeriod: null };
   }
+
+  const repeatPeriod =
+    scaleMode === "repeat"
+      ? getRepeatPeriodCells(sourceWidth, sourceHeight, columns, rows, placement)
+      : null;
 
   const sampleCanvas = document.createElement("canvas");
 
@@ -241,7 +256,7 @@ export async function sampleArtworkToCellGrid(
   const context = sampleCanvas.getContext("2d");
 
   if (!context) {
-    return null;
+    return { cellGrid: null, repeatPeriod };
   }
 
   context.imageSmoothingEnabled = true;
@@ -253,25 +268,20 @@ export async function sampleArtworkToCellGrid(
     columns,
     rows,
     scaleMode,
+    placement,
   );
 
-  for (const placement of placements) {
-    context.drawImage(
-      source,
-      placement.x,
-      placement.y,
-      placement.width,
-      placement.height,
-    );
+  for (const rect of placements) {
+    context.drawImage(source, rect.x, rect.y, rect.width, rect.height);
   }
 
   const pixels = getSharedSampleReader().readCellPixels(sampleCanvas);
 
   if (!pixels) {
-    return null;
+    return { cellGrid: null, repeatPeriod };
   }
 
-  return cellSampleGridFromImageData(pixels, columns, rows);
+  return { cellGrid: cellSampleGridFromImageData(pixels, columns, rows), repeatPeriod };
 }
 
 export function getArtworkSampleCacheKey(
@@ -279,9 +289,12 @@ export function getArtworkSampleCacheKey(
   columns: number,
   rows: number,
   scaleMode: ArtworkScaleMode,
+  placement?: ArtworkPlacementOptions,
 ): string {
+  const placementKey = `${placement?.scalePercent ?? 100}:${placement?.paddingCells ?? 0}:${placement?.spacingCells ?? 0}`;
+
   if (!asset) {
-    return `none:${columns}x${rows}:${scaleMode}`;
+    return `none:${columns}x${rows}:${scaleMode}:${placementKey}`;
   }
 
   const transform = asset.transform;
@@ -289,5 +302,5 @@ export function getArtworkSampleCacheKey(
     ? `${transform.rotationDeg ?? 0}:${transform.flipHorizontal ? 1 : 0}:${transform.flipVertical ? 1 : 0}`
     : "0:0:0";
 
-  return `${asset.id}:${asset.dataUrl.length}:${transformKey}:${columns}x${rows}:${scaleMode}`;
+  return `${asset.id}:${asset.dataUrl.length}:${transformKey}:${columns}x${rows}:${scaleMode}:${placementKey}`;
 }

@@ -797,3 +797,191 @@ test("browser perf: viewport stays stable during panel interactions", async ({ p
     "viewport-stability",
   );
 });
+
+async function paintToolPointAt(
+  page: Page,
+  offsetXRatio: number,
+  offsetYRatio: number,
+): Promise<{ x: number; y: number }> {
+  const canvas = page.locator("[data-toolcraft-product-output]").first();
+  const box = await canvas.boundingBox();
+
+  if (!box) {
+    throw new Error("Mural canvas is not visible.");
+  }
+
+  return {
+    x: box.x + box.width * offsetXRatio,
+    y: box.y + box.height * offsetYRatio,
+  };
+}
+
+test("browser perf: artwork size drag stays live within budget", async ({ page }) => {
+  await openMuralApp(page);
+  await uploadArtwork(page, makeArtworkSvg({ variant: "rings" }));
+
+  const before = await snapshotMural(page);
+  const result = await measureToolcraftInteraction(page, async () => {
+    await scrollFieldIntoView(page, "Size");
+    await dragToolcraftSliderByLabel(page, "Size", 0.5);
+    await dragToolcraftSliderToPerformanceStressValue(
+      page,
+      "Size",
+      appPerformance,
+      "artwork-size-drag",
+    );
+  });
+
+  await expect.poll(async () => snapshotMural(page)).not.toBe(before);
+  expect(
+    await snapshotMural(page),
+    "Product output must change after the measured interaction",
+  ).not.toBe(before);
+  expectToolcraftScenarioPerformanceBudget(
+    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
+    appPerformance,
+    "artwork-size-drag",
+  );
+});
+
+test("browser perf: artwork padding drag stays live within budget", async ({ page }) => {
+  const { expectToolcraftDiscreteSliderDragSmoothness } = await import(
+    "./performance-helpers"
+  );
+
+  await openMuralApp(page);
+  await uploadArtwork(page, makeArtworkSvg({ variant: "rings" }));
+
+  const before = await snapshotMural(page);
+  const result = await measureToolcraftInteraction(page, async () => {
+    await scrollFieldIntoView(page, "Padding");
+    await dragToolcraftSliderByLabel(page, "Padding", 0.5);
+    await dragToolcraftSliderToPerformanceStressValue(
+      page,
+      "Padding",
+      appPerformance,
+      "artwork-padding-drag",
+    );
+  });
+
+  await expectToolcraftDiscreteSliderDragSmoothness(page, "Padding", {
+    maxFrameGapMs: 120,
+    maxInteractionMs: 2000,
+  });
+  await expect.poll(async () => snapshotMural(page)).not.toBe(before);
+  expect(
+    await snapshotMural(page),
+    "Product output must change after the measured interaction",
+  ).not.toBe(before);
+  expectToolcraftScenarioPerformanceBudget(
+    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
+    appPerformance,
+    "artwork-padding-drag",
+  );
+});
+
+test("browser perf: repeat spacing drag stays live within budget", async ({ page }) => {
+  const { expectToolcraftDiscreteSliderDragSmoothness } = await import(
+    "./performance-helpers"
+  );
+
+  await openMuralApp(page);
+  await uploadArtwork(page, makeArtworkSvg({ variant: "rings" }));
+
+  const placementField = await getToolcraftFieldByLabel(page, "Placement");
+
+  await placementField.getByRole("button", { exact: true, name: "Repeat" }).click();
+
+  const before = await snapshotMural(page);
+  const result = await measureToolcraftInteraction(page, async () => {
+    await scrollFieldIntoView(page, "Spacing");
+    await dragToolcraftSliderByLabel(page, "Spacing", 0.5);
+    await dragToolcraftSliderToPerformanceStressValue(
+      page,
+      "Spacing",
+      appPerformance,
+      "repeat-spacing-drag",
+    );
+  });
+
+  await expectToolcraftDiscreteSliderDragSmoothness(page, "Spacing", {
+    maxFrameGapMs: 120,
+    maxInteractionMs: 2000,
+  });
+  await expect.poll(async () => snapshotMural(page)).not.toBe(before);
+  expect(
+    await snapshotMural(page),
+    "Product output must change after the measured interaction",
+  ).not.toBe(before);
+  expectToolcraftScenarioPerformanceBudget(
+    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
+    appPerformance,
+    "repeat-spacing-drag",
+  );
+});
+
+test("browser perf: paint tool change stays within budget", async ({ page }) => {
+  await openMuralApp(page);
+
+  const toolField = await getToolcraftFieldByLabel(page, "Tool");
+  const canvas = page.locator("[data-toolcraft-product-output]").first();
+
+  const result = await measureToolcraftInteraction(page, async () => {
+    await toolField.getByRole("button", { exact: true, name: "Paint" }).click();
+  });
+
+  await expect(canvas).toHaveCSS("cursor", "pointer");
+  expectToolcraftScenarioPerformanceBudget(
+    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
+    appPerformance,
+    "paint-tool-change",
+  );
+});
+
+test("browser perf: paint color change stays within budget", async ({ page }) => {
+  await openMuralApp(page);
+
+  const input = page.locator('input[aria-label="Color hex"]').first();
+  const result = await measureToolcraftInteraction(page, async () => {
+    await input.fill("22AA88");
+    await input.press("Enter");
+  });
+
+  await expect(input).toHaveValue("#22AA88");
+  expectToolcraftScenarioPerformanceBudget(
+    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
+    appPerformance,
+    "paint-color-change",
+  );
+});
+
+test("browser perf: paint actions stay within budget", async ({ page }) => {
+  await openMuralApp(page);
+
+  const toolField = await getToolcraftFieldByLabel(page, "Tool");
+
+  await toolField.getByRole("button", { exact: true, name: "Paint" }).click();
+
+  const point = await paintToolPointAt(page, 0.45, 0.45);
+
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.move(point.x + 14, point.y + 10, { steps: 4 });
+  await page.mouse.up();
+
+  const before = await snapshotMural(page);
+  const result = await measureToolcraftInteraction(page, async () => {
+    await page.getByRole("button", { name: "Clear painted" }).click();
+  });
+
+  await expect.poll(async () => snapshotMural(page)).not.toBe(before);
+  expect(
+    await snapshotMural(page),
+    "Product output must change after the measured interaction",
+  ).not.toBe(before);
+  expectToolcraftScenarioPerformanceBudget(
+    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
+    appPerformance,
+    "paint-actions-run",
+  );
+});

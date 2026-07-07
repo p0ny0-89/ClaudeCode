@@ -16,9 +16,31 @@ export function makeArtworkSvg({
   width = 800,
 }: {
   height?: number;
-  variant?: "colorful" | "split";
+  variant?: "colorful" | "rings" | "split";
   width?: number;
 } = {}): string {
+  if (variant === "rings") {
+    // Concentric rings are not scale-invariant, so Size/Padding changes
+    // always alter the sampled cells (unlike centered quadrants).
+    const cx = width / 2;
+    const cy = height / 2;
+    const maxRadius = Math.min(width, height) / 2;
+    const colors = ["#ff2200", "#ffee00", "#00cc44", "#2244ff", "#ffffff"];
+    const circles = colors
+      .map(
+        (color, index) =>
+          `<circle cx="${cx}" cy="${cy}" r="${(maxRadius * (colors.length - index)) / colors.length}" fill="${color}"/>`,
+      )
+      .join("");
+
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`,
+      `<rect width="${width}" height="${height}" fill="#000000"/>`,
+      circles,
+      `</svg>`,
+    ].join("");
+  }
+
   if (variant === "colorful") {
     return [
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`,

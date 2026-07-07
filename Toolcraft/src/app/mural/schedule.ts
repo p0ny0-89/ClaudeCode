@@ -8,6 +8,8 @@ export type MuralTileScheduleEntry = {
   accentColor: string;
   baseColor: string;
   column: number;
+  /** True when the tile color was manually painted or filled. */
+  painted: boolean;
   preset: string;
   presetLabel: string;
   rotation: number;
@@ -56,11 +58,13 @@ export function buildMuralTileSchedule(
     presetCounts: plan.presetCounts,
     tiles: plan.cells.map((cell) => ({
       accentColor:
-        settings.useSourceColors && cell.sampledHex
+        cell.overrideHex ??
+        (settings.useSourceColors && cell.sampledHex
           ? cell.sampledHex
-          : settings.accentColor,
-      baseColor: settings.baseColor,
+          : settings.accentColor),
+      baseColor: cell.overrideHex ?? settings.baseColor,
       column: cell.column,
+      painted: cell.overrideHex !== null,
       preset: cell.presetId,
       presetLabel: getTilePreset(cell.presetId).label,
       rotation: cell.rotation,

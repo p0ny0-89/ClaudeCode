@@ -50,3 +50,10 @@ Rejected: `collectionActions` (the module library is fixed, not a user-growable 
 ## Persistence Policy
 
 No localStorage persistence in v1: session-only state, with runtime Setup Export/Import Settings for transfer. Revisit if reload restoration is requested.
+
+## Iteration 2 — Manual painting and placement controls
+
+- Tile Painting section: `paint.tool` (segmented Pan/Select/Paint/Pick), `paint.color` (color), `paint.actions` (`Fill selected`, `Clear painted`). Paint overrides live in `paint.overrides` runtime values (undoable, export-visible); selection lives in `paint.selection` (history-skipped interaction state). In repeat placement, override keys are pattern-relative so painted tiles replicate across repeated instances.
+- Artwork Placement additions: `artwork.scale` (Size, 25-400%), `artwork.padding` (0-12 tiles, discrete), `artwork.spacing` (repeat-only, 0-12 tiles, discrete). All three feed `computeArtworkPlacements` and the sample cache key; drags resample and redraw (`cell-sample` invalidation) without re-decoding media.
+- Selection overlay and marquee draw in the preview pass only (`MuralPreviewOverlay`); export renders never receive an overlay.
+- Middle-mouse pan: app-level document listeners dispatch the runtime `canvas.setOffset` command with origin-plus-delta offsets, mirroring the shell's left-drag pan; the browser's middle-click autoscroll is suppressed inside the viewport. Tool cursors override the runtime theme's `cursor: default !important` via a more specific app CSS rule keyed on `canvas[data-mural-tool]`.

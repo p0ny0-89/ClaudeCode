@@ -1,10 +1,12 @@
 import type { MuralGrid } from "./grid";
+import { getTileOverrideKey, type TileOverrideMap } from "./overrides";
 import {
   applyContrast,
   getCellSample,
   getSampleLuminance,
   sampleToHex,
   type CellSampleGrid,
+  type RepeatPeriodCells,
 } from "./sampling";
 import {
   getTilePreset,
@@ -40,10 +42,18 @@ export type MuralGenerationSettings = {
 export type MuralTileCell = {
   column: number;
   fillLevel: number;
+  /** Manual paint override color; when set the cell renders as a solid fill. */
+  overrideHex: string | null;
   presetId: TilePresetId;
   rotation: TileRotation;
   row: number;
   sampledHex: string | null;
+};
+
+export type MuralOverrideOptions = {
+  overrides: TileOverrideMap;
+  /** Pattern period for repeat mode so overrides follow repeated instances. */
+  repeatPeriod: RepeatPeriodCells | null;
 };
 
 export type MuralTilePlan = {
@@ -175,12 +185,35 @@ export function generateMuralTilePlan(
   grid: MuralGrid,
   samples: CellSampleGrid | null,
   settings: MuralGenerationSettings,
+  overrideOptions?: MuralOverrideOptions,
 ): MuralTilePlan {
   const cells: MuralTileCell[] = [];
   const presetCounts: Partial<Record<TilePresetId, number>> = {};
+  const overrides = overrideOptions?.overrides ?? {};
+  const hasOverrides = Object.keys(overrides).length > 0;
 
   for (let row = 0; row < grid.rows; row += 1) {
     for (let column = 0; column < grid.columns; column += 1) {
+      const overrideHex = hasOverrides
+        ? (overrides[
+            getTileOverrideKey(row, column, overrideOptions?.repeatPeriod ?? null)
+          ] ?? null)
+        : null;
+
+      if (overrideHex) {
+        presetCounts.solid = (presetCounts.solid ?? 0) + 1;
+        cells.push({
+          column,
+          fillLevel: 1,
+          overrideHex,
+          presetId: "solid",
+          rotation: 0,
+          row,
+          sampledHex: null,
+        });
+        continue;
+      }
+
       const { fillLevel, sampledHex } = getCellFillLevel(samples, row, column, settings);
       const biasedFill = applyDensityBias(fillLevel, settings.density);
       const presetId = pickPreset(biasedFill, settings, row, column);
@@ -190,6 +223,7 @@ export function generateMuralTilePlan(
       cells.push({
         column,
         fillLevel: biasedFill,
+        overrideHex: null,
         presetId,
         rotation,
         row,

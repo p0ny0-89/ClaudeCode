@@ -106,6 +106,85 @@ export function computeMuralCanvasLayout(
   };
 }
 
+/**
+ * Maps a backing-pixel coordinate to the tile cell under it, or null when
+ * the point sits outside the wall or on a grout line.
+ */
+export function locateTileCell(
+  grid: MuralGrid,
+  layout: MuralCanvasLayout,
+  x: number,
+  y: number,
+): { column: number; row: number } | null {
+  const marginX = (layout.wallRect.width - grid.usedWidth * layout.scale) / 2;
+  const marginY = (layout.wallRect.height - grid.usedHeight * layout.scale) / 2;
+  const localX = x - layout.wallRect.x - marginX;
+  const localY = y - layout.wallRect.y - marginY;
+
+  if (localX < 0 || localY < 0) {
+    return null;
+  }
+
+  const periodX = layout.tilePixelWidth + layout.groutPixels;
+  const periodY = layout.tilePixelHeight + layout.groutPixels;
+  const column = Math.floor(localX / periodX);
+  const row = Math.floor(localY / periodY);
+
+  if (column >= grid.columns || row >= grid.rows) {
+    return null;
+  }
+
+  if (
+    localX - column * periodX > layout.tilePixelWidth ||
+    localY - row * periodY > layout.tilePixelHeight
+  ) {
+    return null;
+  }
+
+  return { column, row };
+}
+
+/** All tile cells whose pixel rects intersect the given backing-pixel rect. */
+export function locateTileCellsInRect(
+  grid: MuralGrid,
+  layout: MuralCanvasLayout,
+  rect: MuralLayoutRect,
+): { column: number; row: number }[] {
+  const marginX = (layout.wallRect.width - grid.usedWidth * layout.scale) / 2;
+  const marginY = (layout.wallRect.height - grid.usedHeight * layout.scale) / 2;
+  const originX = layout.wallRect.x + marginX;
+  const originY = layout.wallRect.y + marginY;
+  const periodX = layout.tilePixelWidth + layout.groutPixels;
+  const periodY = layout.tilePixelHeight + layout.groutPixels;
+  const left = Math.min(rect.x, rect.x + rect.width);
+  const top = Math.min(rect.y, rect.y + rect.height);
+  const right = Math.max(rect.x, rect.x + rect.width);
+  const bottom = Math.max(rect.y, rect.y + rect.height);
+  const firstColumn = Math.max(0, Math.floor((left - originX) / periodX));
+  const firstRow = Math.max(0, Math.floor((top - originY) / periodY));
+  const lastColumn = Math.min(grid.columns - 1, Math.floor((right - originX) / periodX));
+  const lastRow = Math.min(grid.rows - 1, Math.floor((bottom - originY) / periodY));
+  const cells: { column: number; row: number }[] = [];
+
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    for (let column = firstColumn; column <= lastColumn; column += 1) {
+      const cellLeft = originX + column * periodX;
+      const cellTop = originY + row * periodY;
+
+      if (
+        cellLeft + layout.tilePixelWidth >= left &&
+        cellLeft <= right &&
+        cellTop + layout.tilePixelHeight >= top &&
+        cellTop <= bottom
+      ) {
+        cells.push({ column, row });
+      }
+    }
+  }
+
+  return cells;
+}
+
 export function getTilePixelOrigin(
   grid: MuralGrid,
   layout: MuralCanvasLayout,

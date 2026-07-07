@@ -73,6 +73,60 @@ export const appSchema = defineToolcraft({
               target: muralTargets.previewMode,
               type: "segmented",
             },
+            artworkScale: {
+              defaultValue: muralDefaults.artworkScale,
+              description:
+                "Size multiplier on top of the chosen placement, so artwork like a logo can sit smaller than the full wall.",
+              label: "Size",
+              max: 400,
+              min: 25,
+              orderRole: "strength",
+              performanceReason:
+                "Dragging size re-runs the cached artwork downsample and redraws the grid live.",
+              performanceRole: "workload",
+              step: 1,
+              target: muralTargets.artworkScale,
+              type: "slider",
+              unit: "%",
+            },
+            artworkPadding: {
+              defaultValue: muralDefaults.artworkPadding,
+              description:
+                "Empty tile cells kept clear around the artwork on every side of the wall.",
+              label: "Padding",
+              max: 12,
+              min: 0,
+              orderRole: "detail",
+              performanceReason:
+                "Dragging padding re-runs the cached artwork downsample and redraws the grid live.",
+              performanceRole: "workload",
+              step: 1,
+              target: muralTargets.artworkPadding,
+              type: "slider",
+              unit: "tiles",
+              variant: "discrete",
+            },
+            repeatSpacing: {
+              defaultValue: muralDefaults.repeatSpacing,
+              description:
+                "Tile cells between repeated artwork instances, separate from the outer padding.",
+              label: "Spacing",
+              max: 12,
+              min: 0,
+              orderRole: "detail",
+              performanceReason:
+                "Dragging spacing re-runs the cached artwork downsample and redraws the grid live.",
+              performanceRole: "workload",
+              step: 1,
+              target: muralTargets.repeatSpacing,
+              type: "slider",
+              unit: "tiles",
+              variant: "discrete",
+              visibleWhen: {
+                equals: "repeat",
+                target: muralTargets.scaleMode,
+              },
+            },
           },
         },
         {
@@ -318,6 +372,52 @@ export const appSchema = defineToolcraft({
               step: 1,
               target: muralTargets.seed,
               type: "slider",
+            },
+          },
+        },
+        {
+          title: "Tile Painting",
+          controls: {
+            paintTool: {
+              defaultValue: muralDefaults.paintTool,
+              description:
+                "Pan keeps normal canvas dragging; Select marquee-selects tiles (Shift adds, Ctrl removes); Paint fills clicked tiles with the paint color; Pick samples a tile's color into the paint color.",
+              label: "Tool",
+              options: [
+                { label: "Pan", value: "pan" },
+                { label: "Select", value: "select" },
+                { label: "Paint", value: "paint" },
+                { label: "Pick", value: "pick" },
+              ],
+              orderRole: "mode",
+              performanceReason:
+                "Choosing a tool only switches canvas pointer handling; the grid is not redrawn.",
+              performanceRole: "responsiveness",
+              target: muralTargets.paintTool,
+              type: "segmented",
+            },
+            paintColor: {
+              defaultValue: { hex: muralDefaults.paintColor },
+              label: "Color",
+              orderRole: "color",
+              performanceReason:
+                "The paint color applies on the next paint or fill interaction; changing it alone does not redraw the grid.",
+              performanceRole: "responsiveness",
+              target: muralTargets.paintColor,
+              type: "color",
+            },
+            paintActions: {
+              actions: [
+                { label: "Fill selected", value: "fill-selected" },
+                { label: "Clear painted", value: "clear-painted" },
+              ],
+              label: "Painted tiles",
+              orderRole: "action",
+              performanceReason:
+                "Fill and clear rewrite the override map once and trigger a single grid redraw.",
+              performanceRole: "responsiveness",
+              target: muralTargets.paintActions,
+              type: "actions",
             },
           },
         },
