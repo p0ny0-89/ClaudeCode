@@ -59,12 +59,13 @@ export const appSchema = defineToolcraft({
             artworkPreviewMode: {
               defaultValue: muralDefaults.previewMode,
               description:
-                "Artwork shows the sampled image mapped to tile cells, Grid shows the bare tile layout, Mural shows the generated tile modules.",
+                "Artwork maps the sampled image to tile cells, Grid shows the bare tile layout, Mural shows the generated tile modules, Labels overlays each tile's install coordinate (A3) for fabrication.",
               label: "View",
               options: [
                 { label: "Artwork", value: "artwork" },
                 { label: "Grid", value: "grid" },
                 { label: "Mural", value: "mural" },
+                { label: "Labels", value: "labels" },
               ],
               orderRole: "mode",
               performanceReason:
@@ -376,52 +377,6 @@ export const appSchema = defineToolcraft({
           },
         },
         {
-          title: "Tile Painting",
-          controls: {
-            paintTool: {
-              defaultValue: muralDefaults.paintTool,
-              description:
-                "Pan keeps normal canvas dragging; Select marquee-selects tiles (Shift adds, Ctrl removes); Paint fills clicked tiles with the paint color; Pick samples a tile's color into the paint color.",
-              label: "Tool",
-              options: [
-                { label: "Pan", value: "pan" },
-                { label: "Select", value: "select" },
-                { label: "Paint", value: "paint" },
-                { label: "Pick", value: "pick" },
-              ],
-              orderRole: "mode",
-              performanceReason:
-                "Choosing a tool only switches canvas pointer handling; the grid is not redrawn.",
-              performanceRole: "responsiveness",
-              target: muralTargets.paintTool,
-              type: "segmented",
-            },
-            paintColor: {
-              defaultValue: { hex: muralDefaults.paintColor },
-              label: "Color",
-              orderRole: "color",
-              performanceReason:
-                "The paint color applies on the next paint or fill interaction; changing it alone does not redraw the grid.",
-              performanceRole: "responsiveness",
-              target: muralTargets.paintColor,
-              type: "color",
-            },
-            paintActions: {
-              actions: [
-                { label: "Fill selected", value: "fill-selected" },
-                { label: "Clear painted", value: "clear-painted" },
-              ],
-              label: "Painted tiles",
-              orderRole: "action",
-              performanceReason:
-                "Fill and clear rewrite the override map once and trigger a single grid redraw.",
-              performanceRole: "responsiveness",
-              target: muralTargets.paintActions,
-              type: "actions",
-            },
-          },
-        },
-        {
           title: "Tile Colors",
           controls: {
             baseColor: {
@@ -457,38 +412,6 @@ export const appSchema = defineToolcraft({
               type: "switch",
             },
           },
-        },
-        {
-          title: "Background",
-          controls: {
-            includeBackground: {
-              defaultValue: true,
-              label: "Include",
-              orderRole: "mode",
-              performanceReason:
-                "Toggling the background changes one fill in a single static redraw.",
-              performanceRole: "responsiveness",
-              target: muralTargets.includeBackground,
-              type: "switch",
-            },
-            background: {
-              defaultValue: { hex: muralDefaults.background },
-              label: false,
-              orderRole: "color",
-              performanceReason:
-                "Background color changes one fill style in a single static redraw.",
-              performanceRole: "responsiveness",
-              target: muralTargets.background,
-              type: "color",
-            },
-          },
-          layoutGroups: [
-            {
-              columns: 2,
-              controls: ["includeBackground", "background"],
-              layout: "inline",
-            },
-          ],
         },
         {
           title: "Image Export",

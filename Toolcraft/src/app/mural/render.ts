@@ -2,9 +2,11 @@ import type { MuralTilePlan } from "./generate";
 import {
   computeMuralCanvasLayout,
   getTilePixelOrigin,
+  type MuralCanvasLayout,
   type MuralGrid,
   type MuralLayoutRect,
 } from "./grid";
+import { getCellLabel } from "./labels";
 import type { MuralSettings } from "./mural-state";
 import { getTileCellKey } from "./overrides";
 import { drawTilePreset } from "./tile-presets";
@@ -19,28 +21,25 @@ export type DrawMuralOptions = {
   context: CanvasRenderingContext2D;
   grid: MuralGrid;
   height: number;
-  includeBackground: boolean;
   overlay?: MuralPreviewOverlay;
   plan: MuralTilePlan;
   settings: MuralSettings;
   width: number;
 };
 
+/** Backing pixels below which per-cell labels become unreadable and are skipped. */
+const MIN_LABEL_TILE_PIXELS = 30;
+
 /**
- * Draws the full mural into the given context at the given pixel size. Used
- * by both the live preview canvas and the PNG export canvas so preview and
- * export stay pixel-consistent.
+ * Draws the full mural into the given context at the given pixel size. The
+ * area around the wall is left transparent (there is no output background);
+ * used by both the live preview canvas and the PNG export canvas so preview
+ * and export stay pixel-consistent.
  */
 export function drawMural(options: DrawMuralOptions): void {
-  const { context, grid, height, includeBackground, overlay, plan, settings, width } =
-    options;
+  const { context, grid, height, plan, settings, width } = options;
 
   context.clearRect(0, 0, width, height);
-
-  if (includeBackground) {
-    context.fillStyle = settings.background;
-    context.fillRect(0, 0, width, height);
-  }
 
   const layout = computeMuralCanvasLayout(grid, width, height);
 
@@ -95,7 +94,67 @@ export function drawMural(options: DrawMuralOptions): void {
     });
   }
 
+  if (settings.previewMode === "labels") {
+    drawCellLabels(context, grid, layout, plan);
+  }
+
   drawPreviewOverlay(options);
+}
+
+/**
+ * Fabrication/install map: overlays each tile with its spreadsheet-style
+ * coordinate (A3) so a contractor knows which design goes in which cell.
+ */
+function drawCellLabels(
+  context: CanvasRenderingContext2D,
+  grid: MuralGrid,
+  layout: MuralCanvasLayout,
+  plan: MuralTilePlan,
+): void {
+  const minTilePixels = Math.min(layout.tilePixelWidth, layout.tilePixelHeight);
+  const labelsFit = minTilePixels >= MIN_LABEL_TILE_PIXELS;
+  const fontSize = Math.max(10, Math.min(48, minTilePixels * 0.34));
+
+  context.save();
+  context.strokeStyle = "rgba(0, 0, 0, 0.35)";
+  context.lineWidth = Math.max(1, minTilePixels * 0.02);
+  context.font = `600 ${fontSize}px "Inter Variable", sans-serif`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+
+  for (const cell of plan.cells) {
+    const origin = getTilePixelOrigin(grid, layout, cell.row, cell.column);
+
+    context.strokeRect(
+      origin.x,
+      origin.y,
+      layout.tilePixelWidth,
+      layout.tilePixelHeight,
+    );
+
+    if (!labelsFit) {
+      continue;
+    }
+
+    const label = getCellLabel(cell.row, cell.column);
+    const centerX = origin.x + layout.tilePixelWidth / 2;
+    const centerY = origin.y + layout.tilePixelHeight / 2;
+    const metrics = context.measureText(label);
+    const chipWidth = metrics.width + fontSize * 0.6;
+    const chipHeight = fontSize * 1.35;
+
+    context.fillStyle = "rgba(12, 12, 16, 0.72)";
+    context.fillRect(
+      centerX - chipWidth / 2,
+      centerY - chipHeight / 2,
+      chipWidth,
+      chipHeight,
+    );
+    context.fillStyle = "#F4EFE6";
+    context.fillText(label, centerX, centerY);
+  }
+
+  context.restore();
 }
 
 /** Selection highlights and the marquee rect; drawn over the preview only. */

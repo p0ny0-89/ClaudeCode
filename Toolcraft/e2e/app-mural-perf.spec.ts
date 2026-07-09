@@ -621,26 +621,6 @@ test("browser perf: accent color change stays within budget", async ({ page }) =
   );
 });
 
-test("browser perf: background color change stays within budget", async ({ page }) => {
-  await openMuralApp(page);
-
-  const before = await snapshotMural(page);
-  const result = await measureToolcraftInteraction(page, async () => {
-    const input = page.locator('input[aria-label="background hex"]').first();
-
-    await input.fill("7700FF");
-    await input.press("Enter");
-  });
-
-  await expect.poll(async () => snapshotMural(page)).not.toBe(before);
-  expect(await snapshotMural(page), "Product output must change after the measured interaction").not.toBe(before);
-  expectToolcraftScenarioPerformanceBudget(
-    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
-    appPerformance,
-    "background-color-change",
-  );
-});
-
 test("browser perf: source colors toggle stays within budget", async ({ page }) => {
   await openMuralApp(page);
   await uploadArtwork(page, makeArtworkSvg({ variant: "colorful" }));
@@ -658,25 +638,6 @@ test("browser perf: source colors toggle stays within budget", async ({ page }) 
     { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
     appPerformance,
     "source-colors-toggle",
-  );
-});
-
-test("browser perf: include background toggle stays within budget", async ({ page }) => {
-  await openMuralApp(page);
-
-  const before = await snapshotMural(page);
-  const result = await measureToolcraftInteraction(page, async () => {
-    const field = await getToolcraftFieldByLabel(page, "Include");
-
-    await field.getByRole("switch").first().click();
-  });
-
-  await expect.poll(async () => snapshotMural(page)).not.toBe(before);
-  expect(await snapshotMural(page), "Product output must change after the measured interaction").not.toBe(before);
-  expectToolcraftScenarioPerformanceBudget(
-    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
-    appPerformance,
-    "include-background-toggle",
   );
 });
 
@@ -798,23 +759,6 @@ test("browser perf: viewport stays stable during panel interactions", async ({ p
   );
 });
 
-async function paintToolPointAt(
-  page: Page,
-  offsetXRatio: number,
-  offsetYRatio: number,
-): Promise<{ x: number; y: number }> {
-  const canvas = page.locator("[data-toolcraft-product-output]").first();
-  const box = await canvas.boundingBox();
-
-  if (!box) {
-    throw new Error("Mural canvas is not visible.");
-  }
-
-  return {
-    x: box.x + box.width * offsetXRatio,
-    y: box.y + box.height * offsetYRatio,
-  };
-}
 
 test("browser perf: artwork size drag stays live within budget", async ({ page }) => {
   await openMuralApp(page);
@@ -920,68 +864,3 @@ test("browser perf: repeat spacing drag stays live within budget", async ({ page
   );
 });
 
-test("browser perf: paint tool change stays within budget", async ({ page }) => {
-  await openMuralApp(page);
-
-  const toolField = await getToolcraftFieldByLabel(page, "Tool");
-  const canvas = page.locator("[data-toolcraft-product-output]").first();
-
-  const result = await measureToolcraftInteraction(page, async () => {
-    await toolField.getByRole("button", { exact: true, name: "Paint" }).click();
-  });
-
-  await expect(canvas).toHaveCSS("cursor", "pointer");
-  expectToolcraftScenarioPerformanceBudget(
-    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
-    appPerformance,
-    "paint-tool-change",
-  );
-});
-
-test("browser perf: paint color change stays within budget", async ({ page }) => {
-  await openMuralApp(page);
-
-  const input = page.locator('input[aria-label="Color hex"]').first();
-  const result = await measureToolcraftInteraction(page, async () => {
-    await input.fill("22AA88");
-    await input.press("Enter");
-  });
-
-  await expect(input).toHaveValue("#22AA88");
-  expectToolcraftScenarioPerformanceBudget(
-    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
-    appPerformance,
-    "paint-color-change",
-  );
-});
-
-test("browser perf: paint actions stay within budget", async ({ page }) => {
-  await openMuralApp(page);
-
-  const toolField = await getToolcraftFieldByLabel(page, "Tool");
-
-  await toolField.getByRole("button", { exact: true, name: "Paint" }).click();
-
-  const point = await paintToolPointAt(page, 0.45, 0.45);
-
-  await page.mouse.move(point.x, point.y);
-  await page.mouse.down();
-  await page.mouse.move(point.x + 14, point.y + 10, { steps: 4 });
-  await page.mouse.up();
-
-  const before = await snapshotMural(page);
-  const result = await measureToolcraftInteraction(page, async () => {
-    await page.getByRole("button", { name: "Clear painted" }).click();
-  });
-
-  await expect.poll(async () => snapshotMural(page)).not.toBe(before);
-  expect(
-    await snapshotMural(page),
-    "Product output must change after the measured interaction",
-  ).not.toBe(before);
-  expectToolcraftScenarioPerformanceBudget(
-    { durationMs: result.durationMs, maxFrameGapMs: result.maxFrameGapMs },
-    appPerformance,
-    "paint-actions-run",
-  );
-});

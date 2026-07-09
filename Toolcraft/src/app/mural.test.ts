@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   createToolcraftState,
   getToolcraftImageExportSize,
-  shouldIncludeToolcraftPreviewBackground,
   toolcraftReducer,
 } from "@/toolcraft/runtime";
 import type { ToolcraftState } from "@/toolcraft/runtime";
@@ -44,6 +43,7 @@ import {
   getRepeatPeriodCells,
   type CellSampleGrid,
 } from "./mural/sampling";
+import { getCellLabel, getColumnLabel } from "./mural/labels";
 import { buildMuralTileSchedule } from "./mural/schedule";
 import { drawTilePreset, tilePresetIds } from "./mural/tile-presets";
 
@@ -59,8 +59,14 @@ type RecordedFill = {
 class FakeContext2D {
   fillStyle = "#000000";
   fills: RecordedFill[] = [];
+  font = "";
   imageSmoothingEnabled = true;
   imageSmoothingQuality = "high";
+  lineWidth = 1;
+  strokeStyle = "#000000";
+  texts: { text: string; x: number; y: number }[] = [];
+  textAlign = "left";
+  textBaseline = "alphabetic";
 
   beginPath(): void {}
   clearRect(): void {}
@@ -74,7 +80,17 @@ class FakeContext2D {
   rotate(): void {}
   save(): void {}
   scale(): void {}
+  setLineDash(): void {}
+  strokeRect(): void {}
   translate(): void {}
+
+  measureText(text: string): { width: number } {
+    return { width: text.length * 6 };
+  }
+
+  fillText(text: string, x: number, y: number): void {
+    this.texts.push({ text, x, y });
+  }
 
   fill(): void {
     this.fills.push({ color: String(this.fillStyle), kind: "path" });
@@ -110,7 +126,6 @@ const defaultGenerationSettings: MuralGenerationSettings = {
 function makeSettings(overrides: Partial<MuralSettings> = {}): MuralSettings {
   return {
     accentColor: muralDefaults.accentColor,
-    background: muralDefaults.background,
     baseColor: muralDefaults.baseColor,
     generation: { ...defaultGenerationSettings },
     groutColor: muralDefaults.groutColor,
@@ -560,7 +575,6 @@ describe("tile mural rendering", () => {
         context: asContext(fake),
         grid: smallGrid,
         height: 400,
-        includeBackground: true,
         plan,
         settings: makeSettings({ previewMode }),
         width: 400,
@@ -568,8 +582,8 @@ describe("tile mural rendering", () => {
       rendered[previewMode] = fake.fills;
     }
 
-    const gridColors = new Set(rendered.grid!.slice(2).map((fill) => fill.color));
-    const artworkColors = new Set(rendered.artwork!.slice(2).map((fill) => fill.color));
+    const gridColors = new Set(rendered.grid!.slice(1).map((fill) => fill.color));
+    const artworkColors = new Set(rendered.artwork!.slice(1).map((fill) => fill.color));
 
     expect(gridColors).toEqual(new Set([muralDefaults.baseColor]));
     expect(artworkColors).toContain("#000000");
@@ -587,7 +601,6 @@ describe("tile mural rendering", () => {
       context: asContext(fake),
       grid: smallGrid,
       height: 400,
-      includeBackground: false,
       plan,
       settings: makeSettings({ groutColor: "#123456" }),
       width: 400,
@@ -646,7 +659,6 @@ describe("tile mural rendering", () => {
       context: asContext(fake),
       grid: smallGrid,
       height: 400,
-      includeBackground: false,
       plan,
       settings: makeSettings({ useSourceColors: true }),
       width: 400,
@@ -658,54 +670,48 @@ describe("tile mural rendering", () => {
     expect(colors).not.toContain(muralDefaults.accentColor);
   });
 
-  it("background color fills behind the wall", () => {
-    const fake = new FakeContext2D();
-    const plan = generateMuralTilePlan(smallGrid, null, defaultGenerationSettings);
 
-    drawMural({
-      context: asContext(fake),
-      grid: smallGrid,
-      height: 300,
-      includeBackground: true,
-      plan,
-      settings: makeSettings({ background: "#ABCDEF" }),
-      width: 600,
-    });
+});
 
-    expect(fake.fills[0]).toMatchObject({
-      color: "#ABCDEF",
-      height: 300,
-      width: 600,
-      x: 0,
-      y: 0,
-    });
+describe("tile mural cell labels", () => {
+  it("columns become spreadsheet-style letters", () => {
+    expect(getColumnLabel(0)).toBe("A");
+    expect(getColumnLabel(25)).toBe("Z");
+    expect(getColumnLabel(26)).toBe("AA");
+    expect(getColumnLabel(27)).toBe("AB");
+    expect(getColumnLabel(51)).toBe("AZ");
+    expect(getColumnLabel(52)).toBe("BA");
+    expect(getCellLabel(2, 0)).toBe("A3");
+    expect(getCellLabel(0, 3)).toBe("D1");
   });
 
-  it("include background controls preview and png transparency", () => {
+  it("labels view overlays each cell's install coordinate", () => {
     const fake = new FakeContext2D();
     const plan = generateMuralTilePlan(smallGrid, null, defaultGenerationSettings);
 
     drawMural({
       context: asContext(fake),
       grid: smallGrid,
-      height: 300,
-      includeBackground: false,
+      height: 400,
       plan,
-      settings: makeSettings({ background: "#ABCDEF" }),
-      width: 600,
+      settings: makeSettings({ previewMode: "labels" }),
+      width: 400,
     });
 
-    expect(fake.fills.some((fill) => fill.color === "#ABCDEF")).toBe(false);
-    expect(
-      shouldIncludeToolcraftPreviewBackground({
-        state: makeFakeState({ "export.includeBackground": false }),
-      }),
-    ).toBe(false);
-    expect(
-      shouldIncludeToolcraftPreviewBackground({
-        state: makeFakeState({ "export.includeBackground": true }),
-      }),
-    ).toBe(true);
+    const labels = new Set(fake.texts.map((entry) => entry.text));
+
+    expect(labels).toContain("A1");
+    expect(labels).toContain("D4");
+    expect(labels.size).toBe(smallGrid.totalTiles);
+  });
+
+  it("tile schedule records install coordinates for every tile", () => {
+    const plan = generateMuralTilePlan(smallGrid, null, defaultGenerationSettings);
+    const schedule = buildMuralTileSchedule(smallGrid, plan, makeSettings());
+
+    expect(schedule.tiles[0]?.label).toBe("A1");
+    expect(schedule.tiles.at(-1)?.label).toBe("D4");
+    expect(schedule.tiles.every((tile) => /^[A-Z]+\d+$/.test(tile.label))).toBe(true);
   });
 });
 
@@ -733,7 +739,6 @@ describe("tile mural manual painting", () => {
       context: asContext(fake),
       grid: smallGrid,
       height: 400,
-      includeBackground: false,
       plan,
       settings: makeSettings(),
       width: 400,
@@ -941,7 +946,6 @@ describe("tile mural export", () => {
       context: asContext(fake),
       grid: smallGrid,
       height: 1080,
-      includeBackground: true,
       plan,
       settings,
       width: 1920,

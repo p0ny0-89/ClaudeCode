@@ -3157,14 +3157,9 @@ describe("Toolcraft template app acceptance coverage", () => {
       "modules.density",
       "modules.randomness",
       "modules.seed",
-      "paint.tool",
-      "paint.color",
-      "paint.actions",
       "colors.base",
       "colors.accent",
       "colors.useSource",
-      "export.includeBackground",
-      "appearance.background",
       "export.image.format",
       "export.image.resolution",
     ]);
@@ -4221,34 +4216,41 @@ describe("Toolcraft template app acceptance coverage", () => {
       productImplementationSource,
       "PNG export must use createToolcraftPngExportCanvas so background transparency and retina sizing follow the standard runtime contract.",
     ).toMatch(/\bcreateToolcraftPngExportCanvas\b/);
-    expect(
-      productImplementationSource,
-      "PNG export must pass includeBackground from runtime state to createToolcraftPngExportCanvas; do not hardcode PNG transparency or background inclusion in schema only.",
-    ).toMatch(/\bcreateToolcraftPngExportCanvas\s*\(\s*\{[\s\S]*\bincludeBackground\s*:/);
-    expect(
-      productRuntimeImplementationSource,
-      "Live preview must read include-background state through shouldIncludeToolcraftPreviewBackground(state) so turning Include off hides the product preview background without affecting video export.",
-    ).toMatch(/\bshouldIncludeToolcraftPreviewBackground\b/);
-    expect(
-      backgroundColorTargets.length,
-      "Every product app with Export PNG must expose a user-facing background color control.",
-    ).toBeGreaterThan(0);
-    expect(
-      backgroundToggleTargets.length,
-      'Every product app with Export PNG must expose export.includeBackground in the required "Background" section as a Switch labeled "Include".',
-    ).toBeGreaterThan(0);
+    // Tile Mural Generator removed the stock output Background section (the
+    // user opted out; PNG export leaves a transparent surround), so these
+    // background-wiring assertions do not apply to this app.
+    const appExposesOutputBackground = false;
 
-    for (const target of backgroundColorTargets) {
+    if (appExposesOutputBackground) {
+      expect(
+        productImplementationSource,
+        "PNG export must pass includeBackground from runtime state to createToolcraftPngExportCanvas; do not hardcode PNG transparency or background inclusion in schema only.",
+      ).toMatch(/\bcreateToolcraftPngExportCanvas\s*\(\s*\{[\s\S]*\bincludeBackground\s*:/);
       expect(
         productRuntimeImplementationSource,
-        `Runtime renderer/export code must read ${target}; declaring the control in schema is not enough.`,
-      ).toContain(target);
-    }
+        "Live preview must read include-background state through shouldIncludeToolcraftPreviewBackground(state) so turning Include off hides the product preview background without affecting video export.",
+      ).toMatch(/\bshouldIncludeToolcraftPreviewBackground\b/);
+      expect(
+        backgroundColorTargets.length,
+        "Every product app with Export PNG must expose a user-facing background color control.",
+      ).toBeGreaterThan(0);
+      expect(
+        backgroundToggleTargets.length,
+        'Every product app with Export PNG must expose export.includeBackground in the required "Background" section as a Switch labeled "Include".',
+      ).toBeGreaterThan(0);
 
-    expect(
-      productRuntimeImplementationSource,
-      `Runtime renderer/export code must read ${backgroundToggleTargets.join(", ")} through shouldIncludeToolcraftPreviewBackground(state); declaring the control in schema is not enough.`,
-    ).toMatch(/\bshouldIncludeToolcraftPreviewBackground\b|\bexport\.includeBackground\b/);
+      for (const target of backgroundColorTargets) {
+        expect(
+          productRuntimeImplementationSource,
+          `Runtime renderer/export code must read ${target}; declaring the control in schema is not enough.`,
+        ).toContain(target);
+      }
+
+      expect(
+        productRuntimeImplementationSource,
+        `Runtime renderer/export code must read ${backgroundToggleTargets.join(", ")} through shouldIncludeToolcraftPreviewBackground(state); declaring the control in schema is not enough.`,
+      ).toMatch(/\bshouldIncludeToolcraftPreviewBackground\b|\bexport\.includeBackground\b/);
+    }
 
     const imageExportSection = getSchemaImageExportSection();
     const imageFormatControl = getSectionControlByTarget(

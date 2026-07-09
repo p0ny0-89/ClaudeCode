@@ -1,6 +1,13 @@
 import { createToolcraftPngExportCanvas } from "@/toolcraft/runtime";
-import type { ToolcraftState } from "@/toolcraft/runtime";
+import type { ToolcraftCommand, ToolcraftState } from "@/toolcraft/runtime";
 import type { ToolcraftPanelActionContext } from "@/toolcraft/runtime/react";
+import type * as React from "react";
+
+/** The minimal runtime access the paint actions need, shared by the toolbar. */
+export type MuralPaintContext = {
+  dispatch: React.Dispatch<ToolcraftCommand>;
+  state: ToolcraftState;
+};
 
 import {
   sampleArtworkToCellGrid,
@@ -124,23 +131,20 @@ export async function exportMuralImage(
   reportProgress(0.35);
 
   const encoding = getMuralImageExportEncoding(state.values["export.image.format"]);
-  const includeBackgroundValue = state.values["export.includeBackground"];
-  const includeBackground = encoding.forcesBackground
-    ? true
-    : includeBackgroundValue !== false;
+  // There is no output background: PNG exports leave the area around the wall
+  // transparent. JPEG has no alpha channel, so it fills that surround with the
+  // grout color for a seamless edge instead.
+  const includeBackground = encoding.forcesBackground;
   const imageResolution = String(state.values["export.image.resolution"] ?? "4k");
 
   const canvas = createToolcraftPngExportCanvas({
-    background: settings.background,
+    background: settings.groutColor,
     includeBackground,
-    // drawMural clears the surface before painting, so it must draw the
-    // background itself instead of relying on the helper's pre-fill.
     render: ({ context, cssHeight, cssWidth }) => {
       drawMural({
         context,
         grid,
         height: cssHeight,
-        includeBackground,
         plan,
         settings,
         width: cssWidth,
@@ -180,9 +184,7 @@ export async function exportMuralSchedule(
 }
 
 /** Applies the paint color to every selected tile through the override map. */
-export async function fillSelectedTiles(
-  context: ToolcraftPanelActionContext,
-): Promise<void> {
+export async function fillSelectedTiles(context: MuralPaintContext): Promise<void> {
   const { dispatch, state } = context;
   const settings = parseMuralSettings(state.values);
 
@@ -206,7 +208,7 @@ export async function fillSelectedTiles(
   });
 }
 
-export function clearPaintedTiles(context: ToolcraftPanelActionContext): void {
+export function clearPaintedTiles(context: MuralPaintContext): void {
   const { dispatch, state } = context;
   const settings = parseMuralSettings(state.values);
 
@@ -238,13 +240,5 @@ export function handleMuralPanelAction(
 
   if (context.action.value === "export-json") {
     return exportMuralSchedule(context.state, context.reportProgress);
-  }
-
-  if (context.action.value === "fill-selected") {
-    return fillSelectedTiles(context);
-  }
-
-  if (context.action.value === "clear-painted") {
-    clearPaintedTiles(context);
   }
 }

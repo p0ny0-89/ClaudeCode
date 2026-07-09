@@ -23,10 +23,15 @@ import {
   type WallUnit,
 } from "./units";
 
-export type MuralPreviewMode = "artwork" | "grid" | "mural";
+export type MuralPreviewMode = "artwork" | "grid" | "labels" | "mural";
 
 export function isMuralPreviewMode(value: unknown): value is MuralPreviewMode {
-  return value === "artwork" || value === "grid" || value === "mural";
+  return (
+    value === "artwork" ||
+    value === "grid" ||
+    value === "labels" ||
+    value === "mural"
+  );
 }
 
 export type MuralPaintTool = "paint" | "pan" | "pick" | "select";
@@ -40,7 +45,6 @@ export const muralTargets = {
   artworkPadding: "artwork.padding",
   artworkScale: "artwork.scale",
   artworkSource: "artwork.source",
-  background: "appearance.background",
   baseColor: "colors.base",
   contrast: "mapping.contrast",
   density: "modules.density",
@@ -48,7 +52,6 @@ export const muralTargets = {
   groutSpacing: "tiles.grout",
   imageFormat: "export.image.format",
   imageResolution: "export.image.resolution",
-  includeBackground: "export.includeBackground",
   mappingMode: "mapping.mode",
   moduleMode: "modules.mode",
   paintActions: "paint.actions",
@@ -75,7 +78,6 @@ export const muralDefaults = {
   accentColor: "#D9482B",
   artworkPadding: 0,
   artworkScale: 100,
-  background: "#111114",
   baseColor: "#F4EFE6",
   contrast: 20,
   density: 50,
@@ -101,7 +103,6 @@ export const muralDefaults = {
 
 export type MuralSettings = {
   accentColor: string;
-  background: string;
   baseColor: string;
   generation: MuralGenerationSettings;
   groutColor: string;
@@ -184,7 +185,6 @@ export function parseMuralSettings(values: Record<string, unknown>): MuralSettin
 
   return {
     accentColor: parseHexColor(values[muralTargets.accentColor], muralDefaults.accentColor),
-    background: parseHexColor(values[muralTargets.background], muralDefaults.background),
     baseColor: parseHexColor(values[muralTargets.baseColor], muralDefaults.baseColor),
     generation: {
       contrast: parsePercent(values[muralTargets.contrast], muralDefaults.contrast),

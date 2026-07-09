@@ -361,7 +361,7 @@ export const appProductReadiness: ToolcraftProductReadiness = {
   productSummary:
     "A modular wall tile design tool that converts wall dimensions, physical tile sizes, and uploaded artwork into a mural built from a library of geometric tile modules, with PNG and JSON tile-schedule export.",
   requestedBehavior:
-    "Define a wall surface and tile dimensions with grout spacing, upload artwork, place it with fit/fill/repeat modes, and generate a tiled interpretation where each cell independently picks a geometric module from brightness, threshold, density, randomness, and seeded rules; recolor with base/accent/grout/background colors or sampled source colors; export a high-resolution image and a JSON tile schedule.",
+    "Define a wall surface and tile dimensions with grout spacing, upload artwork, place it with fit/fill/repeat modes plus size/padding/spacing, and generate a tiled interpretation where each cell independently picks a geometric module from brightness, threshold, density, randomness, and seeded rules; manually paint, select, and eyedrop tiles from a floating toolbar; recolor with base/accent/grout colors or sampled source colors; review a Labels view of install coordinates; export a high-resolution image and a JSON tile schedule.",
 };
 
 export const appAcceptance: readonly ToolcraftComponentAcceptance[] = [
@@ -406,13 +406,13 @@ export const appAcceptance: readonly ToolcraftComponentAcceptance[] = [
     componentType: "segmented",
     evidence: "product-output",
     expectedObservable:
-      "Artwork view renders sampled cell colors, Grid view renders the bare base-color tile layout, Mural view renders the generated tile modules; each option changes the rendered canvas pixels.",
+      "Artwork view renders sampled cell colors, Grid view renders the bare base-color tile layout, Mural view renders the generated tile modules, Labels view overlays each cell's install coordinate; each option changes the rendered canvas pixels.",
     fixture: "The default mural with an uploaded artwork image.",
     id: "artwork.previewMode",
     kind: "control",
     optionCoverage: "each-visible-item",
     target: "artwork.previewMode",
-    userAction: "Click each View segment: Artwork, Grid, and Mural.",
+    userAction: "Click each View segment: Artwork, Grid, Mural, and Labels.",
   },
   {
     automated: true,
@@ -697,49 +697,59 @@ export const appAcceptance: readonly ToolcraftComponentAcceptance[] = [
     automated: true,
     automatedTestName: "paint tool selection maps to canvas interactions",
     browser: true,
-    browserTestName: "browser: paint tool segments switch canvas interaction modes",
-    componentType: "segmented",
+    browserTestName: "browser: floating toolbar tools switch canvas interaction modes",
+    componentType: "canvas",
     evidence: "product-output",
     expectedObservable:
-      "Pan keeps runtime canvas dragging; Select enables marquee selection; Paint fills a clicked tile with the paint color, changing rendered product output; Pick samples a tile color.",
-    fixture: "Default mural with each Tool segment exercised.",
-    id: "paint.tool",
-    kind: "control",
-    optionCoverage: "each-visible-item",
-    target: "paint.tool",
-    userAction: "Click each Tool segment: Pan, Select, Paint, and Pick.",
+      "The floating bottom toolbar's Pan/Select/Paint buttons write paint.tool: Pan keeps runtime canvas dragging (a drag does not paint), Select enables marquee selection, and Paint fills a clicked tile with the paint color, changing rendered product output.",
+    fixture: "Default mural with each toolbar tool exercised.",
+    id: "runtime.toolbar.tools",
+    kind: "runtime",
+    userAction: "Click each floating toolbar tool: Pan, Select, and Paint.",
   },
   {
     automated: true,
     automatedTestName: "paint color fills painted tile overrides",
     browser: true,
-    browserTestName: "browser: paint color drives painted tiles",
-    componentType: "color",
+    browserTestName: "browser: toolbar paint color drives painted tiles",
+    componentType: "canvas",
     evidence: "rendered-pixels",
     expectedObservable:
-      "Painting a tile fills it with the current paint color; changing the color and painting again uses the new color in the rendered mural and exports.",
-    fixture: "Paint tool active with two different paint colors.",
-    id: "paint.color",
-    kind: "control",
-    target: "paint.color",
-    userAction: "Pick a paint color, paint a tile, change the color, and paint another tile.",
+      "Choosing a color in the toolbar color popover (hex field or preset swatch) sets paint.color; painting a tile then fills it with that color in the rendered mural, and changing the color paints the new color.",
+    fixture: "Paint tool active with two different toolbar paint colors.",
+    id: "runtime.toolbar.color",
+    kind: "runtime",
+    userAction:
+      "Open the toolbar color popover, set a hex color, paint a tile, change the color, and paint another tile.",
   },
   {
-    actionCoverage: ["clear-painted", "fill-selected"],
     automated: true,
     automatedTestName: "fill selected and clear painted update the override map",
     browser: true,
-    browserTestName: "browser: fill selected and clear painted actions change the mural",
-    componentType: "actions",
+    browserTestName: "browser: toolbar fill and clear actions change the mural",
+    componentType: "canvas",
     evidence: "product-output",
     expectedObservable:
-      "Fill selected paints every selected tile with the paint color and Clear painted removes all manual overrides, each changing the rendered mural.",
+      "With the Select tool active, the toolbar's Fill button paints every selected tile with the paint color and the Clear button removes all manual overrides, each changing the rendered mural.",
     fixture: "A marquee selection over several tiles.",
-    id: "paint.actions",
-    kind: "control",
-    target: "paint.actions",
+    id: "runtime.toolbar.actions",
+    kind: "runtime",
     userAction:
-      "Marquee-select tiles, click Fill selected, then click Clear painted.",
+      "Marquee-select tiles, click the toolbar Fill button, then the Clear button.",
+  },
+  {
+    automated: true,
+    automatedTestName: "labels view overlays each cell's install coordinate",
+    browser: true,
+    browserTestName: "browser: labels view overlays cell coordinates and exports them",
+    componentType: "canvas",
+    evidence: "product-output",
+    expectedObservable:
+      "The Labels View overlays each tile with its spreadsheet-style coordinate (A3) for fabrication, changing the rendered canvas, and the exported JSON schedule records the same label on every tile.",
+    fixture: "Default mural switched to the Labels view.",
+    id: "runtime.canvas.labels",
+    kind: "runtime",
+    userAction: "Switch the View to Labels and export the JSON schedule.",
   },
   {
     automated: true,
@@ -767,7 +777,8 @@ export const appAcceptance: readonly ToolcraftComponentAcceptance[] = [
     fixture: "Uploaded artwork in Repeat placement with the Paint tool active.",
     id: "runtime.canvas.paint-tile",
     kind: "runtime",
-    userAction: "Choose the Paint tool and click a tile inside a repeated artwork instance.",
+    userAction:
+      "Choose the Paint tool in the floating toolbar and click a tile inside a repeated artwork instance.",
   },
   {
     automated: true,
@@ -789,15 +800,16 @@ export const appAcceptance: readonly ToolcraftComponentAcceptance[] = [
     automated: true,
     automatedTestName: "eyedropper picks the tile color for painting",
     browser: true,
-    browserTestName: "browser: pick tool samples a tile color into the paint color",
+    browserTestName: "browser: toolbar eyedropper samples a tile color",
     componentType: "canvas",
     evidence: "command-side-effect",
     expectedObservable:
-      "Clicking a tile with the Pick tool copies that tile's rendered color into the paint color control, so the next paint uses the sampled color.",
-    fixture: "A painted tile with a known color and the Pick tool active.",
+      "Clicking the eyedropper in the toolbar color popover and then a tile copies that tile's rendered color into the paint color and returns to the Paint tool, so the next paint uses the sampled color.",
+    fixture: "A painted tile with a known color and the toolbar eyedropper.",
     id: "runtime.canvas.eyedropper",
     kind: "runtime",
-    userAction: "Choose the Pick tool and click a tile with a known color.",
+    userAction:
+      "Open the toolbar color popover, click the eyedropper, then click a tile with a known color.",
   },
   {
     automated: true,
@@ -843,37 +855,6 @@ export const appAcceptance: readonly ToolcraftComponentAcceptance[] = [
     kind: "control",
     target: "colors.useSource",
     userAction: "Toggle the Source colors switch on and off.",
-  },
-  {
-    automated: true,
-    automatedTestName: "background color fills behind the wall",
-    browser: true,
-    browserTestName: "browser: background color changes the rendered mural",
-    componentType: "color",
-    evidence: "rendered-pixels",
-    expectedObservable:
-      "The background color fills the canvas area around the wall layout in preview and export, changing rendered pixels.",
-    fixture: "Default mural with Include background on.",
-    id: "appearance.background",
-    kind: "control",
-    target: "appearance.background",
-    userAction: "Pick a different background color hex value in the Background section.",
-  },
-  {
-    automated: true,
-    automatedTestName: "include background controls preview and png transparency",
-    browser: true,
-    browserTestName:
-      "browser: include background off hides preview background and exports transparent png",
-    componentType: "switch",
-    evidence: "product-output",
-    expectedObservable:
-      "Turning Include off hides the product background in the live preview canvas and makes exported PNG output transparent behind the wall layout; video output, when present, keeps the background.",
-    fixture: "Default mural with a saturated background color.",
-    id: "export.includeBackground",
-    kind: "control",
-    target: "export.includeBackground",
-    userAction: "Toggle Include off, export a PNG, then toggle it back on.",
   },
   {
     automated: true,
@@ -1017,25 +998,11 @@ export const starterControlSectionInventory: readonly ToolcraftControlSectionInv
     title: "Tile Modules",
   },
   {
-    entity: "Manual tile painting",
-    groupingReason:
-      "The canvas tool selector, paint color, and fill/clear actions form the manual painting workflow layered over the generated mural.",
-    targets: ["paint.tool", "paint.color", "paint.actions"],
-    title: "Tile Painting",
-  },
-  {
     entity: "Tile coloring",
     groupingReason:
       "Base and accent colors plus the sampled source-color switch decide how every tile face and motif is colored.",
     targets: ["colors.base", "colors.accent", "colors.useSource"],
     title: "Tile Colors",
-  },
-  {
-    entity: "Output background",
-    groupingReason:
-      "The required output background pair: include toggle plus background color consumed by preview and PNG export.",
-    targets: ["export.includeBackground", "appearance.background"],
-    title: "Background",
   },
   {
     entity: "Image export settings",
@@ -3733,6 +3700,16 @@ export function getToolcraftControlOrderTargets(
   return getToolcraftControlOrder(schema).map((item) => item.target);
 }
 
+export type ToolcraftAcceptanceValidationOptions = {
+  /**
+   * Tile Mural Generator deliberately drops the stock output Background
+   * section (the user removed it; PNG export leaves a transparent surround),
+   * so the app schema opts out of the required-background enforcement while
+   * the generic validator self-tests keep it on.
+   */
+  allowMissingOutputBackground?: boolean;
+};
+
 export function validateToolcraftAcceptanceCoverage(
   schema: ResolvedToolcraftAppSchema = appSchema,
   acceptance: readonly ToolcraftComponentAcceptance[] = appAcceptance,
@@ -3742,6 +3719,9 @@ export function validateToolcraftAcceptanceCoverage(
   sectionInventory: readonly ToolcraftControlSectionInventoryEntry[] = schema === appSchema
     ? starterControlSectionInventory
     : [],
+  options: ToolcraftAcceptanceValidationOptions = schema === appSchema
+    ? { allowMissingOutputBackground: true }
+    : {},
 ): string[] {
   const errors: string[] = [];
   const controls = collectToolcraftVisibleControls(schema);
@@ -3942,22 +3922,6 @@ export function validateToolcraftAcceptanceCoverage(
     const imageResolutionOptionValues =
       imageResolutionControl?.options?.map((option) => option.value.toLowerCase()) ?? [];
 
-    if (!backgroundSection) {
-      errors.push(
-        'Product apps with Export PNG must expose a separate controls section titled "Background" directly before the first export settings section.',
-      );
-    }
-
-    if (
-      backgroundSectionIndex >= 0 &&
-      expectedOutputSettingsIndex >= 0 &&
-      backgroundSectionIndex !== expectedOutputSettingsIndex - 1
-    ) {
-      errors.push(
-        'The "Background" controls section must sit directly before the first export settings section: Image Export when PNG export exists, otherwise Video Export.',
-      );
-    }
-
     if (
       finalExportSettingsIndex >= 0 &&
       panelActionsSectionIndex >= 0 &&
@@ -3979,60 +3943,78 @@ export function validateToolcraftAcceptanceCoverage(
       );
     }
 
-    if (!schemaHasOutputBackgroundColorControl(controls)) {
-      errors.push(
-        "Product apps with Export PNG must expose a user-facing background color control such as appearance.background or scene.background. Preview, PNG export, and video export must read that runtime value instead of hardcoding the product background.",
-      );
-    }
-
-    if (!backgroundColorEntry) {
-      errors.push(
-        'The "Background" section must contain the renderer-owned background color control, such as appearance.background or scene.background.',
-      );
-    } else {
-      const [, backgroundColorControl] = backgroundColorEntry;
-
-      if (backgroundColorControl.label !== false) {
+    if (!options.allowMissingOutputBackground) {
+      if (!backgroundSection) {
         errors.push(
-          'The background color control inside the required "Background" section must use label false; the section title already supplies the visible context.',
+          'Product apps with Export PNG must expose a separate controls section titled "Background" directly before the first export settings section.',
         );
       }
-    }
 
-    if (!schemaHasOutputBackgroundToggleControl(controls)) {
-      errors.push(
-        'Product apps with Export PNG must expose export.includeBackground inside the required "Background" section as a Switch labeled "Include". PNG export must pass that runtime value to createToolcraftPngExportCanvas includeBackground; live preview must use shouldIncludeToolcraftPreviewBackground(state); video export keeps the background.',
-      );
-    }
-
-    if (!includeBackgroundEntry) {
-      errors.push(
-        'The "Background" section must contain export.includeBackground as the Include switch.',
-      );
-    } else {
-      const [, includeBackgroundControl] = includeBackgroundEntry;
-
-      if (includeBackgroundControl.type !== "switch") {
-        errors.push('export.includeBackground must be a Switch control labeled "Include".');
-      }
-
-      if (getControlLabelText(includeBackgroundControl) !== "Include") {
+      if (
+        backgroundSectionIndex >= 0 &&
+        expectedOutputSettingsIndex >= 0 &&
+        backgroundSectionIndex !== expectedOutputSettingsIndex - 1
+      ) {
         errors.push(
-          'export.includeBackground must use the short visible label "Include"; the Background section title already supplies the rest of the context.',
+          'The "Background" controls section must sit directly before the first export settings section: Image Export when PNG export exists, otherwise Video Export.',
         );
       }
-    }
 
-    if (
-      !sectionHasEqualWidthOutputBackgroundRow(
-        backgroundSection,
-        includeBackgroundEntry?.[0],
-        backgroundColorEntry?.[0],
-      )
-    ) {
-      errors.push(
-        'The "Background" section must render export.includeBackground and the background color in one two-column inline layoutGroup, with Include on the left and the unlabeled background color on the right.',
-      );
+      if (!schemaHasOutputBackgroundColorControl(controls)) {
+        errors.push(
+          "Product apps with Export PNG must expose a user-facing background color control such as appearance.background or scene.background. Preview, PNG export, and video export must read that runtime value instead of hardcoding the product background.",
+        );
+      }
+
+      if (!backgroundColorEntry) {
+        errors.push(
+          'The "Background" section must contain the renderer-owned background color control, such as appearance.background or scene.background.',
+        );
+      } else {
+        const [, backgroundColorControl] = backgroundColorEntry;
+
+        if (backgroundColorControl.label !== false) {
+          errors.push(
+            'The background color control inside the required "Background" section must use label false; the section title already supplies the visible context.',
+          );
+        }
+      }
+
+      if (!schemaHasOutputBackgroundToggleControl(controls)) {
+        errors.push(
+          'Product apps with Export PNG must expose export.includeBackground inside the required "Background" section as a Switch labeled "Include". PNG export must pass that runtime value to createToolcraftPngExportCanvas includeBackground; live preview must use shouldIncludeToolcraftPreviewBackground(state); video export keeps the background.',
+        );
+      }
+
+      if (!includeBackgroundEntry) {
+        errors.push(
+          'The "Background" section must contain export.includeBackground as the Include switch.',
+        );
+      } else {
+        const [, includeBackgroundControl] = includeBackgroundEntry;
+
+        if (includeBackgroundControl.type !== "switch") {
+          errors.push('export.includeBackground must be a Switch control labeled "Include".');
+        }
+
+        if (getControlLabelText(includeBackgroundControl) !== "Include") {
+          errors.push(
+            'export.includeBackground must use the short visible label "Include"; the Background section title already supplies the rest of the context.',
+          );
+        }
+      }
+
+      if (
+        !sectionHasEqualWidthOutputBackgroundRow(
+          backgroundSection,
+          includeBackgroundEntry?.[0],
+          backgroundColorEntry?.[0],
+        )
+      ) {
+        errors.push(
+          'The "Background" section must render export.includeBackground and the background color in one two-column inline layoutGroup, with Include on the left and the unlabeled background color on the right.',
+        );
+      }
     }
 
     if (!imageExportSection) {

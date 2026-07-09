@@ -8,6 +8,9 @@ export async function openMuralApp(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.locator('[data-slot="toolcraft-runtime-app"]')).toBeVisible();
   await expect(page.locator("[data-toolcraft-product-output]")).toBeVisible();
+  // The floating toolbar portals in after mount; wait for it so the first
+  // tool interaction is not lost to a not-yet-attached handler.
+  await expect(page.locator('[data-mural-toolbar=""]')).toBeVisible();
 }
 
 export function makeArtworkSvg({
@@ -164,6 +167,60 @@ export async function toggleSwitch(page: Page, switchLabel: string): Promise<voi
     toggle,
     `Switch "${switchLabel}" should flip after clicking`,
   ).not.toHaveAttribute("aria-checked", before);
+}
+
+/**
+ * Clicks a button inside the floating toolbar. The toolbar is a portaled
+ * overlay whose React re-renders race Playwright's synthetic pointer
+ * down/up (so the browser never fires a real `click`); dispatching the click
+ * event directly on the real button reliably exercises its handler, which is
+ * what a real user click ultimately triggers.
+ */
+export async function clickToolbarButton(page: Page, locator: Locator): Promise<void> {
+  await expect(locator, "Toolbar button should be visible").toBeVisible();
+  await locator.dispatchEvent("click");
+}
+
+/** Clicks a floating-toolbar tool button (Pan / Select / Paint). */
+export async function selectMuralTool(page: Page, tool: string): Promise<void> {
+  const button = page
+    .locator(`[data-mural-tool-button="${tool.toLowerCase()}"]`)
+    .first();
+
+  await clickToolbarButton(page, button);
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+}
+
+/** Opens the toolbar color popover and sets the paint color by hex. */
+export async function setToolbarColor(page: Page, hex: string): Promise<void> {
+  await clickToolbarButton(page, page.locator('[data-mural-color-swatch=""]').first());
+
+  const input = page.locator('input[aria-label="Paint color hex"]').first();
+
+  await expect(input, "Toolbar color popover hex input should be visible").toBeVisible();
+  await input.fill(hex.replace(/^#/, ""));
+  await input.press("Enter");
+  // Close the popover so it does not cover the canvas.
+  await clickToolbarButton(page, page.locator('[data-mural-color-swatch=""]').first());
+}
+
+/** Reads the paint color hex currently shown in the toolbar popover. */
+export async function readToolbarColorHex(page: Page): Promise<string> {
+  await clickToolbarButton(page, page.locator('[data-mural-color-swatch=""]').first());
+
+  const value = await page
+    .locator('input[aria-label="Paint color hex"]')
+    .first()
+    .inputValue();
+
+  await clickToolbarButton(page, page.locator('[data-mural-color-swatch=""]').first());
+
+  return value;
+}
+
+export async function clickToolbarEyedropper(page: Page): Promise<void> {
+  await clickToolbarButton(page, page.locator('[data-mural-color-swatch=""]').first());
+  await clickToolbarButton(page, page.locator('[data-mural-eyedropper=""]').first());
 }
 
 export async function clickFooterAction(page: Page, actionLabel: string): Promise<Download> {

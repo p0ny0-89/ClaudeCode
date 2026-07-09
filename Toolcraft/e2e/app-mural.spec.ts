@@ -3,16 +3,20 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   clickFooterAction,
   clickSegment,
+  clickToolbarButton,
+  clickToolbarEyedropper,
   isJpeg,
   makeArtworkSvg,
   openMuralApp,
   parsePngDimensions,
-  probeExportedImage,
   readDownloadBuffer,
+  readToolbarColorHex,
   scrollFieldIntoView,
+  selectMuralTool,
   selectToolcraftOption,
   setColorFieldHex,
   setSettingTextField,
+  setToolbarColor,
   toggleSwitch,
   uploadArtwork,
 } from "./mural-helpers";
@@ -135,15 +139,16 @@ test("browser: preview view toggles artwork grid and mural rendering", async ({ 
 
   const snapshots = new Set<string>();
 
-  for (const view of ["Artwork", "Grid", "Mural"]) {
+  for (const view of ["Artwork", "Grid", "Mural", "Labels"]) {
     await clickSegment(page, "View", view);
     await page.waitForTimeout(300);
     snapshots.add(await getToolcraftProductObservableSnapshot(page));
   }
 
-  expect(snapshots.size, "Artwork, Grid, and Mural views should render differently").toBe(
-    3,
-  );
+  expect(
+    snapshots.size,
+    "Artwork, Grid, Mural, and Labels views should render differently",
+  ).toBe(4);
 });
 
 test("browser: wall unit changes the exported schedule unit", async ({ page }) => {
@@ -424,57 +429,6 @@ test("browser: source colors switch recolors the mural from the artwork", async 
   await expectToolcraftProductObservableToChange(page, async () =>
     toggleSwitch(page, "Source colors"),
   );
-});
-
-test("browser: background color changes the rendered mural", async ({ page }) => {
-  await openMuralApp(page);
-
-  await expectToolcraftProductObservableToChange(page, async () =>
-    setColorFieldHex(page, "background", "#7700FF"),
-  );
-});
-
-test("browser: include background off hides preview background and exports transparent png", async ({
-  page,
-}) => {
-  await openMuralApp(page);
-  await selectToolcraftOption(page, "Resolution", "2K");
-
-  await expectToolcraftProductObservableToChange(
-    page,
-    async () => toggleSwitch(page, "Include"),
-    {
-      message:
-        "Turning Include off should hide the live preview product background.",
-    },
-  );
-
-  const transparentDownload = await clickFooterAction(page, "Export PNG");
-  const transparentBuffer = await readDownloadBuffer(transparentDownload);
-  const transparentProbe = await probeExportedImage(page, transparentBuffer, "image/png");
-
-  expect(
-    transparentProbe.cornerAlpha,
-    "PNG export with Include off should be transparent behind the wall",
-  ).toBe(0);
-
-  await expectToolcraftProductObservableToChange(
-    page,
-    async () => toggleSwitch(page, "Include"),
-    {
-      message:
-        "Turning Include back on should restore the preview background before exporting.",
-    },
-  );
-
-  const includedDownload = await clickFooterAction(page, "Export PNG");
-  const includedBuffer = await readDownloadBuffer(includedDownload);
-  const includedProbe = await probeExportedImage(page, includedBuffer, "image/png");
-
-  expect(
-    includedProbe.cornerAlpha,
-    "PNG export with Include on should paint the background",
-  ).toBe(255);
 });
 
 test("browser: image export format changes exported file type", async ({ page }) => {
@@ -792,70 +746,103 @@ test("browser: repeat spacing appears in repeat mode and respaces the mural", as
   ).toHaveCount(0);
 });
 
-test("browser: paint tool segments switch canvas interaction modes", async ({ page }) => {
+test("browser: floating toolbar tools switch canvas interaction modes", async ({
+  page,
+}) => {
   await openMuralApp(page);
-  await expectToolcraftSegmentedControlCellsPreservePadding(page, "Tool");
 
   const canvas = page.locator("[data-toolcraft-product-output]").first();
 
-  for (const tool of ["Select", "Paint", "Pick", "Pan"]) {
-    await clickSegment(page, "Tool", tool);
-  }
+  // Pan is the default tool: the renderer marks its active tool on the canvas.
+  await expect(
+    page.getByRole("button", { exact: true, name: "Pan" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(canvas).toHaveAttribute("data-mural-tool", "pan");
 
-  await clickSegment(page, "Tool", "Paint");
-  await expect(canvas).toHaveCSS("cursor", "pointer");
-
+  await selectMuralTool(page, "Paint");
+  await expect(canvas).toHaveAttribute("data-mural-tool", "paint");
   await expectToolcraftProductObservableToChange(
     page,
     async () => paintAtRatio(page, 0.4, 0.4),
     { message: "The Paint tool should fill a clicked tile." },
   );
 
-  await clickSegment(page, "Tool", "Pan");
-  await expect(canvas).not.toHaveCSS("cursor", "pointer");
+  await selectMuralTool(page, "Select");
+  await expect(canvas).toHaveAttribute("data-mural-tool", "select");
+
+  await selectMuralTool(page, "Pan");
+  await expect(canvas).toHaveAttribute("data-mural-tool", "pan");
 });
 
-test("browser: paint color drives painted tiles", async ({ page }) => {
+test("browser: toolbar paint color drives painted tiles", async ({ page }) => {
   await openMuralApp(page);
-  await clickSegment(page, "Tool", "Paint");
+  await selectMuralTool(page, "Paint");
 
-  await setColorFieldHex(page, "Color", "00FF66");
+  await setToolbarColor(page, "00FF66");
   await expectToolcraftProductObservableToChange(
     page,
     async () => paintAtRatio(page, 0.35, 0.35),
     { message: "Painting should apply the first paint color." },
   );
 
-  await setColorFieldHex(page, "Color", "3311FF");
+  await setToolbarColor(page, "3311FF");
   await expectToolcraftProductObservableToChange(
     page,
     async () => paintAtRatio(page, 0.6, 0.6),
     { message: "Painting should apply the updated paint color." },
   );
+
+  const download = await clickFooterAction(page, "Export JSON");
+  const schedule = JSON.parse((await readDownloadBuffer(download)).toString("utf8"));
+  const painted = schedule.tiles.filter((tile: { painted: boolean }) => tile.painted);
+
+  expect(
+    new Set(painted.map((tile: { accentColor: string }) => tile.accentColor)),
+  ).toEqual(new Set(["#00FF66", "#3311FF"]));
 });
 
-test("browser: fill selected and clear painted actions change the mural", async ({
+test("browser: toolbar fill and clear actions change the mural", async ({ page }) => {
+  await openMuralApp(page);
+  await selectMuralTool(page, "Select");
+
+  await dragMarquee(
+    page,
+    await getCanvasToolPoint(page, 0.3, 0.3),
+    await getCanvasToolPoint(page, 0.55, 0.55),
+  );
+  await setToolbarColor(page, "FF8800");
+
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => clickToolbarButton(page, page.getByRole("button", { name: "Fill selected" })),
+    { message: "Toolbar Fill should paint every selected tile." },
+  );
+
+  await expectToolcraftProductObservableToChange(
+    page,
+    async () => clickToolbarButton(page, page.getByRole("button", { name: "Clear painted" })),
+    { message: "Toolbar Clear should remove all manual overrides." },
+  );
+});
+
+test("browser: labels view overlays cell coordinates and exports them", async ({
   page,
 }) => {
   await openMuralApp(page);
-  await clickSegment(page, "Tool", "Select");
-
-  const from = await getCanvasToolPoint(page, 0.3, 0.3);
-  const to = await getCanvasToolPoint(page, 0.55, 0.55);
-
-  await dragMarquee(page, from, to);
 
   await expectToolcraftProductObservableToChange(
     page,
-    async () => page.getByRole("button", { name: "Fill selected" }).click(),
-    { message: "Fill selected should paint every selected tile." },
+    async () => clickSegment(page, "View", "Labels"),
+    { message: "Labels view should overlay each cell's install coordinate." },
   );
 
-  await expectToolcraftProductObservableToChange(
-    page,
-    async () => page.getByRole("button", { name: "Clear painted" }).click(),
-    { message: "Clear painted should remove all manual overrides." },
-  );
+  const download = await clickFooterAction(page, "Export JSON");
+  const schedule = JSON.parse((await readDownloadBuffer(download)).toString("utf8"));
+
+  expect(schedule.tiles[0].label).toBe("A1");
+  expect(
+    schedule.tiles.every((tile: { label: string }) => /^[A-Z]+\d+$/.test(tile.label)),
+  ).toBe(true);
 });
 
 test("browser: middle mouse drag pans the canvas viewport", async ({ page }) => {
@@ -906,8 +893,8 @@ test("browser: paint tool paints a tile and repeats replicate it", async ({ page
   await openMuralApp(page);
   await uploadArtwork(page, makeArtworkSvg({ variant: "colorful" }));
   await clickSegment(page, "Placement", "Repeat");
-  await clickSegment(page, "Tool", "Paint");
-  await setColorFieldHex(page, "Color", "112299");
+  await selectMuralTool(page, "Paint");
+  await setToolbarColor(page, "112299");
 
   await expectToolcraftProductObservableToChange(
     page,
@@ -934,7 +921,7 @@ test("browser: marquee selection with shift and ctrl fills selected tiles", asyn
   page,
 }) => {
   await openMuralApp(page);
-  await clickSegment(page, "Tool", "Select");
+  await selectMuralTool(page, "Select");
 
   await dragMarquee(
     page,
@@ -954,10 +941,10 @@ test("browser: marquee selection with shift and ctrl fills selected tiles", asyn
     "Control",
   );
 
-  await setColorFieldHex(page, "Color", "FF3366");
+  await setToolbarColor(page, "FF3366");
   await expectToolcraftProductObservableToChange(
     page,
-    async () => page.getByRole("button", { name: "Fill selected" }).click(),
+    async () => clickToolbarButton(page, page.getByRole("button", { name: "Fill selected" })),
     { message: "Fill selected should paint the combined selection." },
   );
 
@@ -971,10 +958,10 @@ test("browser: marquee selection with shift and ctrl fills selected tiles", asyn
   ).toEqual(new Set(["#FF3366"]));
 });
 
-test("browser: pick tool samples a tile color into the paint color", async ({ page }) => {
+test("browser: toolbar eyedropper samples a tile color", async ({ page }) => {
   await openMuralApp(page);
-  await clickSegment(page, "Tool", "Paint");
-  await setColorFieldHex(page, "Color", "0A6B4F");
+  await selectMuralTool(page, "Paint");
+  await setToolbarColor(page, "0A6B4F");
 
   await expectToolcraftProductObservableToChange(
     page,
@@ -982,8 +969,8 @@ test("browser: pick tool samples a tile color into the paint color", async ({ pa
     { message: "Painting should place the known color." },
   );
 
-  await setColorFieldHex(page, "Color", "FFFFFF");
-  await clickSegment(page, "Tool", "Pick");
+  await setToolbarColor(page, "FFFFFF");
+  await clickToolbarEyedropper(page);
 
   const point = await getCanvasToolPoint(page, 0.5, 0.42);
 
@@ -992,9 +979,13 @@ test("browser: pick tool samples a tile color into the paint color", async ({ pa
   await page.mouse.up();
 
   await expect
-    .poll(
-      async () => page.locator('input[aria-label="Color hex"]').first().inputValue(),
-      { message: "Picking the painted tile should restore its color." },
-    )
+    .poll(async () => readToolbarColorHex(page), {
+      message: "Picking the painted tile should restore its color.",
+    })
     .toBe("#0A6B4F");
+
+  // After one pick the tool returns to Paint so the sampled color can be used.
+  await expect(
+    page.getByRole("button", { exact: true, name: "Paint" }),
+  ).toHaveAttribute("aria-pressed", "true");
 });

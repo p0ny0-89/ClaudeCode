@@ -1,5 +1,6 @@
 import type { MuralTilePlan } from "./generate";
 import type { MuralGrid } from "./grid";
+import { getCellLabel } from "./labels";
 import type { MuralSettings } from "./mural-state";
 import { getTilePreset } from "./tile-presets";
 import { wallUnitSuffixes } from "./units";
@@ -8,6 +9,8 @@ export type MuralTileScheduleEntry = {
   accentColor: string;
   baseColor: string;
   column: number;
+  /** Spreadsheet-style install coordinate, e.g. "A3". */
+  label: string;
   /** True when the tile color was manually painted or filled. */
   painted: boolean;
   preset: string;
@@ -64,6 +67,7 @@ export function buildMuralTileSchedule(
           : settings.accentColor),
       baseColor: cell.overrideHex ?? settings.baseColor,
       column: cell.column,
+      label: getCellLabel(cell.row, cell.column),
       painted: cell.overrideHex !== null,
       preset: cell.presetId,
       presetLabel: getTilePreset(cell.presetId).label,

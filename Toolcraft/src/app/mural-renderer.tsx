@@ -1,6 +1,5 @@
 import * as React from "react";
 
-import { shouldIncludeToolcraftPreviewBackground } from "@/toolcraft/runtime";
 import type {
   ToolcraftCommand,
   ToolcraftMediaAsset,
@@ -263,7 +262,6 @@ export function MuralRenderer(): React.JSX.Element {
   const canvasHeight = Math.max(1, Math.round(state.canvas.size.height));
   const backingWidth = Math.max(1, Math.round(canvasWidth * renderScale));
   const backingHeight = Math.max(1, Math.round(canvasHeight * renderScale));
-  const includeBackground = shouldIncludeToolcraftPreviewBackground({ state });
 
   const buildPlan = React.useCallback((): MuralTilePlan => {
     const cache = sampleCacheRef.current;
@@ -306,7 +304,6 @@ export function MuralRenderer(): React.JSX.Element {
         context,
         grid,
         height: backingHeight,
-        includeBackground,
         overlay: {
           marqueeRect,
           selectionKeys: new Set(settings.selection),
@@ -328,7 +325,6 @@ export function MuralRenderer(): React.JSX.Element {
     backingWidth,
     buildPlan,
     grid,
-    includeBackground,
     marqueeRect,
     sampleKey,
     sampleVersion,
@@ -402,6 +398,14 @@ export function MuralRenderer(): React.JSX.Element {
         target: muralTargets.paintColor,
         type: "controls.setValue",
         value: { hex: getCellPickColor(plan, grid, settings, cell.row, cell.column) },
+      });
+      // Eyedropper is one-shot: after sampling, switch to Paint so the user
+      // can immediately paint with the picked color.
+      dispatch({
+        history: "skip",
+        target: muralTargets.paintTool,
+        type: "controls.setValue",
+        value: "paint",
       });
     },
     [backingHeight, backingWidth, dispatch, grid, settings],

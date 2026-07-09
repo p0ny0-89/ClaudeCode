@@ -19,7 +19,6 @@ test("browser: mural app opens with the Toolcraft shell and product sections", a
     "Tile Mapping",
     "Tile Modules",
     "Tile Colors",
-    "Background",
     "Image Export",
   ]) {
     await expect(
